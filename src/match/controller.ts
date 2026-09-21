@@ -22,6 +22,27 @@ export interface EngineLike {
   dispose(): void
 }
 
+/** Where book moves come from (OpeningBook satisfies this structurally). */
+export interface BookSource {
+  continuations(epd: string): readonly string[]
+}
+
+/**
+ * Decide whether to play from the opening book, and which continuation.
+ * Randomness is drawn only when a book move is actually possible, so levels
+ * and positions without a book leave the blunder RNG sequence untouched.
+ */
+export function chooseBookMove(
+  continuations: readonly string[],
+  bookChance: number,
+  random: () => number,
+): string | null {
+  if (continuations.length === 0 || bookChance <= 0) return null
+  if (random() >= bookChance) return null
+  const index = Math.min(continuations.length - 1, Math.floor(random() * continuations.length))
+  return continuations[index] ?? null
+}
+
 const IDLE_CONFIG: MatchConfig = {
   white: { kind: 'human' },
   black: { kind: 'human' },
@@ -91,6 +112,8 @@ export class MatchController {
   private requestId = 0
   private listeners: Array<(s: MatchSnapshot) => void> = []
   private illegalEngineMoves = 0
+  /** The opening book, once loaded; null until then (engines just search). */
+  private book: BookSource | null = null
   /**
    * The requestId of the in-flight engine request issued by step(), or null
    * when no step is pending. Tying the flag to the request it belongs to
@@ -159,6 +182,26 @@ export class MatchController {
    */
   analyze(req: AnalysisRequest, signal?: AbortSignal): Promise<SearchOutcome> {
     return this.lane.analyze(req, signal)
+  }
+
+  /** The opening book loads asynchronously; until then (or without one) engines always search. */
+  setBook(book: BookSource | null): void {
+    this.book = book
+  }
+
+  /**
+   * The book's continuations from the LIVE position that game-core accepts
+   * as legal there. A malformed or wrong dataset entry is simply skipped:
+   * it must never reach Game.play(), where it would count as an illegal
+   * engine move (and, twice over, end the game with 'engine-error').
+   */
+  private legalBookMoves(): readonly string[] {
+    if (!this.book) return []
+    const position = this.livePosition()
+    const listed = this.book.continuations(position.epd())
+    if (listed.length === 0) return []
+    const legal = new Set(position.legalMoves().map((m) => `${m.from}${m.to}${m.promotion ?? ''}`))
+    return listed.filter((uci) => legal.has(uci))
   }
 
   private emit(): void {
@@ -281,6 +324,18 @@ export class MatchController {
     const profile = profileFor(level)
     const delay = this.config.engineDelayMs ?? 0
     try {
+      const inBook = profile.bookChance > 0 ? this.legalBookMoves() : []
+      const bookMove = chooseBookMove(inBook, profile.bookChance, this.random)
+      if (bookMove !== null) {
+        // No search, but still asynchronous: 'engine-thinking' is emitted
+        // first, the speed slider still paces zero-player games, and every
+        // invalidation path (a bumped requestId) drops it exactly as it
+        // drops a stale search reply.
+        await new Promise((r) => setTimeout(r, delay))
+        if (id !== this.requestId) return
+        this.applyEngineMove(bookMove, side, level, id)
+        return
+      }
       const multiPv = profile.blunderChance > 0 ? profile.blunderPool : 1
       // Always the LIVE position: the user may be browsing an earlier ply.
       // We pass a validated FEN: Stockfish 19 kills its own worker on bad input.

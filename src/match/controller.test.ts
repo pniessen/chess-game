@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
-import { MatchController, chooseEngineMove } from './controller'
+import { MatchController, chooseBookMove, chooseEngineMove } from './controller'
 import type { MatchConfig } from './types'
 import type { EngineInfo } from '../engine/uci'
 import { Game } from '../game-core/game'
@@ -960,5 +960,182 @@ describe('load(): starting from existing history (I6)', () => {
     expect(c.snapshot().game).not.toBe(SIX_PLIES)
     c.submitHumanMove({ from: 'b5', to: 'a4' })
     expect(SIX_PLIES.moves).toHaveLength(6)
+  })
+})
+
+describe('chooseBookMove', () => {
+  // RED if randomness is drawn before checking there is a book move to make
+  // (it would shift every later blunder draw at levels/positions with no book).
+  test('no continuations or no chance: null, and no randomness consumed', () => {
+    const random = vi.fn(() => 0)
+    expect(chooseBookMove([], 0.9, random)).toBeNull()
+    expect(chooseBookMove(['e2e4'], 0, random)).toBeNull()
+    expect(random).not.toHaveBeenCalled()
+  })
+  // RED if the comparison is `>` (0.9 would take the book) or the index is drawn anyway.
+  test('a draw at or above the chance declines the book (one draw only)', () => {
+    const random = vi.fn(() => 0.9)
+    expect(chooseBookMove(['e2e4', 'd2d4'], 0.9, random)).toBeNull()
+    expect(random).toHaveBeenCalledTimes(1)
+  })
+  // RED if the index reuses the first draw (0.1 -> index 0, 'e2e4') or is not floor(r * n).
+  // (The brief expected 'c2c4' for 0.75, but floor(0.75 * 4) = 3 is 'g1f3'; 0.6 gives index 2.)
+  test('otherwise a second draw picks uniformly among the continuations', () => {
+    const seq = [0.1, 0.6]
+    expect(chooseBookMove(['e2e4', 'd2d4', 'c2c4', 'g1f3'], 0.9, () => seq.shift() ?? 0)).toBe('c2c4')
+    expect(seq).toHaveLength(0)
+    expect(chooseBookMove(['e2e4', 'd2d4', 'c2c4', 'g1f3'], 0.9, () => 0.1)).toBe('e2e4')
+    const last = [0.1, 0.99]
+    expect(chooseBookMove(['e2e4', 'd2d4', 'c2c4', 'g1f3'], 0.9, () => last.shift() ?? 0)).toBe('g1f3')
+  })
+})
+
+describe('book moves in the controller', () => {
+  beforeEach(() => vi.useFakeTimers())
+  afterEach(() => vi.useRealTimers())
+
+  const START_EPD = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq -'
+  const AFTER_E4_EPD = 'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq -'
+  const book = {
+    continuations: (epd: string) =>
+      epd === AFTER_E4_EPD ? ['c7c5'] : epd === START_EPD ? ['d2d4'] : [],
+  }
+  const LEVEL_1_BLACK: MatchConfig = {
+    white: { kind: 'human' },
+    black: { kind: 'engine', level: 1 },
+    timeControl: { kind: 'untimed' },
+    engineDelayMs: 0,
+  }
+  const LEVEL_1_WHITE: MatchConfig = {
+    white: { kind: 'engine', level: 1 },
+    black: { kind: 'human' },
+    timeControl: { kind: 'untimed' },
+    engineDelayMs: 0,
+  }
+  const TWO_HUMANS: MatchConfig = {
+    white: { kind: 'human' },
+    black: { kind: 'human' },
+    timeControl: { kind: 'untimed' },
+  }
+
+  // RED if askEngine never consults the book (a search is issued), or if the
+  // book move is applied synchronously (the phase would already be awaiting-human).
+  test('an in-book position at a low level plays the book without searching', async () => {
+    const e = fakeEngine()
+    const seq = [0.1, 0]
+    const c = new MatchController({ engine: e.client, random: () => seq.shift() ?? 0.99 })
+    c.setBook(book)
+    c.start(LEVEL_1_BLACK)
+    c.submitHumanMove({ from: 'e2', to: 'e4' })
+    expect(c.snapshot().phase.kind).toBe('engine-thinking') // still asynchronous
+    await vi.advanceTimersByTimeAsync(0)
+    expect(c.snapshot().game.moves.map((m) => m.san)).toEqual(['e4', 'c5'])
+    expect(e.calls).toHaveLength(0)
+  })
+
+  // RED if a declined draw still plays the book (the answer would be c5, with no search).
+  test('a declined draw searches as usual', async () => {
+    const e = fakeEngine()
+    const seq = [0.95] // >= 0.9: no book; then 0.99s: no blunder
+    const c = new MatchController({ engine: e.client, random: () => seq.shift() ?? 0.99 })
+    c.setBook(book)
+    c.start(LEVEL_1_BLACK)
+    c.submitHumanMove({ from: 'e2', to: 'e4' })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(e.calls).toHaveLength(1)
+    e.calls[0]?.resolve('e7e5')
+    await vi.advanceTimersByTimeAsync(0)
+    expect(c.snapshot().game.moves.map((m) => m.san)).toEqual(['e4', 'e5'])
+  })
+
+  // RED if level 8 has a non-zero bookChance, or chooseBookMove draws before checking it.
+  test('level 8 never uses the book and draws no randomness for it', async () => {
+    const e = fakeEngine()
+    const random = vi.fn(() => 0)
+    const c = new MatchController({ engine: e.client, random })
+    c.setBook(book)
+    c.start({ ...LEVEL_1_BLACK, black: { kind: 'engine', level: 8 } })
+    c.submitHumanMove({ from: 'e2', to: 'e4' })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(e.calls).toHaveLength(1)
+    expect(random).not.toHaveBeenCalled()
+  })
+
+  // Ruling P3: the stale book move (d2d4 from the start position) is LEGAL in
+  // the new game, which also starts from the start position with White to
+  // move. RED if the `id !== this.requestId` check after the delay is removed:
+  // 1.d4 would be played into the new two-player game.
+  test('a book move pending behind the speed delay is dropped by a new game', async () => {
+    const e = fakeEngine()
+    const c = new MatchController({ engine: e.client, random: () => 0 })
+    c.setBook(book)
+    c.start({ ...LEVEL_1_WHITE, engineDelayMs: 500 })
+    expect(c.snapshot().phase.kind).toBe('engine-thinking')
+    c.start(TWO_HUMANS)
+    await vi.advanceTimersByTimeAsync(600)
+    expect(c.snapshot().game.moves).toHaveLength(0)
+    expect(c.snapshot().phase.kind).toBe('awaiting-human')
+    expect(e.calls).toHaveLength(0)
+  })
+
+  // RED if the staleness check is removed: c5 is legal in the paused position
+  // and would be played while paused.
+  test('a book move pending behind the speed delay is dropped by pause', async () => {
+    const e = fakeEngine()
+    const c = new MatchController({ engine: e.client, random: () => 0 })
+    c.setBook(book)
+    c.start({ ...LEVEL_1_BLACK, engineDelayMs: 500 })
+    c.submitHumanMove({ from: 'e2', to: 'e4' })
+    c.pause()
+    await vi.advanceTimersByTimeAsync(600)
+    expect(c.snapshot().game.moves.map((m) => m.san)).toEqual(['e4'])
+    expect(c.snapshot().phase.kind).toBe('paused')
+  })
+
+  // RED if the book move is applied without its request id (afterMove() would
+  // not recognise the step's completion and zero-player play would continue).
+  test('a step that resolves from the book plays one move and pauses again', async () => {
+    const e = fakeEngine()
+    const c = new MatchController({ engine: e.client, random: () => 0 })
+    c.setBook(book)
+    c.start(ZERO_PLAYER)
+    c.pause()
+    c.step()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(c.snapshot().game.moves.map((m) => m.san)).toEqual(['d4'])
+    expect(c.snapshot().phase.kind).toBe('paused')
+    expect(e.calls).toHaveLength(0)
+  })
+
+  // RED if continuations are not validated through game-core before choosing:
+  // the illegal e2e4 (Black to move) would go down the illegal-engine-move
+  // path twice and end the game with 'engine-error'.
+  test('an illegal dataset move never reaches the game: the engine searches instead', async () => {
+    const e = fakeEngine()
+    const random = vi.fn(() => 0.99)
+    const c = new MatchController({ engine: e.client, random })
+    c.setBook({ continuations: (epd) => (epd === AFTER_E4_EPD ? ['e2e4', 'e7e8q', 'zz'] : []) })
+    c.start(LEVEL_1_BLACK)
+    c.submitHumanMove({ from: 'e2', to: 'e4' })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(e.calls).toHaveLength(1)
+    e.calls[0]?.resolve('e7e5')
+    await vi.advanceTimersByTimeAsync(0)
+    expect(c.snapshot().game.moves.map((m) => m.san)).toEqual(['e4', 'e5'])
+    expect(c.snapshot().phase.kind).toBe('awaiting-human')
+    // No book draw was spent on a position with no legal continuation: only the blunder draw.
+    expect(random).toHaveBeenCalledTimes(1)
+  })
+
+  // RED if setBook(null) does not clear the book (e.g. `this.book ??= book`).
+  test('without a book (not loaded yet, failed, or cleared) the engine searches', async () => {
+    const e = fakeEngine()
+    const c = new MatchController({ engine: e.client, random: () => 0 })
+    c.setBook(book)
+    c.setBook(null)
+    c.start(LEVEL_1_BLACK)
+    c.submitHumanMove({ from: 'e2', to: 'e4' })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(e.calls).toHaveLength(1)
   })
 })

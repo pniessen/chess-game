@@ -53,4 +53,8 @@ describe('strength ladder', () => {
       if (p.blunderChance > 0) expect(p.blunderPool).toBeGreaterThan(1)
     }
   })
+
+  test('book preference: heavy at 1-3, even at 4-6, never at 7-8', () => {
+    expect(ALL.map((l) => profileFor(l).bookChance)).toEqual([0.9, 0.9, 0.9, 0.5, 0.5, 0.5, 0, 0])
+  })
 })
