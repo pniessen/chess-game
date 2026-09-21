@@ -98,3 +98,71 @@ describe('persistence', () => {
     expect(score.wins + score.losses + score.draws).toBe(1)
   })
 })
+
+describe('a finished game is never re-saved or re-scored (I4)', () => {
+  const total = () => {
+    const s = JSON.parse(localStorage.getItem('chess-game:score') ?? '{"wins":0,"losses":0,"draws":0}')
+    return s.wins + s.losses + s.draws
+  }
+
+  test('checkmate -> Undo -> Redo does not re-save the finished game as in progress', () => {
+    const { container, unmount } = render(<App />)
+    for (const [from, to] of SCHOLARS_MATE) {
+      clickSquare(container, from)
+      clickSquare(container, to)
+    }
+    expect(total()).toBe(1)
+    fireEvent.click(screen.getByTestId('undo'))
+    fireEvent.click(screen.getByTestId('redo'))
+    expect(screen.getByTestId('result')).toHaveTextContent('Checkmate')
+    expect(localStorage.getItem('chess-game:in-progress')).toBeNull()
+
+    // ...so a reload offers nothing to resume, and nothing can score it twice.
+    unmount()
+    render(<App />)
+    expect(screen.queryByTestId('resume-banner')).toBeNull()
+    expect(total()).toBe(1)
+  })
+
+  test('a finished game that was taken back is remembered as already scored', () => {
+    const { container } = render(<App />)
+    for (const [from, to] of SCHOLARS_MATE) {
+      clickSquare(container, from)
+      clickSquare(container, to)
+    }
+    fireEvent.click(screen.getByTestId('undo'))
+    const saved = JSON.parse(localStorage.getItem('chess-game:in-progress') ?? 'null')
+    expect(saved).toMatchObject({ scored: true })
+  })
+
+  test('importing an already-finished PGN adds nothing to the score', () => {
+    render(<App />)
+    fireEvent.change(screen.getByTestId('import-text'), {
+      target: { value: '1. e4 e5 2. Bc4 Nc6 3. Qh5 Nf6 4. Qxf7# 1-0' },
+    })
+    fireEvent.click(screen.getByTestId('import-submit'))
+    expect(screen.getByTestId('result')).toHaveTextContent('Checkmate')
+    expect(total()).toBe(0)
+  })
+
+  test('the saved record carries the seats and time control', () => {
+    const { container } = render(<App />)
+    clickSquare(container, 'e2')
+    clickSquare(container, 'e4')
+    const saved = JSON.parse(localStorage.getItem('chess-game:in-progress') ?? 'null')
+    expect(saved).toMatchObject({
+      v: 2,
+      setup: { white: { kind: 'human' }, black: { kind: 'human' }, timeControl: { kind: 'untimed' } },
+      scored: false,
+    })
+    expect(saved.pgn).toContain('e4')
+  })
+
+  test('an old-format (bare PGN string) save still resumes, as two-player, without crashing', () => {
+    localStorage.setItem('chess-game:in-progress', JSON.stringify('1. e4 e5 *'))
+    render(<App />)
+    fireEvent.click(screen.getByTestId('resume-accept'))
+    expect(screen.getByTestId('ply-count')).toHaveTextContent('2')
+    expect(screen.getByTestId('mode')).toHaveValue('two-player')
+  })
+})

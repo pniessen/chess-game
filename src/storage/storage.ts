@@ -1,3 +1,5 @@
+import type { TimeControl } from '../clock/types'
+
 export type Level = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8
 
 export interface Settings {
@@ -91,13 +93,88 @@ export function saveScore(s: MatchScore): void {
   writeJson(KEYS.score, s)
 }
 
-export function loadInProgress(): string | null {
-  const raw = readJson(KEYS.inProgress)
-  return typeof raw === 'string' ? raw : null
+/** A seat as persisted with an in-progress game. */
+export type StoredSeat = { kind: 'human' } | { kind: 'engine'; level: Level }
+
+/**
+ * How the in-progress game was being played, so a resume restores the
+ * ORIGINAL mode (a one-player game must not come back as two-player, where
+ * any decisive result would be scored as a "win").
+ */
+export interface StoredSetup {
+  white: StoredSeat
+  black: StoredSeat
+  timeControl: TimeControl
+  engineDelayMs?: number
 }
 
-export function saveInProgress(pgn: string): void {
-  writeJson(KEYS.inProgress, pgn)
+export interface InProgressGame {
+  pgn: string
+  /** Null when not recorded (an older save) or unreadable: resume as two-player. */
+  setup: StoredSetup | null
+  /** True once this game's result has already been counted on the scoreboard. */
+  scored: boolean
+}
+
+function isLevel(v: unknown): v is Level {
+  return typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= 8
+}
+
+function parseSeat(v: unknown): StoredSeat | null {
+  if (!isRecord(v)) return null
+  if (v['kind'] === 'human') return { kind: 'human' }
+  if (v['kind'] === 'engine' && isLevel(v['level'])) return { kind: 'engine', level: v['level'] }
+  return null
+}
+
+function parseTimeControl(v: unknown): TimeControl | null {
+  if (!isRecord(v)) return null
+  if (v['kind'] === 'untimed') return { kind: 'untimed' }
+  const initialMs = v['initialMs']
+  const incrementMs = v['incrementMs']
+  if (
+    v['kind'] === 'timed' &&
+    typeof initialMs === 'number' && Number.isFinite(initialMs) && initialMs > 0 &&
+    typeof incrementMs === 'number' && Number.isFinite(incrementMs) && incrementMs >= 0
+  ) {
+    return { kind: 'timed', initialMs, incrementMs }
+  }
+  return null
+}
+
+function parseSetup(v: unknown): StoredSetup | null {
+  if (!isRecord(v)) return null
+  const white = parseSeat(v['white'])
+  const black = parseSeat(v['black'])
+  const timeControl = parseTimeControl(v['timeControl'])
+  if (!white || !black || !timeControl) return null
+  const delay = v['engineDelayMs']
+  return typeof delay === 'number' && Number.isFinite(delay) && delay >= 0
+    ? { white, black, timeControl, engineDelayMs: delay }
+    : { white, black, timeControl }
+}
+
+/**
+ * The saved in-progress game, or null if there is none (or it is unusable).
+ *
+ * Two stored shapes are accepted: the current `{ v: 2, pgn, setup, scored }`
+ * record, and the original bare PGN string. The old shape (and any record
+ * whose setup doesn't validate) still resumes — with `setup: null`, which
+ * the app treats as a two-player game — rather than being lost or crashing.
+ */
+export function loadInProgress(): InProgressGame | null {
+  const raw = readJson(KEYS.inProgress)
+  if (typeof raw === 'string') return { pgn: raw, setup: null, scored: false }
+  if (!isRecord(raw) || typeof raw['pgn'] !== 'string') return null
+  return {
+    pgn: raw['pgn'],
+    setup: parseSetup(raw['setup']),
+    scored: raw['scored'] === true,
+  }
+}
+
+export function saveInProgress(game: InProgressGame): void {
+  writeJson(KEYS.inProgress, { v: 2, ...game })
 }
 
 export function clearInProgress(): void {

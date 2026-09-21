@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import {
-  DEFAULT_SETTINGS, loadScore, loadSettings, saveScore, saveSettings,
+  DEFAULT_SETTINGS, loadInProgress, loadScore, loadSettings, saveInProgress, saveScore, saveSettings,
 } from './storage'
 
 beforeEach(() => localStorage.clear())
@@ -43,5 +43,38 @@ describe('storage', () => {
     expect(loadScore()).toEqual({ wins: 0, losses: 0, draws: 0 })
     saveScore({ wins: 2, losses: 1, draws: 3 })
     expect(loadScore()).toEqual({ wins: 2, losses: 1, draws: 3 })
+  })
+})
+
+describe('in-progress game storage', () => {
+  const SETUP = {
+    white: { kind: 'human' },
+    black: { kind: 'engine', level: 2 },
+    timeControl: { kind: 'timed', initialMs: 180_000, incrementMs: 2_000 },
+  } as const
+
+  test('round-trips the PGN, the seat setup and the scored flag', () => {
+    saveInProgress({ pgn: '1. e4 *', setup: SETUP, scored: true })
+    expect(loadInProgress()).toEqual({ pgn: '1. e4 *', setup: SETUP, scored: true })
+  })
+
+  test('an old-format bare PGN string still loads, as a setup-less (two-player) game', () => {
+    localStorage.setItem('chess-game:in-progress', JSON.stringify('1. e4 e5 *'))
+    expect(loadInProgress()).toEqual({ pgn: '1. e4 e5 *', setup: null, scored: false })
+  })
+
+  test('a malformed setup degrades to setup: null instead of crashing', () => {
+    localStorage.setItem(
+      'chess-game:in-progress',
+      JSON.stringify({ v: 2, pgn: '1. e4 *', setup: { white: { kind: 'engine', level: 42 } }, scored: 'yes' }),
+    )
+    expect(loadInProgress()).toEqual({ pgn: '1. e4 *', setup: null, scored: false })
+  })
+
+  test('garbage loads as no game at all', () => {
+    localStorage.setItem('chess-game:in-progress', '{not json')
+    expect(loadInProgress()).toBeNull()
+    localStorage.setItem('chess-game:in-progress', JSON.stringify({ nope: 1 }))
+    expect(loadInProgress()).toBeNull()
   })
 })

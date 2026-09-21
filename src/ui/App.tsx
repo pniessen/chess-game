@@ -23,6 +23,7 @@ import {
 } from '../storage/storage'
 import { TIME_CONTROLS } from '../clock/types'
 import { useMatch } from './useMatch'
+import { planResume, setupOf } from './resume'
 import { MoveList } from './panels/MoveList'
 import { Captured } from './panels/Captured'
 import { Clocks } from './panels/Clocks'
@@ -268,13 +269,24 @@ function AppInner({
   useEffect(() => {
     if (resumeChoice !== 'resolved') return
     if (snapshot.phase.kind === 'idle') return
-    if (game.moves.length > 0) {
-      saveInProgress(exportPgn(game))
-    } else {
+    // A finished game is never "in progress". Without this, Undo -> Redo
+    // back onto a checkmate re-saved the finished PGN (the scoring effect's
+    // clearInProgress() is skipped once the game is scored), and resuming it
+    // on reload scored the same game a second time.
+    if (snapshot.phase.kind === 'finished' || game.moves.length === 0) {
       clearInProgress()
+      return
     }
+    // The seats and time control go with the PGN, so a resume restores the
+    // ORIGINAL mode; `scored` stops a game that was finished, scored, then
+    // taken back and continued from being counted again after a reload.
+    saveInProgress({
+      pgn: exportPgn(game),
+      setup: setupOf(snapshot.config),
+      scored: scoredRef.current,
+    })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [game, game.moves.length, resumeChoice])
+  }, [game, game.moves.length, snapshot.phase.kind, resumeChoice])
 
   useEffect(() => {
     if (snapshot.phase.kind !== 'finished') return
@@ -337,25 +349,47 @@ function AppInner({
     setOrientation(mode === 'one-player' ? color : 'white')
   }
 
-  const handleImport = (imported: Game) => {
-    // load(), not start() + N x submitHumanMove(): replaying through the
-    // move path credited a clock increment per historical move and emitted
-    // once per move. load() rebuilds the history and starts the clock after.
-    controller.load(
-      { white: { kind: 'human' }, black: { kind: 'human' }, timeControl: timeControlFor(timeControlId) },
-      imported,
-    )
-    scoredRef.current = false
+  /**
+   * Start a match from existing history. load(), not start() + N x
+   * submitHumanMove(): replaying through the move path credited a clock
+   * increment per historical move and emitted once per move.
+   *
+   * `alreadyScored` is decided BEFORE load() runs, since load() may land
+   * straight in 'finished'. A history that is already finished is always
+   * treated as scored: the user never played that result here (or, for a
+   * resumed game, it was counted when it happened).
+   */
+  const loadMatch = (config: MatchConfig, history: Game, alreadyScored: boolean) => {
+    scoredRef.current = alreadyScored || history.status().kind !== 'in-progress'
+    controller.load(config, history)
     setCanRedo(false)
     setHintText('')
     setSelection({ kind: 'idle' })
+  }
+
+  const handleImport = (imported: Game) => {
+    loadMatch(
+      { white: { kind: 'human' }, black: { kind: 'human' }, timeControl: timeControlFor(timeControlId) },
+      imported,
+      false,
+    )
     setMode('two-player')
   }
 
   const handleResumeAccept = () => {
     if (!pendingResume) return
-    const result = importPgn(pendingResume)
-    if (result.ok) handleImport(result.game)
+    const result = importPgn(pendingResume.pgn)
+    if (result.ok) {
+      // Restore the ORIGINAL mode: a resumed one-player game must stay
+      // one-player (as two-player, a loss to the engine scored as a "win").
+      const plan = planResume(pendingResume.setup, engineAvailable, timeControlFor(timeControlId))
+      loadMatch(plan.config, result.game, pendingResume.scored || plan.degraded)
+      setMode(plan.mode)
+      if (plan.level !== null) setLevel(plan.level)
+      if (plan.humanColor !== null) setColor(plan.humanColor)
+      if (plan.timeControlId !== null) setTimeControlId(plan.timeControlId)
+      setOrientation(plan.humanColor ?? 'white')
+    }
     setResumeChoice('resolved')
   }
 
