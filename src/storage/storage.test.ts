@@ -114,6 +114,9 @@ describe('history', () => {
     const all = loadHistory()
     expect(all).toHaveLength(HISTORY_LIMIT)
     expect(all[0]?.id).toBe(`g${HISTORY_LIMIT + 4}`)
+    // The 5 OLDEST entries (g0..g4) were dropped: the last (oldest kept)
+    // entry is g5, the 6th-oldest id.
+    expect(all[HISTORY_LIMIT - 1]?.id).toBe('g5')
   })
 
   test('accuracy can be added later', () => {

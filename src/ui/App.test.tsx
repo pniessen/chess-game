@@ -203,6 +203,43 @@ describe('history (Task 13)', () => {
     expect(loadHistory()).toHaveLength(0)
   })
 
+  test('a degraded resume of an in-progress game gets exactly one history entry once it finishes live (Task 13 review round 1, Finding 3)', () => {
+    // A one-player setup (an engine seat) with only 1.e4 played — still
+    // IN-PROGRESS. jsdom has no real engine, so resuming this is a DEGRADED
+    // resume (planResume falls back to two-player, `degraded: true`), and
+    // `handleResumeAccept` passes `pendingResume.scored || plan.degraded` as
+    // `loadMatch`'s `alreadyScored` — true here even though `scored` itself
+    // is false. Before the fix, `recordedRef` was set from THAT (`scoredRef`)
+    // rather than from whether the loaded game was already finished, so this
+    // game's later live finish was silently never recorded.
+    const opening = gameFromSan(['e4'])
+    if (!opening.ok) throw new Error(opening.error)
+    localStorage.setItem(
+      'chess-game:in-progress',
+      JSON.stringify({
+        v: 2,
+        pgn: exportPgn(opening.game),
+        setup: { white: { kind: 'human' }, black: { kind: 'engine', level: 3 }, timeControl: { kind: 'untimed' } },
+        scored: false,
+      }),
+    )
+    const { container } = render(<App />)
+    expect(screen.getByTestId('resume-banner')).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('resume-accept'))
+    // The resumed game is still in progress: no history entry yet.
+    expect(loadHistory()).toHaveLength(0)
+
+    // Finish it live, playing out the rest of Scholar's Mate (both seats are
+    // human now: the degraded resume fell back to two-player).
+    for (const [from, to] of SCHOLARS_MATE.slice(1)) {
+      clickSquare(container, from)
+      clickSquare(container, to)
+    }
+    expect(screen.getByTestId('result')).toHaveTextContent(/checkmate/i)
+    expect(loadHistory()).toHaveLength(1)
+    expect(loadHistory()[0]).toMatchObject({ result: '1-0', termination: 'normal' })
+  })
+
   test('starting a new game after a finished one is recorded resets recording for the new game', () => {
     const { container } = render(<App />)
     for (const [from, to] of SCHOLARS_MATE) {

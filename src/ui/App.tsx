@@ -17,7 +17,7 @@ import { useHints, type HintAnalyze, type HintReasoner } from './hints/useHints'
 import { BoundedEvalCache, useEvaluation, type EvalAnalyze } from './useEvaluation'
 import { useOpeningBook } from './useOpeningBook'
 import type { OpeningEntry } from '../openings/book'
-import { gameIdOf } from './gameKey'
+import { gameIdOf, reviewKeyOf } from './gameKey'
 import {
   addHistoryEntry,
   clearInProgress,
@@ -301,18 +301,25 @@ function AppInner({
   const recordedRef = useRef(false)
   /**
    * The history entry the current match corresponds to, paired with the
-   * exact `Game` object it was recorded/reattached for.
+   * `reviewKeyOf` of the exact move list it was recorded/reattached for.
    *
-   * Required fix (Task 12 review, binding): a review's `onComplete` must
-   * never attach its accuracy to the wrong game. `useReview` already aborts
-   * (and masks) a review whose `gameKey` changed before it finished, but
-   * that alone doesn't prove `historyRef` itself still points at the entry
-   * for the CURRENT game — e.g. if some future change forgot to update this
-   * ref when the game changed. Pairing the id with the `Game` object
-   * (identity, not a derived string) and checking `rec.game === game` in
-   * `onComplete` below is a second, independent guard at the write site.
+   * Required fix (Task 13 review, round 1, Finding 1): pairing the id with
+   * the `Game` OBJECT (identity) is not enough, because `MatchController`
+   * mutates ONE `Game` in place across undo/redo/new moves (see
+   * controller.ts) — the object reference stays the same across an entirely
+   * different line of play. Concretely: finish game A (recorded) -> undo ->
+   * play a different line -> finish game B live, but `recordedRef` was
+   * (wrongly) already true so B is never recorded -> review B. With a
+   * `rec.game === game` check, that review's accuracy would land on A's
+   * entry even though A's PGN is a different game, because `game` is still
+   * the same object. Keying on `reviewKeyOf` (gameId + the move list, the
+   * same identity `useReview`'s own `gameKey` uses) instead of raw object
+   * identity distinguishes A's moves from B's even on the same `Game`
+   * instance. `useReview` already refuses to invoke `onComplete` at all once
+   * its `gameKey` has changed (see useReview.ts's `activeKeyRef`/cancel), so
+   * this is a second, independent check at the write site.
    */
-  const historyRef = useRef<{ id: string; game: Game } | null>(null)
+  const historyRef = useRef<{ id: string; key: string } | null>(null)
 
   // Stable, so the clock display's polling effect isn't torn down and
   // rebuilt on every App render.
@@ -363,7 +370,7 @@ function AppInner({
   )
   const finalOpeningName = finalOpening ? `${finalOpening.eco} ${finalOpening.name}` : null
   /** A review belongs to one game AND its exact move list (ruling P5); browsing leaves this unchanged. */
-  const reviewKey = `${gameIdOf(game)}|${liveSanKey}`
+  const reviewKey = reviewKeyOf(game)
 
   // ---- persistence --------------------------------------------------------
 
@@ -446,7 +453,7 @@ function AppInner({
     })
     if (!entry) return
     setHistory(addHistoryEntry(entry))
-    historyRef.current = { id: entry.id, game }
+    historyRef.current = { id: entry.id, key: reviewKeyOf(game) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [snapshot.phase])
 
@@ -480,9 +487,17 @@ function AppInner({
    */
   const loadMatch = (config: MatchConfig, history: Game, alreadyScored: boolean) => {
     scoredRef.current = alreadyScored || history.status().kind !== 'in-progress'
-    // A history that is already finished (an import, a resume, a replay) is
-    // never re-recorded: only a finish OBSERVED LIVE creates a history entry.
-    recordedRef.current = scoredRef.current
+    // Required fix (Task 13 review, round 1, Finding 3): recording is
+    // decoupled from scoring — it depends ONLY on whether the loaded game is
+    // already finished, never on `scoredRef`/`alreadyScored`. A resume passes
+    // `pendingResume.scored || plan.degraded` as `alreadyScored`, and a
+    // DEGRADED resume (an engine seat, but no engine today) of a game that is
+    // still IN-PROGRESS sets that to true even though nothing has been
+    // recorded yet; tying `recordedRef` to `scoredRef` as before meant that
+    // game's later live finish was silently never recorded. A history that
+    // is already finished (an import, a resume, a replay) is still never
+    // re-recorded: only a finish OBSERVED LIVE creates a history entry.
+    recordedRef.current = history.status().kind !== 'in-progress'
     historyRef.current = null
     controller.load(config, history)
     setCanRedo(false)
@@ -525,7 +540,7 @@ function AppInner({
     // its OWN new Game internally — not `parsed.game` — so the object this
     // review/accuracy guard must key on is read back from the controller,
     // not captured from `parsed`.
-    historyRef.current = { id: entry.id, game: controller.snapshot().game }
+    historyRef.current = { id: entry.id, key: reviewKeyOf(controller.snapshot().game) }
     if (parsed.game.status().kind === 'in-progress' && entry.termination !== 'normal') {
       const winner = entry.result === '1-0' ? 'w' : entry.result === '0-1' ? 'b' : null
       if (winner) controller.finishAs(entry.termination, winner)
@@ -662,21 +677,37 @@ function AppInner({
     summarize: summarizeReview,
     onEval: (fen, e) => evalCache.set(fen, e),
     // Write the review's accuracy onto the history entry it belongs to —
-    // but only if `historyRef` still points at THIS exact game (see the
-    // ref's doc comment above; required fix, Task 12 review, binding).
+    // but only if `historyRef` still points at THIS exact move list (see the
+    // ref's doc comment above; required fix, Task 13 review round 1, Finding
+    // 1, tightening the Task 12 "never attach a review to the wrong game"
+    // ruling from a `Game` object identity check to a `reviewKeyOf` check).
     // `useReview` already refuses to call this at all once its `gameKey`
     // has changed (see useReview.ts's `activeKeyRef`/cancel), so this is a
     // second, independent check at the write site.
     onComplete: (r) => {
       const rec = historyRef.current
-      if (rec && rec.game === game) setHistory(updateHistoryAccuracy(rec.id, r.accuracy))
+      if (rec && rec.key === reviewKey) setHistory(updateHistoryAccuracy(rec.id, r.accuracy))
     },
   })
   const reviewed = review.state.kind === 'done' ? review.state.review : null
   const marks = useMemo(() => (reviewed ? reviewMarks(reviewed) : undefined), [reviewed])
 
-  const handleReview = () =>
-    review.start({ startFen: game.startFen, moves: game.moves, finalStatus: game.status() })
+  // Required fix (Task 13 review, round 1, Finding 2): snapshot the moves and
+  // the final status TOGETHER, right here, rather than handing `review.start`
+  // the live `game.moves` array (the same mutable array `Game.undo()` pops —
+  // see run.ts's own copy-before-first-await comment for why that matters).
+  // `runReview` copies `opts.moves` again internally before its first
+  // `await`, which is harmless — but it only guards moves mutated WHILE the
+  // review is running. If `useReview.start` were ever changed to defer
+  // calling `runReview` (e.g. behind a microtask), the live array could be
+  // mutated in that gap before `runReview` ever sees it; taking the snapshot
+  // here, synchronously, at the moment the user asked for a review, is what
+  // actually guarantees moves and finalStatus describe the same position.
+  const handleReview = () => {
+    const moves = [...game.moves]
+    const finalStatus = game.status()
+    review.start({ startFen: game.startFen, moves, finalStatus })
+  }
 
   // ---- render -----------------------------------------------------------
 
