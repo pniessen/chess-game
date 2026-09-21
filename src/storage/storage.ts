@@ -252,7 +252,39 @@ export function loadHistory(): HistoryEntry[] {
   return raw['games'].map(parseHistoryEntry).filter((e): e is HistoryEntry => e !== null)
 }
 
+let warnedUnwritableHistory = false
+
+/**
+ * True when the history key is absent or holds a v1 record this build
+ * understands. Anything else (a newer version, unparseable JSON, a v1
+ * record without a games array) reads as empty but must NOT be replaced:
+ * it may be a newer build's data, and overwriting it would destroy every
+ * game in it. Warns once per session when it refuses.
+ */
+function historyWritable(): boolean {
+  let raw: string | null
+  try {
+    raw = localStorage.getItem(KEYS.history)
+  } catch {
+    return true // storage disabled: the write is a no-op anyway
+  }
+  if (raw === null) return true
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    parsed = undefined
+  }
+  if (isRecord(parsed) && parsed['v'] === 1 && Array.isArray(parsed['games'])) return true
+  if (!warnedUnwritableHistory) {
+    warnedUnwritableHistory = true
+    console.warn('game history is in an unrecognised format; leaving it untouched and not recording new games')
+  }
+  return false
+}
+
 function saveHistory(games: HistoryEntry[]): HistoryEntry[] {
+  if (!historyWritable()) return loadHistory()
   const capped = games.slice(0, HISTORY_LIMIT)
   writeJson(KEYS.history, { v: 1, games: capped })
   return capped

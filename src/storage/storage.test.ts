@@ -141,4 +141,43 @@ describe('history', () => {
     localStorage.setItem('chess-game:history', '{broken')
     expect(loadHistory()).toEqual([])
   })
+
+  describe('a stored history this build cannot read is never overwritten', () => {
+    // A fresh module per test: the "warn once" latch is module state.
+    async function freshStorage() {
+      vi.resetModules()
+      return import('./storage')
+    }
+
+    test.each([
+      ['an unknown version', JSON.stringify({ v: 2, games: [{ id: 'future', shape: 'new' }] })],
+      ['unparseable JSON', '{broken'],
+      ['a v1 record without a games array', JSON.stringify({ v: 1, games: 'nope' })],
+    ])('%s is preserved byte-for-byte, with one warning', async (_label, stored) => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      try {
+        const s = await freshStorage()
+        localStorage.setItem('chess-game:history', stored)
+        s.addHistoryEntry(entry('a'))
+        s.addHistoryEntry(entry('b'))
+        s.updateHistoryAccuracy('a', { w: 50, b: 50 })
+        expect(localStorage.getItem('chess-game:history')).toBe(stored)
+        expect(warn).toHaveBeenCalledTimes(1)
+      } finally {
+        warn.mockRestore()
+      }
+    })
+
+    test('a missing key still starts a fresh history, silently', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      try {
+        const s = await freshStorage()
+        s.addHistoryEntry(entry('a'))
+        expect(s.loadHistory().map((e) => e.id)).toEqual(['a'])
+        expect(warn).not.toHaveBeenCalled()
+      } finally {
+        warn.mockRestore()
+      }
+    })
+  })
 })
