@@ -450,7 +450,10 @@ function toPlayedMove(m: Move): PlayedMove {
     promotion: m.promotion,
     // chess.js isCapture() is FALSE for en passant — fix it here, once.
     isCapture: m.isCapture() || m.isEnPassant(),
-    isCastle: m.isCastle(),
+    // chess.js 1.4.0 documents an isCastle() in a doc comment but does NOT
+    // ship one — it is undefined at runtime. Compose it from the two that
+    // do exist.
+    isCastle: m.isKingsideCastle() || m.isQueensideCastle(),
     isEnPassant: m.isEnPassant(),
     fenAfter: m.after,
   }
