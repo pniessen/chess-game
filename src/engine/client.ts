@@ -57,13 +57,47 @@ export class EngineClient {
   private deadReason: string | null = null
 
   /**
-   * Number of upcoming `bestmove` lines that belong to a search we already
-   * gave up on (because a newer `search()` call superseded it and sent
-   * `stop`). Stockfish still replies to `stop` with exactly one `bestmove`
-   * for the search it was told to abandon, and that reply can arrive after
-   * we have already started the next search — see `search()`.
+   * True while we are unwinding a superseded search: we sent `stop` (and an
+   * `isready` right behind it) for the OLD search and are waiting for the
+   * MATCHING `readyok` before starting the new one.
+   *
+   * This replaces an earlier counter-based scheme that tried to predict how
+   * many `bestmove` replies a `stop` would produce. That assumption is
+   * false: `stop` immediately followed by `go` is a known UCI anti-pattern,
+   * and Stockfish may fold the abort into the new search and emit only ONE
+   * `bestmove` — the new search's real result — which the counter would
+   * then swallow as if it were the stale one, hanging the new promise
+   * forever. An isready/readyok barrier does not depend on that count:
+   * Stockfish processes commands strictly in order, so the `readyok` we
+   * queued right after `stop` is only sent once the engine has fully
+   * unwound the old search, however many (zero, one, or more) `bestmove`
+   * lines that produced along the way. Every `bestmove` and `info` line
+   * that arrives before that `readyok` is treated as belonging to the old
+   * search and discarded; the new `go` is only sent once it arrives.
    */
-  private staleBestMovesToIgnore = 0
+  private awaitingBarrier = false
+
+  /**
+   * The limits for a `search()` call that supersedes one already in flight,
+   * held back until `awaitingBarrier` clears. `null` whenever there is
+   * nothing queued (either no search is pending, or the pending search's
+   * `go` has already been sent to the engine).
+   */
+  private queuedLimits: SearchLimits | null = null
+
+  /**
+   * FIFO record of what each outstanding `isready` we've sent is FOR, so
+   * that when a `readyok` comes back we route it to the right place instead
+   * of guessing. This matters because `waitReady()`'s initial handshake and
+   * a supersede barrier both ride on `isready`/`readyok`, and Stockfish may
+   * not have answered the initial `isready` yet by the time a barrier opens
+   * (a caller can call `search()` before ever awaiting `waitReady()`).
+   * Since Stockfish answers commands strictly in the order it received
+   * them, popping this queue in order always matches the right `readyok`
+   * to the right purpose, regardless of which happens to arrive "first" in
+   * wall-clock time relative to some other outstanding request.
+   */
+  private readonly readyokQueue: Array<'handshake' | 'barrier' | 'other'> = []
 
   constructor(transport: EngineTransport) {
     this.transport = transport
@@ -79,6 +113,7 @@ export class EngineClient {
     this.transport.onMessage((line) => this.handle(line))
     this.transport.post('uci')
     this.transport.post('isready')
+    this.readyokQueue.push('handshake')
   }
 
   private handle(line: string): void {
@@ -87,9 +122,13 @@ export class EngineClient {
       // concrete cause (this is the "engine returned an illegal move" style
       // failure — the line itself carries Stockfish's own explanation), and
       // remember that the client is dead so every later call gets a
-      // clearly different "engine died" message instead of hanging.
+      // clearly different "engine died" message instead of hanging. No
+      // `readyok` will ever arrive again, so a barrier left outstanding
+      // must not keep anyone waiting on it.
       this.deadReason = line
-      this.staleBestMovesToIgnore = 0
+      this.awaitingBarrier = false
+      this.queuedLimits = null
+      this.readyokQueue.length = 0
       const p = this.pending
       this.pending = null
       p?.reject(new Error(`Stockfish crashed: ${line}`))
@@ -102,19 +141,39 @@ export class EngineClient {
     }
 
     if (line === 'readyok') {
-      this.resolveReady?.()
-      this.resolveReady = null
-      this.rejectReady = null
+      const kind = this.readyokQueue.shift()
+      if (kind === 'handshake') {
+        this.resolveReady?.()
+        this.resolveReady = null
+        this.rejectReady = null
+        return
+      }
+      if (kind === 'barrier') {
+        // The engine has now fully unwound the superseded search — any
+        // `bestmove`/`info` lines it still had in flight arrived before
+        // this line, per UCI's strict command ordering. Safe to start the
+        // queued search now, if the promise it belongs to hasn't itself
+        // been superseded away in the meantime.
+        this.awaitingBarrier = false
+        if (this.pending && this.queuedLimits !== null) {
+          const limits = this.queuedLimits
+          this.queuedLimits = null
+          this.sendGo(limits)
+        }
+        return
+      }
+      // 'other' (e.g. newGame()'s isready) or an unexpected extra readyok
+      // with nothing queued: nothing to route it to.
       return
     }
 
     const best = parseBestMove(line)
     if (best) {
-      if (this.staleBestMovesToIgnore > 0) {
-        // This bestmove answers a `stop` we sent for a search we already
-        // gave up on. It must not be allowed to resolve whatever search is
-        // pending now (that would silently hand back a stale move).
-        this.staleBestMovesToIgnore -= 1
+      if (this.awaitingBarrier) {
+        // A reply from the search we are unwinding behind the barrier.
+        // There may be zero, one, or several of these before the matching
+        // `readyok` — none of them may resolve `pending`, which by now
+        // belongs to the NEW search.
         return
       }
       const p = this.pending
@@ -123,10 +182,22 @@ export class EngineClient {
       return
     }
 
-    if (this.pending) {
+    if (this.pending && !this.awaitingBarrier) {
+      // Also gated on the barrier: `pending` is replaced synchronously the
+      // moment a new search() supersedes the old one, but the old search
+      // can still be emitting `info` lines for a bit afterwards. Without
+      // this guard those stale lines would land in the NEW search's
+      // `lines` array.
       const info = parseInfo(line)
       if (info) this.pending.lines.push(info)
     }
+  }
+
+  private sendGo(limits: SearchLimits): void {
+    this.transport.post(`setoption name MultiPV value ${Math.max(1, limits.multiPv)}`)
+    // Always pass an explicit limit: a bare `go` defaults to depth 245,
+    // which never terminates in practice.
+    this.transport.post(`go depth ${limits.depth} movetime ${limits.moveTimeMs}`)
   }
 
   /** Distinct from the crash-time message: this is for calls made *after* the engine is already known dead. */
@@ -155,6 +226,7 @@ export class EngineClient {
   newGame(): void {
     this.transport.post('ucinewgame')
     this.transport.post('isready')
+    this.readyokQueue.push('other')
   }
 
   /**
@@ -171,29 +243,39 @@ export class EngineClient {
     if (this.deadReason !== null) return Promise.reject(this.deadClientError())
 
     if (this.pending) {
-      // A search is already in flight. Settle it now — as "superseded" —
-      // rather than discarding its resolve/reject and leaving it pending
-      // forever, and tell the engine to abandon it so it stops burning CPU
-      // on a result nobody will read.
-      //
-      // Stockfish answers `stop` with exactly one `bestmove` for the search
-      // being abandoned, and that reply can arrive after `this.pending` has
-      // already been replaced by the new search below. `staleBestMovesToIgnore`
-      // tells `handle()` to swallow that one late `bestmove` instead of
-      // resolving the new promise with the old (wrong) move.
-      this.staleBestMovesToIgnore += 1
+      // A search is already in flight (or itself still queued behind an
+      // earlier barrier). Settle it now — as "superseded" — rather than
+      // discarding its resolve/reject and leaving it pending forever.
       const old = this.pending
       this.pending = null
       old.reject(new Error('search superseded by a newer search() call'))
-      this.transport.post('stop')
+
+      if (this.queuedLimits === null) {
+        // The old search's `go` was actually sent to the engine, so it is
+        // really searching right now and must be stopped. See the
+        // `awaitingBarrier` doc comment for why this is a barrier rather
+        // than a counted swallow: `stop` immediately followed by `go` is a
+        // known UCI anti-pattern, so we hold the new `go` back until the
+        // engine confirms (via `readyok`) that it has finished unwinding
+        // the old search.
+        this.transport.post('stop')
+        this.awaitingBarrier = true
+        this.transport.post('isready')
+        this.readyokQueue.push('barrier')
+      }
+      // else: the old search's `go` was never sent — it was itself still
+      // queued behind a barrier that is still outstanding. There is
+      // nothing new to stop, and that existing barrier's `readyok` will
+      // still unblock whichever search ends up queued when it arrives.
     }
 
     return new Promise<SearchResult>((resolve, reject) => {
       this.pending = { resolve, reject, lines: [] }
-      this.transport.post(`setoption name MultiPV value ${Math.max(1, limits.multiPv)}`)
-      // Always pass an explicit limit: a bare `go` defaults to depth 245,
-      // which never terminates in practice.
-      this.transport.post(`go depth ${limits.depth} movetime ${limits.moveTimeMs}`)
+      if (this.awaitingBarrier) {
+        this.queuedLimits = limits
+      } else {
+        this.sendGo(limits)
+      }
     })
   }
 
@@ -204,6 +286,9 @@ export class EngineClient {
   dispose(): void {
     this.pending?.reject(new Error('engine disposed'))
     this.pending = null
+    this.awaitingBarrier = false
+    this.queuedLimits = null
+    this.readyokQueue.length = 0
     this.transport.post('quit')
     this.transport.terminate()
   }
