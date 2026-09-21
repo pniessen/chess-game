@@ -70,14 +70,22 @@ describe('in-progress game storage', () => {
     timeControl: { kind: 'timed', initialMs: 180_000, incrementMs: 2_000 },
   } as const
 
-  test('round-trips the PGN, the seat setup and the scored flag', () => {
-    saveInProgress({ pgn: '1. e4 *', setup: SETUP, scored: true })
-    expect(loadInProgress()).toEqual({ pgn: '1. e4 *', setup: SETUP, scored: true })
+  test('round-trips the PGN, the seat setup and the scored and recorded flags', () => {
+    saveInProgress({ pgn: '1. e4 *', setup: SETUP, scored: true, recorded: true })
+    expect(loadInProgress()).toEqual({ pgn: '1. e4 *', setup: SETUP, scored: true, recorded: true })
+  })
+
+  test('a v2 save from before the recorded flag existed still loads, as not recorded', () => {
+    localStorage.setItem(
+      'chess-game:in-progress',
+      JSON.stringify({ v: 2, pgn: '1. e4 *', setup: SETUP, scored: true }),
+    )
+    expect(loadInProgress()).toEqual({ pgn: '1. e4 *', setup: SETUP, scored: true, recorded: false })
   })
 
   test('an old-format bare PGN string still loads, as a setup-less (two-player) game', () => {
     localStorage.setItem('chess-game:in-progress', JSON.stringify('1. e4 e5 *'))
-    expect(loadInProgress()).toEqual({ pgn: '1. e4 e5 *', setup: null, scored: false })
+    expect(loadInProgress()).toEqual({ pgn: '1. e4 e5 *', setup: null, scored: false, recorded: false })
   })
 
   test('a malformed setup degrades to setup: null instead of crashing', () => {
@@ -85,7 +93,7 @@ describe('in-progress game storage', () => {
       'chess-game:in-progress',
       JSON.stringify({ v: 2, pgn: '1. e4 *', setup: { white: { kind: 'engine', level: 42 } }, scored: 'yes' }),
     )
-    expect(loadInProgress()).toEqual({ pgn: '1. e4 *', setup: null, scored: false })
+    expect(loadInProgress()).toEqual({ pgn: '1. e4 *', setup: null, scored: false, recorded: false })
   })
 
   test('garbage loads as no game at all', () => {

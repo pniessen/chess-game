@@ -123,6 +123,12 @@ export interface InProgressGame {
   setup: StoredSetup | null
   /** True once this game's result has already been counted on the scoreboard. */
   scored: boolean
+  /**
+   * True once this game's finish has already been written to history (it
+   * was finished, then taken back). Absent in older saves: reads as false,
+   * and the app still treats an already-finished game as recorded.
+   */
+  recorded: boolean
 }
 
 function isLevel(v: unknown): v is Level {
@@ -166,19 +172,20 @@ function parseSetup(v: unknown): StoredSetup | null {
 /**
  * The saved in-progress game, or null if there is none (or it is unusable).
  *
- * Two stored shapes are accepted: the current `{ v: 2, pgn, setup, scored }`
+ * Two stored shapes are accepted: the current `{ v: 2, pgn, setup, scored, recorded }`
  * record, and the original bare PGN string. The old shape (and any record
  * whose setup doesn't validate) still resumes — with `setup: null`, which
  * the app treats as a two-player game — rather than being lost or crashing.
  */
 export function loadInProgress(): InProgressGame | null {
   const raw = readJson(KEYS.inProgress)
-  if (typeof raw === 'string') return { pgn: raw, setup: null, scored: false }
+  if (typeof raw === 'string') return { pgn: raw, setup: null, scored: false, recorded: false }
   if (!isRecord(raw) || typeof raw['pgn'] !== 'string') return null
   return {
     pgn: raw['pgn'],
     setup: parseSetup(raw['setup']),
     scored: raw['scored'] === true,
+    recorded: raw['recorded'] === true,
   }
 }
 

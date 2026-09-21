@@ -135,6 +135,28 @@ describe('a finished game is never re-saved or re-scored (I4)', () => {
     expect(saved).toMatchObject({ scored: true })
   })
 
+  test('finish -> take back -> reload -> resume -> finish again records no second history entry', () => {
+    const history = () => JSON.parse(localStorage.getItem('chess-game:history') ?? '{"games":[]}').games as unknown[]
+    const { container, unmount } = render(<App />)
+    for (const [from, to] of SCHOLARS_MATE) {
+      clickSquare(container, from)
+      clickSquare(container, to)
+    }
+    expect(history()).toHaveLength(1)
+    fireEvent.click(screen.getByTestId('undo'))
+    expect(JSON.parse(localStorage.getItem('chess-game:in-progress') ?? 'null')).toMatchObject({ recorded: true })
+
+    unmount()
+    const again = render(<App />)
+    fireEvent.click(screen.getByTestId('resume-accept'))
+    clickSquare(again.container, 'h5')
+    clickSquare(again.container, 'f7')
+    expect(screen.getByTestId('result')).toHaveTextContent('Checkmate')
+    // Same as without the reload: the finish was already recorded once.
+    expect(history()).toHaveLength(1)
+    expect(total()).toBe(1)
+  })
+
   test('importing an already-finished PGN adds nothing to the score', () => {
     render(<App />)
     fireEvent.change(screen.getByTestId('import-text'), {
@@ -154,6 +176,7 @@ describe('a finished game is never re-saved or re-scored (I4)', () => {
       v: 2,
       setup: { white: { kind: 'human' }, black: { kind: 'human' }, timeControl: { kind: 'untimed' } },
       scored: false,
+      recorded: false,
     })
     expect(saved.pgn).toContain('e4')
   })

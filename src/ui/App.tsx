@@ -418,11 +418,13 @@ function AppInner({
     }
     // The seats and time control go with the PGN, so a resume restores the
     // ORIGINAL mode; `scored` stops a game that was finished, scored, then
-    // taken back and continued from being counted again after a reload.
+    // taken back and continued from being counted again after a reload, and
+    // `recorded` does the same for its history entry.
     saveInProgress({
       pgn: exportPgn(game),
       setup: setupOf(snapshot.config),
       scored: scoredRef.current,
+      recorded: recordedRef.current,
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [game, game.moves.length, snapshot.phase.kind, resumeChoice])
@@ -516,7 +518,7 @@ function AppInner({
    * treated as scored: the user never played that result here (or, for a
    * resumed game, it was counted when it happened).
    */
-  const loadMatch = (config: MatchConfig, history: Game, alreadyScored: boolean) => {
+  const loadMatch = (config: MatchConfig, history: Game, alreadyScored: boolean, alreadyRecorded = false) => {
     scoredRef.current = alreadyScored || history.status().kind !== 'in-progress'
     // Required fix (Task 13 review, round 1, Finding 3): recording is
     // decoupled from scoring — it depends ONLY on whether the loaded game is
@@ -528,7 +530,10 @@ function AppInner({
     // game's later live finish was silently never recorded. A history that
     // is already finished (an import, a resume, a replay) is still never
     // re-recorded: only a finish OBSERVED LIVE creates a history entry.
-    recordedRef.current = history.status().kind !== 'in-progress'
+    // `alreadyRecorded` carries a resumed save's own flag (finished, recorded,
+    // taken back, reloaded): its next finish must not add a second entry,
+    // exactly as it wouldn't have without the reload.
+    recordedRef.current = alreadyRecorded || history.status().kind !== 'in-progress'
     historyRef.current = null
     controller.load(config, history)
     setCanRedo(false)
@@ -588,7 +593,7 @@ function AppInner({
       // Restore the ORIGINAL mode: a resumed one-player game must stay
       // one-player (as two-player, a loss to the engine scored as a "win").
       const plan = planResume(pendingResume.setup, engineAvailable, timeControlFor(timeControlId))
-      loadMatch(plan.config, result.game, pendingResume.scored || plan.degraded)
+      loadMatch(plan.config, result.game, pendingResume.scored || plan.degraded, pendingResume.recorded)
       setMode(plan.mode)
       if (plan.level !== null) setLevel(plan.level)
       if (plan.humanColor !== null) setColor(plan.humanColor)
