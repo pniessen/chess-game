@@ -40,8 +40,8 @@
 .coords-files { grid-area: files; flex-direction: row; padding-inline: 2px; }
 .coord-label { flex: 1; display: flex; align-items: center; justify-content: center; }
 .square { position: relative; display: flex; align-items: center; justify-content: center; }
-.square.light { background: #f0d9b5; }
-.square.dark  { background: #b58863; }
+.square.light { background: var(--sq-light, #f0d9b5); }
+.square.dark  { background: var(--sq-dark, #b58863); }
 .square.last-move { box-shadow: inset 0 0 0 100vmax rgba(255, 238, 88, 0.35); }
 .square.selected  { box-shadow: inset 0 0 0 100vmax rgba(90, 160, 255, 0.40); }
 .square.check     { box-shadow: inset 0 0 0 100vmax rgba(220, 60, 60, 0.45); }

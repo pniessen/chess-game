@@ -811,7 +811,7 @@ function AppInner({
       <div className="layout">
         <div className="left-column">
           <Clocks clock={snapshot.clock} readClock={readClock} orientation={orientation} />
-          <Captured moves={game.moves.slice(0, game.ply)} />
+          <Captured moves={game.moves.slice(0, game.ply)} pieceSet={settings.pieceSetId} />
           <Scoreboard score={score} />
         </div>
 
@@ -824,6 +824,8 @@ function AppInner({
               highlights={highlights}
               onSquareClick={onSquareClick}
               annotations={[...hints.annotations, ...reviewAnnotations(reviewed, game.ply)]}
+              theme={settings.themeId}
+              pieceSet={settings.pieceSetId}
             />
           </div>
           <span className="sr-only" data-testid="ply-count">
@@ -841,6 +843,7 @@ function AppInner({
                 apply(out.state, out.move)
               }}
               onCancel={() => setSelection({ kind: 'idle' })}
+              pieceSet={settings.pieceSetId}
             />
           ) : null}
           <Controls

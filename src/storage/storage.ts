@@ -8,6 +8,8 @@ export interface Settings {
   orientation: 'white' | 'black'
   soundEnabled: boolean
   themeId: string
+  /** Piece-set id (see ../ui/pieceSets.ts); defensive default is the current Rhosgfx set. */
+  pieceSetId: string
   showEval: boolean
 }
 
@@ -23,6 +25,7 @@ export const DEFAULT_SETTINGS: Settings = {
   orientation: 'white',
   soundEnabled: true,
   themeId: 'classic',
+  pieceSetId: 'rhosgfx',
   showEval: true,
 }
 
@@ -78,6 +81,8 @@ export function loadSettings(): Settings {
         ? raw['soundEnabled']
         : DEFAULT_SETTINGS.soundEnabled,
     themeId: typeof raw['themeId'] === 'string' ? raw['themeId'] : DEFAULT_SETTINGS.themeId,
+    pieceSetId:
+      typeof raw['pieceSetId'] === 'string' ? raw['pieceSetId'] : DEFAULT_SETTINGS.pieceSetId,
     showEval: typeof raw['showEval'] === 'boolean' ? raw['showEval'] : DEFAULT_SETTINGS.showEval,
   }
 }

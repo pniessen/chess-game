@@ -249,7 +249,16 @@ body {
 
 .captured-tray {
   min-height: 1.4em;
-  font-size: 1.2em;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1px;
+}
+
+.captured-piece {
+  display: inline-flex;
+  width: 1.4em;
+  height: 1.4em;
 }
 
 .material-balance {

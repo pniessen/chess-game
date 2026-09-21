@@ -1,3 +1,4 @@
+import type { CSSProperties } from 'react'
 import { useRef } from 'react'
 import { flushSync } from 'react-dom'
 import type { Position } from '../../game-core/position'
@@ -8,6 +9,7 @@ import { Piece } from './Piece'
 import { Square } from './Square'
 import { filesInOrder, ranksInOrder, squaresInOrder } from './squares'
 import { useDragMove } from './useDragMove'
+import { boardTheme } from '../themes'
 import './board.css'
 
 export interface Highlights {
@@ -26,6 +28,8 @@ export function Board({
   onPointerDown,
   dragging,
   annotations = [],
+  theme = 'classic',
+  pieceSet = 'rhosgfx',
 }: {
   position: Position
   orientation: 'white' | 'black'
@@ -37,6 +41,10 @@ export function Board({
   dragging?: SquareName | null
   /** Square highlights and arrows drawn above the pieces (hints, review). */
   annotations?: readonly Annotation[]
+  /** Board colour theme id (see themes.ts); unknown ids fall back to classic. */
+  theme?: string
+  /** Piece set id (see pieceSets.ts); unknown ids fall back to Rhosgfx. */
+  pieceSet?: string
 }) {
   // A real two-click sequence works because each click is its own React
   // event: App's onSquareClick closure re-created with fresh `selection`
@@ -92,7 +100,12 @@ export function Board({
   const captures = new Set(highlights.captures ?? [])
 
   return (
-    <div className={`board-frame ${orientation}`} data-testid="board-frame">
+    <div
+      className={`board-frame ${orientation}`}
+      data-testid="board-frame"
+      data-board-theme={boardTheme(theme).id}
+      style={{ '--sq-light': boardTheme(theme).light, '--sq-dark': boardTheme(theme).dark } as CSSProperties}
+    >
       {/* Coordinates live OUTSIDE the grid: they are page text, not square
           content, so they stay readable in every theme and never sit under a
           piece. aria-hidden because every square already has aria-label. */}
@@ -120,7 +133,7 @@ export function Board({
           const piece = pieces.get(name)
           return (
             <Square key={name} name={name} classes={classes} onClick={handleSquareClick}>
-              {piece ? <Piece color={piece.color} type={piece.type} /> : null}
+              {piece ? <Piece color={piece.color} type={piece.type} pieceSet={pieceSet} /> : null}
             </Square>
           )
         })}

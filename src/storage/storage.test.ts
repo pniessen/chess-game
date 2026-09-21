@@ -53,6 +53,14 @@ describe('storage', () => {
     saveSettings({ ...DEFAULT_SETTINGS, showEval: false })
     expect(loadSettings().showEval).toBe(false)
   })
+
+  test('pieceSetId defaults to rhosgfx, including for settings saved before it existed, and round-trips', () => {
+    expect(loadSettings().pieceSetId).toBe('rhosgfx')
+    localStorage.setItem('chess-game:settings', JSON.stringify({ level: 2 }))
+    expect(loadSettings().pieceSetId).toBe('rhosgfx')
+    saveSettings({ ...DEFAULT_SETTINGS, pieceSetId: 'cburnett' })
+    expect(loadSettings().pieceSetId).toBe('cburnett')
+  })
 })
 
 describe('in-progress game storage', () => {

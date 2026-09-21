@@ -1,4 +1,5 @@
 import type { Color, PieceSymbol } from '../../game-core/types'
+import { pieceImageSrc } from '../pieceSets'
 
 const CHOICES: Array<{ piece: PieceSymbol; label: string; letter: string }> = [
   { piece: 'q', label: 'Queen', letter: 'Q' },
@@ -11,10 +12,13 @@ export function Promotion({
   color,
   onChoose,
   onCancel,
+  pieceSet = 'rhosgfx',
 }: {
   color: Color
   onChoose: (piece: PieceSymbol) => void
   onCancel: () => void
+  /** Piece set id (see pieceSets.ts); unknown ids fall back to Rhosgfx. */
+  pieceSet?: string
 }) {
   return (
     <div className="promotion-backdrop" onClick={onCancel} role="presentation">
@@ -26,7 +30,7 @@ export function Promotion({
       >
         {CHOICES.map(({ piece, label, letter }) => (
           <button key={piece} aria-label={label} onClick={() => onChoose(piece)}>
-            <img src={`/pieces/${color}${letter}.svg`} alt="" />
+            <img src={pieceImageSrc(pieceSet, `${color}${letter}`)} alt="" />
           </button>
         ))}
       </div>

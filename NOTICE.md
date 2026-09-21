@@ -8,6 +8,50 @@ Source: https://rhosgfx.itch.io/vector-chess-pieces
 
 CC0 requires no attribution; this credit is given voluntarily.
 
+Chess piece artwork (second set): the **Cburnett** set by Colin M.L. Burnett,
+12 SVGs (king/queen/rook/bishop/knight/pawn x light/dark), vendored
+unmodified in `public/pieces/cburnett/`. Each file's Commons page states:
+"I, the copyright holder of this work, hereby publish it under the
+following licenses" and offers, as alternatives: the GNU Free Documentation
+License (v1.2 or later); Creative Commons Attribution-ShareAlike 3.0
+Unported; the GNU General Public License; and the BSD license (2-clause,
+"Copyright (c) The author. Redistribution and use in source and binary
+forms, with or without modification, are permitted provided that the
+following conditions are met: 1. Redistributions of source code must
+retain the above copyright notice, this list of conditions and the
+following disclaimer. 2. Redistributions in binary form must reproduce the
+above copyright notice, this list of conditions and the following
+disclaimer in the documentation and/or other materials provided with the
+distribution. 3. Neither the name of The author nor the names of its
+contributors may be used to endorse or promote products derived from this
+software without specific prior written permission. THIS SOFTWARE IS
+PROVIDED BY THE AUTHOR AND CONTRIBUTORS \"AS IS\" AND ANY EXPRESS OR
+IMPLIED WARRANTIES ... ARE DISCLAIMED."). We redistribute under this BSD
+license, as authorized by the Task 15 controller ruling (P1).
+
+Author: Colin M.L. Burnett ([User:Cburnett on Wikimedia
+Commons](https://commons.wikimedia.org/wiki/User:Cburnett)). Each SVG is
+credited on Commons as the author's "own work", dated 27 December 2006.
+
+Sources (Commons file pages, license verified on each on 2026-09-21, files
+fetched from the linked `upload.wikimedia.org` original):
+- King:   https://commons.wikimedia.org/wiki/File:Chess_klt45.svg (white),
+  https://commons.wikimedia.org/wiki/File:Chess_kdt45.svg (black)
+- Queen:  https://commons.wikimedia.org/wiki/File:Chess_qlt45.svg (white),
+  https://commons.wikimedia.org/wiki/File:Chess_qdt45.svg (black)
+- Rook:   https://commons.wikimedia.org/wiki/File:Chess_rlt45.svg (white),
+  https://commons.wikimedia.org/wiki/File:Chess_rdt45.svg (black)
+- Bishop: https://commons.wikimedia.org/wiki/File:Chess_blt45.svg (white),
+  https://commons.wikimedia.org/wiki/File:Chess_bdt45.svg (black)
+- Knight: https://commons.wikimedia.org/wiki/File:Chess_nlt45.svg (white),
+  https://commons.wikimedia.org/wiki/File:Chess_ndt45.svg (black)
+- Pawn:   https://commons.wikimedia.org/wiki/File:Chess_plt45.svg (white),
+  https://commons.wikimedia.org/wiki/File:Chess_pdt45.svg (black)
+
+Under the BSD license above: Copyright (c) Colin M.L. Burnett. Redistributed
+under the BSD license terms quoted above; this attribution is given to meet
+that license's attribution requirement.
+
 Opening names and lines: the **lichess-org/chess-openings** dataset
 (`a.tsv`–`e.tsv`, vendored unmodified in `data/openings/`), released under
 [CC0 1.0 Universal](https://creativecommons.org/publicdomain/zero/1.0/).
