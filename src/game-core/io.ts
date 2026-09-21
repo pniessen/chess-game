@@ -1,5 +1,6 @@
 import { Chess } from 'chess.js'
 import { Game } from './game'
+import { Position } from './position'
 import { STARTING_FEN } from './types'
 
 export interface PgnHeaders {
@@ -80,6 +81,28 @@ export function importPgn(
   } catch (err) {
     return { ok: false, error: (err as Error).message }
   }
+}
+
+/** A live game from a list of SAN moves (the explorer's "start from this opening"). */
+export function gameFromSan(
+  sans: readonly string[],
+  startFen: string = STARTING_FEN,
+): { ok: true; game: Game } | { ok: false; error: string } {
+  const start = Position.fromFen(startFen)
+  if (!start.ok) return { ok: false, error: start.error }
+  const probe = start.position
+  const game = new Game({ fen: startFen })
+  for (const san of sans) {
+    const r = probe.trySan(san)
+    if (!r.ok) return { ok: false, error: `Illegal move: ${san}` }
+    const played = game.play({
+      from: r.move.from,
+      to: r.move.to,
+      ...(r.move.promotion ? { promotion: r.move.promotion } : {}),
+    })
+    if (!played.ok) return { ok: false, error: `Illegal move: ${san}` }
+  }
+  return { ok: true, game }
 }
 
 export function importFen(

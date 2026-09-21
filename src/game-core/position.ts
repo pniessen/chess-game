@@ -48,6 +48,18 @@ export class Position {
     return this.chess.fen()
   }
 
+  /**
+   * The position as an EPD key: placement, side, castling, en passant.
+   * The en-passant square is kept only when an en-passant capture is
+   * actually legal, so two move orders reaching the same position always
+   * produce the same key, however chess.js chooses to print that field.
+   */
+  epd(): string {
+    const [placement, turn, castling, ep] = this.chess.fen().split(' ')
+    const epUsable = ep !== undefined && ep !== '-' && this.chess.moves({ verbose: true }).some((m) => m.isEnPassant())
+    return `${placement} ${turn} ${castling} ${epUsable ? ep : '-'}`
+  }
+
   turn(): Color {
     return this.chess.turn()
   }
@@ -99,6 +111,18 @@ export class Position {
         ...(intent.promotion ? { promotion: intent.promotion } : {}),
       })
       return { ok: true, move: toPlayedMove(m) }
+    } catch {
+      return { ok: false, reason: 'illegal' }
+    }
+  }
+
+  /** Apply a SAN move. Never throws: chess.js throws on illegal input, we return a value. */
+  trySan(san: string): MoveResult {
+    if (this.status().kind !== 'in-progress') {
+      return { ok: false, reason: 'game-over' }
+    }
+    try {
+      return { ok: true, move: toPlayedMove(this.chess.move(san)) }
     } catch {
       return { ok: false, reason: 'illegal' }
     }

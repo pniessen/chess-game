@@ -55,4 +55,16 @@ describe('Game', () => {
     expect(g.play({ from: 'c7', to: 'c5' }).ok).toBe(true)
     expect(g.moves.map((m) => m.san)).toEqual(['e4', 'c5'])
   })
+
+  test('epds lists the position after each ply up to the requested one', () => {
+    const g = new Game()
+    g.play({ from: 'e2', to: 'e4' })
+    g.play({ from: 'c7', to: 'c5' })
+    const epds = g.epds(2)
+    expect(epds).toHaveLength(3)
+    expect(epds[0]).toBe('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq -')
+    expect(epds[2]).toBe('rnbqkbnr/pp1ppppp/8/2p5/4P3/8/PPPP1PPP/RNBQKBNR w KQkq -')
+    expect(g.epds(99)).toHaveLength(3) // clamped to the live ply
+    expect(g.epds(0)).toHaveLength(1)
+  })
 })

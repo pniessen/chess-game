@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import { Game } from './game'
-import { exportPgn, importFen, importPgn } from './io'
+import { exportPgn, gameFromSan, importFen, importPgn } from './io'
 
 function playedGame(): Game {
   const g = new Game()
@@ -60,5 +60,19 @@ describe('FEN', () => {
 
   test('a FEN with too few ranks reports an error', () => {
     expect(importFen('8/8/8 w - - 0 1').ok).toBe(false)
+  })
+})
+
+describe('gameFromSan', () => {
+  test('builds a live game from SAN', () => {
+    const r = gameFromSan(['e4', 'c5', 'Nf3'])
+    expect(r.ok).toBe(true)
+    if (!r.ok) throw new Error('unreachable')
+    expect(r.game.moves.map((m) => m.san)).toEqual(['e4', 'c5', 'Nf3'])
+    expect(r.game.isViewingLive()).toBe(true)
+  })
+  test('names the first illegal move', () => {
+    const r = gameFromSan(['e4', 'e4'])
+    expect(r).toEqual({ ok: false, error: 'Illegal move: e4' })
   })
 })

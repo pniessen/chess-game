@@ -93,4 +93,11 @@ export class Game {
   status(): GameStatus {
     return this.positionAt(this.played.length).status()
   }
+
+  /** EPD keys after 0..upToPly moves (clamped to the live ply) — for opening lookup. */
+  epds(upToPly: number): string[] {
+    const n = Math.max(0, Math.min(upToPly, this.played.length))
+    const fens = [this.startFen, ...this.played.slice(0, n).map((m) => m.fenAfter)]
+    return fens.map((fen) => new Position(fen).epd())
+  }
 }

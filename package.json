@@ -15,6 +15,7 @@
     "typecheck": "tsc -b --noEmit && tsc -p tsconfig.node.json",
     "e2e": "playwright test",
     "server": "node --env-file-if-exists=.env --import tsx server/index.ts",
+    "openings": "tsx scripts/build-openings.ts",
     "start": "npm run build && npm run server",
     "postinstall": "node scripts/copy-engine.mjs"
   },
