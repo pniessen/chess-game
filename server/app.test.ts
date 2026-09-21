@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { mkdtempSync, writeFileSync } from 'node:fs'
-import type { Server } from 'node:http'
+import http, { type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -35,6 +35,37 @@ const post = (base: string, path: string, body: unknown, raw?: string) =>
     headers: { 'content-type': 'application/json' },
     body: raw ?? JSON.stringify(body),
   })
+
+// `fetch` treats Host as a forbidden header and silently sends the real
+// connection host instead, so a DNS-rebinding Host header can only be
+// simulated with a raw http.request (still hitting 127.0.0.1 — only the
+// header lies, exactly as a rebound domain would).
+function postWithHost(base: string, path: string, host: string, body: unknown): Promise<{ status: number; json: unknown }> {
+  const url = new URL(base + path)
+  const payload = JSON.stringify(body)
+  return new Promise((resolve, reject) => {
+    const req = http.request(
+      {
+        hostname: url.hostname,
+        port: url.port,
+        path: url.pathname,
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'content-length': Buffer.byteLength(payload), host },
+      },
+      (res) => {
+        const chunks: Buffer[] = []
+        res.on('data', (c) => chunks.push(c))
+        res.on('end', () => {
+          const text = Buffer.concat(chunks).toString('utf8')
+          resolve({ status: res.statusCode ?? 0, json: text ? JSON.parse(text) : undefined })
+        })
+      },
+    )
+    req.on('error', reject)
+    req.write(payload)
+    req.end()
+  })
+}
 
 const HINT = {
   fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
@@ -115,5 +146,49 @@ describe('coach server', () => {
     const page = await fetch(`${base}/`)
     expect(page.status).toBe(200)
     expect(await page.text()).toContain('<title>Chess</title>')
+  })
+
+  describe('Host header check (DNS rebinding)', () => {
+    test('an attacker-controlled Host is rejected before Claude is called, with no echo of it', async () => {
+      const f = fakeClaude({ ok: true, text: 'x' })
+      const base = await start(f.claude)
+      const res = await postWithHost(base, '/api/hint', 'attacker.example', HINT)
+      expect(res.status).toBe(403)
+      expect(res.json).toEqual({ error: { kind: 'bad-request', message: 'Forbidden host.' } })
+      expect(JSON.stringify(res.json)).not.toContain('attacker.example')
+      expect(f.calls).toHaveLength(0)
+    })
+
+    test('an attacker Host that embeds a real hostname (rebinding trick) is still rejected', async () => {
+      const f = fakeClaude({ ok: true, text: 'x' })
+      const base = await start(f.claude)
+      const res = await postWithHost(base, '/api/hint', 'localhost.attacker.example', HINT)
+      expect(res.status).toBe(403)
+      expect(f.calls).toHaveLength(0)
+    })
+
+    test('the direct Vite dev origin (localhost:5173) passes', async () => {
+      const f = fakeClaude({ ok: true, text: 'ok' })
+      const base = await start(f.claude)
+      const res = await postWithHost(base, '/api/hint', 'localhost:5173', HINT)
+      expect(res.status).toBe(200)
+      expect(res.json).toEqual({ text: 'ok' })
+    })
+
+    test('the proxied origin (127.0.0.1:8787, as sent when changeOrigin is set) passes', async () => {
+      const f = fakeClaude({ ok: true, text: 'ok' })
+      const base = await start(f.claude)
+      const res = await postWithHost(base, '/api/hint', '127.0.0.1:8787', HINT)
+      expect(res.status).toBe(200)
+      expect(res.json).toEqual({ text: 'ok' })
+    })
+
+    test('an IPv6 loopback Host passes', async () => {
+      const f = fakeClaude({ ok: true, text: 'ok' })
+      const base = await start(f.claude)
+      const res = await postWithHost(base, '/api/hint', '[::1]:8787', HINT)
+      expect(res.status).toBe(200)
+      expect(res.json).toEqual({ text: 'ok' })
+    })
   })
 })
