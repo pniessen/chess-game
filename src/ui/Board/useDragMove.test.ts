@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { exceedsDragThreshold, squareFromElement } from './useDragMove'
+import { exceedsDragThreshold, shouldSuppressClick, squareFromElement } from './useDragMove'
 
 describe('exceedsDragThreshold', () => {
   test('a tiny movement is a click, not a drag', () => {
@@ -34,5 +34,21 @@ describe('squareFromElement', () => {
   test('returns null outside the board', () => {
     expect(squareFromElement(document.createElement('div'))).toBeNull()
     expect(squareFromElement(null)).toBeNull()
+  })
+})
+
+// Finding 2: the trailing synthesized `click` is only ever hit-tested (and
+// so only ever fires) when the release point lands on a square — a release
+// off the board produces no click. `shouldSuppressClick` is the pure
+// decision `useDragMove` consults before setting the suppression flag, so
+// that flag can never be set true in a case where no click will arrive to
+// consume it (which is exactly how it used to get stranded).
+describe('shouldSuppressClick', () => {
+  test('suppresses when the release lands on a square', () => {
+    expect(shouldSuppressClick('e4')).toBe(true)
+  })
+
+  test('does not suppress when the release lands off the board', () => {
+    expect(shouldSuppressClick(null)).toBe(false)
   })
 })
