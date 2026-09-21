@@ -3,6 +3,7 @@ import { Game } from '../game-core/game'
 import { uciToIntent, type EngineInfo } from '../engine/uci'
 import type { Color, GameStatus, MoveIntent, MoveResult, PlayedMove } from '../game-core/types'
 import { profileFor, type StrengthProfile } from '../engine/strength'
+import { EngineLane, type AnalysisRequest, type SearchOutcome } from '../engine/lane'
 import type { Level } from '../storage/storage'
 import type { MatchConfig, MatchPhase, MatchSnapshot, Seat } from './types'
 import type { ClockState } from '../clock/types'
@@ -79,6 +80,8 @@ function winnerFor(status: GameStatus): Color | null {
 
 export class MatchController {
   private readonly engine: EngineLike
+  /** The ONLY path to the engine: moves pre-empt analysis, analysis waits for moves. */
+  private readonly lane: EngineLane
   /** Injectable so blunder injection is deterministic under test. */
   private readonly random: () => number
   private game = new Game()
@@ -109,6 +112,7 @@ export class MatchController {
 
   constructor(deps: { engine: EngineLike; random?: () => number }) {
     this.engine = deps.engine
+    this.lane = new EngineLane(this.engine)
     this.random = deps.random ?? Math.random
     this.cachedSnapshot = this.buildSnapshot()
   }
@@ -147,6 +151,14 @@ export class MatchController {
    */
   clockState(): ClockState {
     return this.clock.getState()
+  }
+
+  /**
+   * Low-priority engine analysis for the UI (hints, eval bar, review). It
+   * never races the controller's own move searches; see EngineLane.
+   */
+  analyze(req: AnalysisRequest, signal?: AbortSignal): Promise<SearchOutcome> {
+    return this.lane.analyze(req, signal)
   }
 
   private emit(): void {
@@ -200,7 +212,7 @@ export class MatchController {
     this.clock = new Clock(config.timeControl)
     this.clock.onFlag((side) => this.finishOnFlag(side))
 
-    this.engine.newGame()
+    this.lane.newGame()
 
     const status = this.game.status()
     if (status.kind !== 'in-progress') {
@@ -222,6 +234,7 @@ export class MatchController {
     this.stepRequestId = null
     this.clock.dispose()
     this.listeners = []
+    this.lane.dispose()
     this.engine.dispose()
   }
 
@@ -268,20 +281,17 @@ export class MatchController {
     const profile = profileFor(level)
     const delay = this.config.engineDelayMs ?? 0
     try {
-      await this.engine.waitReady()
-      if (id !== this.requestId) return
-
-      this.engine.configure(profile)
-      // We pass a validated FEN: Stockfish 19 kills its own worker on bad input.
-      // Always the LIVE position: the user may be browsing an earlier ply.
-      this.engine.setPosition(this.livePosition().fen(), [])
-
       const multiPv = profile.blunderChance > 0 ? profile.blunderPool : 1
-      const result = await this.engine.search({
-        depth: profile.depth,
-        moveTimeMs: profile.moveTimeMs,
-        multiPv,
-      })
+      // Always the LIVE position: the user may be browsing an earlier ply.
+      // We pass a validated FEN: Stockfish 19 kills its own worker on bad input.
+      const result = await this.lane.move(
+        {
+          profile,
+          fen: this.livePosition().fen(),
+          limits: { depth: profile.depth, moveTimeMs: profile.moveTimeMs, multiPv },
+        },
+        () => id === this.requestId,
+      )
       if (id !== this.requestId) return // a stale reply; drop it
 
       if (delay > 0) {

@@ -8,7 +8,6 @@ import { reduceSelection, type SelectionState } from './Board/selection'
 import { MatchController, type EngineLike } from '../match/controller'
 import type { MatchConfig, MatchPhase } from '../match/types'
 import { EngineClient, createWorkerTransport } from '../engine/client'
-import { profileFor } from '../engine/strength'
 import { templatedHint } from '../coach/templated'
 import { HINT_BUDGET } from '../coach/hints'
 import { useHints, type HintAnalyze, type HintReasoner } from './hints/useHints'
@@ -448,19 +447,10 @@ function AppInner({
     if (side) controller.resign(side)
   }
 
-  // Interim adapter: Task 3 replaces this body with controller.analyze(),
-  // which schedules against the controller's own searches. Until then the
-  // hint button is only enabled on the human's turn, when the controller is
-  // not searching.
+  // Through the controller's lane: never races the engine's own move search.
   const analyzeForHint = useCallback<HintAnalyze>(
-    async (fen) => {
-      if (!engine) throw new Error('engine unavailable')
-      await engine.waitReady()
-      engine.configure(profileFor(8))
-      engine.setPosition(fen, [])
-      return engine.search(HINT_BUDGET)
-    },
-    [engine],
+    (fen, signal) => controller.analyze({ fen, ...HINT_BUDGET }, signal),
+    [controller],
   )
 
   // Press 3 = reasoning. Templated for now; Task 6 asks Claude first.

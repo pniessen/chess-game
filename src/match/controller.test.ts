@@ -618,6 +618,43 @@ describe('MatchController', () => {
     c.goTo(0)
     expect(c.snapshot()).toBe(before) // refused: no emit, no browsing
   })
+
+  test('analysis requested while the engine is choosing a move waits for the move', async () => {
+    const e = fakeEngine({ rejectOnSupersede: true })
+    const c = new MatchController({ engine: e.client })
+    c.start(HUMAN_VS_ENGINE)
+    c.submitHumanMove({ from: 'e2', to: 'e4' })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(e.calls).toHaveLength(1) // the engine's move search
+
+    const analysis = c.analyze({ fen: c.snapshot().game.current().fen(), depth: 10, moveTimeMs: 100 })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(e.calls).toHaveLength(1) // not raced
+
+    e.calls[0]?.resolve('e7e5')
+    await vi.advanceTimersByTimeAsync(0)
+    expect(c.snapshot().game.moves.map((m) => m.san)).toEqual(['e4', 'e5'])
+    expect(e.calls).toHaveLength(2) // now the analysis
+    e.calls[1]?.resolve('g1f3')
+    await expect(analysis).resolves.toMatchObject({ best: 'g1f3' })
+  })
+
+  test('an engine move pre-empts running analysis and still lands', async () => {
+    const e = fakeEngine({ rejectOnSupersede: true })
+    const c = new MatchController({ engine: e.client })
+    c.start(HUMAN_VS_ENGINE)
+    void c.analyze({ fen: c.snapshot().game.current().fen(), depth: 10, moveTimeMs: 100 }).catch(() => {})
+    await vi.advanceTimersByTimeAsync(0)
+    expect(e.calls).toHaveLength(1) // analysis running
+
+    c.submitHumanMove({ from: 'e2', to: 'e4' })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(e.client.stop).toHaveBeenCalled()
+    expect(e.calls).toHaveLength(2) // the move search superseded it
+    e.calls[1]?.resolve('e7e5')
+    await vi.advanceTimersByTimeAsync(0)
+    expect(c.snapshot().game.moves.map((m) => m.san)).toEqual(['e4', 'e5'])
+  })
 })
 
 describe('MatchController: browsing never changes the live game (C2)', () => {
