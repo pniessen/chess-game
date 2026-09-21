@@ -66,6 +66,15 @@ function describeTransportError(err: unknown): string {
  */
 const HANDSHAKE_TIMEOUT_MS = 10_000
 
+/**
+ * Slack on top of a search's own `movetime` before a missing `bestmove` is
+ * treated as a dead engine. Every `go` we send carries an explicit
+ * `movetime`, and Stockfish stops at whichever of depth/movetime comes
+ * first, so `movetime` is an upper bound on a healthy search; the grace
+ * covers a slow first search, a busy main thread, and throttled timers.
+ */
+export const BESTMOVE_GRACE_MS = 5_000
+
 export class EngineClient {
   private readonly transport: EngineTransport
   private readonly readyPromise: Promise<void>
@@ -131,6 +140,14 @@ export class EngineClient {
   /** Timer for the initial handshake; cleared once it succeeds, fails, or we dispose. */
   private handshakeTimer: ReturnType<typeof setTimeout> | null = null
 
+  /**
+   * Watchdog for the one outstanding `go` (see `goOutstanding`): armed when
+   * a `go` is posted, cleared when its `bestmove` arrives, on death, and on
+   * dispose. If it fires, the `bestmove` was lost and the engine would
+   * otherwise stay wedged forever with every later `go` held back.
+   */
+  private bestmoveTimer: ReturnType<typeof setTimeout> | null = null
+
   /** Notified once, the first time this client transitions to dead, with the reason. */
   private deadListeners: Array<(reason: string) => void> = []
 
@@ -172,6 +189,7 @@ export class EngineClient {
     if (this.deadReason !== null) return
     this.deadReason = reason
     this.goOutstanding = false
+    this.clearBestmoveTimer()
     this.readyokQueue.length = 0
     if (this.handshakeTimer !== null) {
       clearTimeout(this.handshakeTimer)
@@ -239,6 +257,7 @@ export class EngineClient {
     if (best) {
       if (!this.goOutstanding) return // no `go` of ours is unanswered: stray line
       this.goOutstanding = false
+      this.clearBestmoveTimer()
       const p = this.pending
       if (p && p.goSent) {
         // The answer to the pending caller's own `go`.
@@ -270,6 +289,24 @@ export class EngineClient {
     // Always pass an explicit limit: a bare `go` defaults to depth 245,
     // which never terminates in practice.
     this.transport.post(`go depth ${limits.depth} movetime ${limits.moveTimeMs}`)
+    this.armBestmoveTimer(limits.moveTimeMs + BESTMOVE_GRACE_MS)
+  }
+
+  private armBestmoveTimer(ms: number): void {
+    this.clearBestmoveTimer()
+    this.bestmoveTimer = setTimeout(() => {
+      this.bestmoveTimer = null
+      if (this.deadReason !== null || !this.goOutstanding) return
+      this.markDead(`bestmove never arrived within ${ms} ms`)
+      this.failPendingWork(`engine stopped responding: ${this.deadReason}`)
+    }, ms)
+  }
+
+  private clearBestmoveTimer(): void {
+    if (this.bestmoveTimer !== null) {
+      clearTimeout(this.bestmoveTimer)
+      this.bestmoveTimer = null
+    }
   }
 
   /** Distinct from the crash-time message: this is for calls made *after* the engine is already known dead. */
@@ -351,6 +388,7 @@ export class EngineClient {
     this.pending?.reject(new Error('engine disposed'))
     this.pending = null
     this.goOutstanding = false
+    this.clearBestmoveTimer()
     this.readyokQueue.length = 0
     this.transport.post('quit')
     this.transport.terminate()

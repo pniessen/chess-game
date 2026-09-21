@@ -424,6 +424,118 @@ describe('EngineClient', () => {
     }
   })
 
+  describe('bestmove watchdog', () => {
+    test('a search whose bestmove never arrives rejects after movetime + grace and the client reports dead', async () => {
+      vi.useFakeTimers()
+      try {
+        const f = fakeTransport()
+        const client = new EngineClient(f.transport)
+        f.emit('readyok')
+        const deaths: string[] = []
+        client.onDead((r) => deaths.push(r))
+        const pending = client.search({ depth: 12, moveTimeMs: 500, multiPv: 1 })
+        const assertion = expect(pending).rejects.toThrow(/bestmove never arrived/i)
+
+        // Still inside movetime + grace: nothing has happened yet.
+        await vi.advanceTimersByTimeAsync(5_400)
+        expect(deaths).toEqual([])
+
+        // Past it: the lost bestmove is treated as a dead engine.
+        await vi.advanceTimersByTimeAsync(200)
+        await assertion
+        expect(deaths).toHaveLength(1)
+        expect(deaths[0]).toMatch(/bestmove never arrived/i)
+        await expect(client.search({ depth: 4, moveTimeMs: 100, multiPv: 1 })).rejects.toThrow(/dead/i)
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    test('a normal bestmove clears the watchdog, so a long game never dies spuriously', async () => {
+      vi.useFakeTimers()
+      try {
+        const f = fakeTransport()
+        const client = new EngineClient(f.transport)
+        f.emit('readyok')
+        const deaths: string[] = []
+        client.onDead((r) => deaths.push(r))
+        for (let i = 0; i < 50; i++) {
+          const s = client.search({ depth: 4, moveTimeMs: 100, multiPv: 1 })
+          f.emit('bestmove e2e4')
+          await expect(s).resolves.toMatchObject({ best: 'e2e4' })
+          await vi.advanceTimersByTimeAsync(10_000) // a long think by the human
+        }
+        expect(deaths).toEqual([])
+        expect(vi.getTimerCount()).toBe(0)
+        const last = client.search({ depth: 4, moveTimeMs: 100, multiPv: 1 })
+        f.emit('bestmove d2d4')
+        await expect(last).resolves.toMatchObject({ best: 'd2d4' })
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    test("a superseded search's timer does not kill a healthy client running the newer search", async () => {
+      vi.useFakeTimers()
+      try {
+        const f = fakeTransport()
+        const client = new EngineClient(f.transport)
+        f.emit('readyok')
+        const deaths: string[] = []
+        client.onDead((r) => deaths.push(r))
+        client.search({ depth: 6, moveTimeMs: 100, multiPv: 1 }).catch(() => {})
+        await vi.advanceTimersByTimeAsync(4_000)
+        const second = client.search({ depth: 14, moveTimeMs: 3_000, multiPv: 1 })
+        f.emit('bestmove g1f3') // the stopped first search's reply; releases the second go
+
+        // Well past the FIRST search's deadline (100 + 5000 from t=0), but
+        // inside the second's (3000 + 5000 from t=4000).
+        await vi.advanceTimersByTimeAsync(7_000)
+        expect(deaths).toEqual([])
+        f.emit('bestmove e7e5')
+        await expect(second).resolves.toMatchObject({ best: 'e7e5' })
+        await vi.advanceTimersByTimeAsync(60_000)
+        expect(deaths).toEqual([])
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    test('a stopped search whose bestmove never arrives also trips the watchdog and fails the held-back search', async () => {
+      vi.useFakeTimers()
+      try {
+        const f = fakeTransport()
+        const client = new EngineClient(f.transport)
+        f.emit('readyok')
+        client.search({ depth: 6, moveTimeMs: 100, multiPv: 1 }).catch(() => {})
+        const held = client.search({ depth: 8, moveTimeMs: 300, multiPv: 1 })
+        const assertion = expect(held).rejects.toThrow(/bestmove never arrived/i)
+        await vi.advanceTimersByTimeAsync(5_200)
+        await assertion
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    test('dispose clears the watchdog', async () => {
+      vi.useFakeTimers()
+      try {
+        const f = fakeTransport()
+        const client = new EngineClient(f.transport)
+        f.emit('readyok')
+        const deaths: string[] = []
+        client.onDead((r) => deaths.push(r))
+        client.search({ depth: 6, moveTimeMs: 100, multiPv: 1 }).catch(() => {})
+        client.dispose()
+        expect(vi.getTimerCount()).toBe(0)
+        await vi.advanceTimersByTimeAsync(60_000)
+        expect(deaths).toEqual([])
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+  })
+
   test('a handshake that answers before the timeout does not later mark the client dead', async () => {
     vi.useFakeTimers()
     try {
