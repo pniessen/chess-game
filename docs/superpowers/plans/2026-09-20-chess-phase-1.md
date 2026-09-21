@@ -656,8 +656,13 @@ export const RULE_FIXTURES = {
   enPassantAvailable: 'rnbqkbnr/ppp1p1pp/8/3pPp2/8/8/PPPP1PPP/RNBQKBNR w KQkq d6 0 3',
   /** White to move, castling rights intact, nothing attacked. */
   castlingAvailable: 'r3k2r/pppppppp/8/8/8/8/PPPPPPPP/R3K2R w KQkq - 0 1',
-  /** White king on e1 is in check from the rook on e8; may not castle. */
-  castlingWhileInCheck: 'r3k2r/pppp1ppp/8/8/8/8/PPPP1PPP/R3K2R w KQkq - 0 1',
+  /**
+   * White king on e1 is in check from the black rook on e8 down the open
+   * e-file, with castling rights still intact on both sides. Verified with
+   * chess.js: isCheck() === true, and legalMovesFrom('e1') is ['f1','d1'] —
+   * neither g1 nor c1.
+   */
+  castlingWhileInCheck: '4r2k/pppp1ppp/8/8/8/8/PPPP1PPP/R3K2R w KQ - 0 1',
   /** Black king alone vs white king: insufficient material. */
   insufficientMaterial: '8/8/8/4k3/8/8/8/4K3 w - - 0 1',
   /** Black to move is stalemated. */
@@ -667,12 +672,12 @@ export const RULE_FIXTURES = {
 } as const
 ```
 
-IMPORTANT on `castlingWhileInCheck`: verify this FEN really places White in
-check when you write the test. If it does not, construct one that does and
-correct the fixture — an assertion that passes for the wrong reason is worse
-than no assertion. The test must first assert
-`status()` reports `inCheck: true`, and only then assert that no castling
-move appears in `legalMoves()`.
+The `castlingWhileInCheck` FEN above has been verified against chess.js —
+an earlier draft of this plan used a position where the two kings faced each
+other down an open e-file, which is not check at all (and is in fact an
+impossible position). The test still asserts `inCheck: true` FIRST and only
+then asserts that no castling move appears, so that it can never pass for
+the wrong reason.
 
 - [ ] **Step 2: Write the failing perft test**
 
