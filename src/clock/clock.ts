@@ -60,6 +60,7 @@ export class Clock {
   start(side: Side): void {
     if (!this.isTimed || this.flagged !== null) return
     this.settle()
+    this.pausedSide = null
     this.running = side
     this.startedAt = this.now()
     this.scheduleFlag()
@@ -70,6 +71,7 @@ export class Clock {
     if (!this.isTimed || this.flagged !== null) return
     const mover = this.running
     this.settle()
+    this.pausedSide = null
     if (mover !== null && this.control.kind === 'timed') {
       this.remaining[mover] += this.control.incrementMs
     }
@@ -87,6 +89,7 @@ export class Clock {
   resume(): void {
     if (!this.isTimed || this.pausedSide === null || this.flagged !== null) return
     const side = this.pausedSide
+    this.settle()
     this.pausedSide = null
     this.running = side
     this.startedAt = this.now()

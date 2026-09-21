@@ -69,4 +69,22 @@ describe('Clock', () => {
     expect(flagged).not.toHaveBeenCalled()
     expect(c.getState().running).toBe(null)
   })
+
+  test('resume after pause + switchTo does not erase elapsed time or misattribute running side', () => {
+    const c = new Clock(FIVE_MIN)
+    c.start('w')
+    vi.advanceTimersByTime(3_000)
+    c.pause()
+    // pausedSide is now 'w' with 297_000 remaining
+    c.switchTo('b')
+    // black is now running with 300_000; pausedSide is cleared to null by switchTo
+    vi.advanceTimersByTime(2_000)
+    // black should now be at 298_000
+    c.resume()
+    // resume does nothing (pausedSide is null); settle still protects black's time
+    const s = c.getState()
+    expect(s.blackMs).toBe(298_000) // black's 2s elapsed should NOT be erased
+    expect(s.whiteMs).toBe(297_000) // white stays at paused value
+    expect(s.running).toBe('b') // black is still running (resume was no-op)
+  })
 })
