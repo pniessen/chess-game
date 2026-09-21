@@ -591,12 +591,18 @@ describe('MatchController', () => {
     expect(c.snapshot().game.moves).toHaveLength(0)
     expect(c.snapshot().phase).toEqual({ kind: 'awaiting-human', side: 'w' })
 
+    const searchesBeforeRedo = e.calls.length
     const redone = c.redo()
     expect(redone).toBe(true)
     // Only one ply was available to redo, and it must be restored cleanly.
     expect(c.snapshot().game.moves.map((m) => m.san)).toEqual(['e4'])
-    // It is now the engine's turn, but redo() must never start a search.
-    expect(c.snapshot().phase).toEqual({ kind: 'paused' })
+    // Redo is undo's exact inverse: undo interrupted the engine while it was
+    // thinking, so redo lands back there. No engine reply was ever recorded,
+    // so asking again substitutes nothing — and leaving the game 'paused' on
+    // the engine's turn would strand a one-player game (finding I5).
+    expect(c.snapshot().phase).toMatchObject({ kind: 'engine-thinking', side: 'b' })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(e.calls.length).toBe(searchesBeforeRedo + 1)
   })
 
   test('goTo() is refused while the engine is thinking', async () => {
@@ -693,5 +699,80 @@ describe('MatchController: browsing never changes the live game (C2)', () => {
     c.goTo(0)
     expect(c.snapshot().game.moves).toHaveLength(2)
     expect(c.snapshot().phase).toEqual({ kind: 'paused' })
+  })
+})
+
+describe('MatchController: one-player undo pops to the human\'s turn (I5)', () => {
+  beforeEach(() => vi.useFakeTimers())
+  afterEach(() => vi.useRealTimers())
+
+  /** 1.e4 e5 2.Nf3 with the engine (Black) now thinking about its reply. */
+  async function thinkingAfterNf3() {
+    const e = fakeEngine()
+    const c = new MatchController({ engine: e.client })
+    c.start(HUMAN_VS_ENGINE)
+    c.submitHumanMove({ from: 'e2', to: 'e4' })
+    await vi.advanceTimersByTimeAsync(0)
+    e.calls[0]?.resolve('e7e5')
+    await vi.advanceTimersByTimeAsync(0)
+    c.submitHumanMove({ from: 'g1', to: 'f3' })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(c.snapshot().phase).toMatchObject({ kind: 'engine-thinking', side: 'b' })
+    return { e, c }
+  }
+
+  test('undo while the engine is thinking removes ONLY the human move, keeping the engine\'s previous reply', async () => {
+    const { e, c } = await thinkingAfterNf3()
+    const searches = e.calls.length
+
+    c.undo()
+    expect(c.snapshot().game.moves.map((m) => m.san)).toEqual(['e4', 'e5'])
+    expect(c.snapshot().phase).toEqual({ kind: 'awaiting-human', side: 'w' })
+    // The engine is NOT sent off to replay e5.
+    await vi.advanceTimersByTimeAsync(0)
+    expect(e.calls.length).toBe(searches)
+
+    // The interrupted search's reply lands late and must be dropped.
+    e.calls.at(-1)?.resolve('b8c6')
+    await vi.advanceTimersByTimeAsync(0)
+    expect(c.snapshot().game.moves.map((m) => m.san)).toEqual(['e4', 'e5'])
+    expect(c.snapshot().phase).toEqual({ kind: 'awaiting-human', side: 'w' })
+  })
+
+  test('redo after that undo restores the move and puts the engine back to thinking — never stranded paused', async () => {
+    const { e, c } = await thinkingAfterNf3()
+    c.undo()
+    const searches = e.calls.length
+
+    expect(c.redo()).toBe(true)
+    expect(c.snapshot().game.moves.map((m) => m.san)).toEqual(['e4', 'e5', 'Nf3'])
+    expect(c.snapshot().phase).toMatchObject({ kind: 'engine-thinking', side: 'b' })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(e.calls.length).toBe(searches + 1)
+
+    e.calls.at(-1)?.resolve('b8c6')
+    await vi.advanceTimersByTimeAsync(0)
+    expect(c.snapshot().game.moves.map((m) => m.san)).toEqual(['e4', 'e5', 'Nf3', 'Nc6'])
+    expect(c.snapshot().phase).toEqual({ kind: 'awaiting-human', side: 'w' })
+  })
+
+  test('undo after the engine has replied still takes back both plies', async () => {
+    const { e, c } = await thinkingAfterNf3()
+    e.calls.at(-1)?.resolve('b8c6')
+    await vi.advanceTimersByTimeAsync(0)
+    c.undo()
+    expect(c.snapshot().game.moves.map((m) => m.san)).toEqual(['e4', 'e5'])
+    expect(c.snapshot().phase).toEqual({ kind: 'awaiting-human', side: 'w' })
+  })
+
+  test('the clock follows undo onto the human\'s side', async () => {
+    const e = fakeEngine()
+    const c = new MatchController({ engine: e.client })
+    c.start({ ...HUMAN_VS_ENGINE, timeControl: { kind: 'timed', initialMs: 60_000, incrementMs: 0 } })
+    c.submitHumanMove({ from: 'e2', to: 'e4' })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(c.clockState().running).toBe('b')
+    c.undo()
+    expect(c.clockState().running).toBe('w')
   })
 })

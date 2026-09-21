@@ -5,6 +5,7 @@ import type { Color, GameStatus, MoveIntent, MoveResult } from '../game-core/typ
 import { profileFor, type StrengthProfile } from '../engine/strength'
 import type { Level } from '../storage/storage'
 import type { MatchConfig, MatchPhase, MatchSnapshot, Seat } from './types'
+import type { ClockState } from '../clock/types'
 
 /** The subset of EngineClient the controller needs; keeps tests trivial. */
 export interface EngineLike {
@@ -84,6 +85,20 @@ export class MatchController {
 
   snapshot(): MatchSnapshot {
     return this.cachedSnapshot
+  }
+
+  /**
+   * A FRESH read of the clock, computed from the running side's start
+   * timestamp (so it never drifts, however irregularly it is polled).
+   *
+   * `snapshot().clock` is frozen at the last emit() — correct for which side
+   * is running, but its times go stale between moves. The on-screen clock
+   * polls this instead while a side is running. Deliberately NOT routed
+   * through emit(): rebuilding and broadcasting the whole snapshot ten times
+   * a second just to repaint two numbers would re-render the entire app.
+   */
+  clockState(): ClockState {
+    return this.clock.getState()
   }
 
   private emit(): void {
@@ -360,27 +375,60 @@ export class MatchController {
     this.emit()
   }
 
+  /** Exactly one human seat and one engine seat. */
+  private isOnePlayer(): boolean {
+    return (this.config.white.kind === 'human') !== (this.config.black.kind === 'human')
+  }
+
+  private isZeroPlayer(): boolean {
+    return this.config.white.kind === 'engine' && this.config.black.kind === 'engine'
+  }
+
   /**
-   * Take back a move. Against an engine this must remove BOTH plies, or the
-   * engine instantly replays and the undo appears to do nothing.
+   * After undo()/redo() rewrote the live position, put the clock on the side
+   * now to move (no increment: nobody just moved). `running` false leaves it
+   * paused on that side, so a later resume() restarts the right clock.
+   */
+  private clockTo(side: Color, running: boolean): void {
+    this.clock.start(side)
+    if (!running) this.clock.pause()
+  }
+
+  /**
+   * Take back a move.
+   *
+   * One-player: pop plies until it is the HUMAN's turn — one ply if the
+   * engine is to move (e.g. it is still thinking about the human's last
+   * move: its previous reply must survive), two if the human is to move
+   * (their move and the engine's reply). Popping a fixed two plies would, in
+   * the first case, also remove the engine's previous move and send it off
+   * to replay it — possibly differently.
+   *
+   * Two-player: one ply. Zero-player: one ply, then stay paused.
+   *
+   * Any in-flight engine request is invalidated either way.
    */
   undo(): void {
     this.requestId++
     this.stepRequestId = null
-    const opponentIsEngine =
-      this.config.white.kind === 'engine' || this.config.black.kind === 'engine'
-    const bothEngines =
-      this.config.white.kind === 'engine' && this.config.black.kind === 'engine'
 
-    this.game.undo()
-    if (opponentIsEngine && !bothEngines) this.game.undo()
+    // Even with nothing to take back, fall through and re-derive the phase:
+    // the requestId bump above has just orphaned any in-flight request.
+    const undone = this.game.undo()
+    if (undone && this.isOnePlayer()) {
+      // At most one more pop: turns alternate, so after it the human is to
+      // move. (It fails harmlessly at ply 0, e.g. the engine opened as White.)
+      if (this.seatFor(this.livePosition().turn()).kind === 'engine') this.game.undo()
+    }
 
     const status = this.game.status()
     if (status.kind === 'in-progress') {
       const side = this.livePosition().turn()
-      if (bothEngines) {
+      if (this.isZeroPlayer()) {
         this.phase = { kind: 'paused' }
+        this.clockTo(side, false)
       } else {
+        this.clockTo(side, true)
         this.toMoveOf(side)
       }
     }
@@ -388,38 +436,28 @@ export class MatchController {
   }
 
   /**
-   * Redo a move taken back by undo(). `Game.redo()` always lands back on
-   * the live position (never a browsed one), so — like undo() — this must
-   * re-derive `phase` from the fresh position rather than leave whatever
-   * phase was current before the call: a redo can just as easily restore a
-   * checkmate as it can restore an ordinary position, and the caller (the
-   * game already having been undone out of 'finished') has no way to know
-   * which without us telling it. Returns false (no-op, no emit) when there
-   * is nothing to redo.
+   * Redo what undo() took back — its exact inverse, per mode, restoring
+   * RECORDED plies rather than asking the engine for new ones.
    *
-   * redo() must mirror undo() exactly, per mode: undo() in one-player mode
-   * pops TWO plies (the human's move and the engine's reply) so control
-   * returns to the human, so redo() must restore both of those same two
-   * recorded plies — never hand the second one back to a fresh engine
-   * search, which could substitute a different move than the one that was
-   * actually played and undone. And whatever mode we're in, redo() must
-   * NEVER start an engine search: it restores recorded history, so the
-   * phase afterward is derived directly from whose turn it is (paused for
-   * an engine seat) rather than routed through toMoveOf()/askEngine().
+   * `Game.redo()` always lands on the live position, so, like undo(), this
+   * re-derives `phase` from the fresh position: a redo can restore a
+   * checkmate just as easily as an ordinary position. Returns false (no-op,
+   * no emit) when there is nothing to redo.
+   *
+   * One-player: redo plies until it is the human's turn, mirroring undo().
+   * If that runs out of recorded plies with the engine to move — i.e. the
+   * undo interrupted the engine while it was thinking, so no reply was ever
+   * recorded — the position is exactly the one undo() started from, and the
+   * engine is asked again, just as it was then. That substitutes nothing:
+   * there is no recorded reply to substitute for. (Leaving it 'paused' there
+   * would strand a one-player game on the engine's turn.)
+   *
+   * Two-player: one ply. Zero-player: one ply, stay paused, never search.
    */
   redo(): boolean {
-    const opponentIsEngine =
-      this.config.white.kind === 'engine' || this.config.black.kind === 'engine'
-    const bothEngines =
-      this.config.white.kind === 'engine' && this.config.black.kind === 'engine'
-    const redoesBothPlies = opponentIsEngine && !bothEngines
-
     if (!this.game.redo()) return false
-    if (redoesBothPlies) {
-      // Best-effort: restore the engine's recorded reply too, if one was
-      // actually undone (it may not have been, e.g. undo() interrupted the
-      // engine before it ever replied — leave state as redo() then found it).
-      this.game.redo()
+    if (this.isOnePlayer() && this.game.status().kind === 'in-progress') {
+      if (this.seatFor(this.livePosition().turn()).kind === 'engine') this.game.redo()
     }
 
     // The live position just changed under whatever engine request (if any)
@@ -436,8 +474,13 @@ export class MatchController {
     }
 
     const side = this.livePosition().turn()
-    this.phase =
-      this.seatFor(side).kind === 'human' ? { kind: 'awaiting-human', side } : { kind: 'paused' }
+    if (this.isZeroPlayer()) {
+      this.phase = { kind: 'paused' }
+      this.clockTo(side, false)
+    } else {
+      this.clockTo(side, true)
+      this.toMoveOf(side)
+    }
     this.emit()
     return true
   }
