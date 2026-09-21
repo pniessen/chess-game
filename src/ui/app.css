@@ -155,10 +155,26 @@ body {
   flex: 1;
   padding: 6px;
   border: none;
+  border-bottom: 2px solid transparent;
   background: transparent;
-  cursor: default;
+  color: var(--color-fg);
+  cursor: pointer;
   font-weight: 600;
 }
+.tabs-header button.active { border-bottom-color: var(--color-fg); background: var(--color-bg); }
+
+.explorer { display: flex; flex-direction: column; gap: 6px; padding: 8px; }
+.explorer-current { margin: 0; font-size: 0.85em; color: var(--color-muted); }
+.explorer-results { list-style: none; margin: 0; padding: 0; max-height: 260px; overflow-y: auto; }
+.explorer-results button {
+  width: 100%; text-align: left; border: none; background: transparent;
+  color: var(--color-fg); padding: 3px 4px; border-radius: 4px; cursor: pointer; font: inherit;
+}
+.explorer-results button.selected { background: var(--color-accent-bg); }
+.explorer-results .eco { color: var(--color-muted); font-variant-numeric: tabular-nums; }
+.explorer-detail { border-top: 1px solid var(--color-panel-border); padding-top: 6px; }
+.explorer-moves { font-family: monospace; font-size: 0.9em; }
+.explorer-status { padding: 8px; color: var(--color-muted); }
 
 .move-list {
   list-style: none;

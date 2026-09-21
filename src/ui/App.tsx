@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Game } from '../game-core/game'
 import type { Color, DrawReason, GameStatus, PieceSymbol, Square } from '../game-core/types'
-import { exportPgn, importPgn } from '../game-core/io'
+import { exportPgn, gameFromSan, importPgn } from '../game-core/io'
 import { Board, type Highlights } from './Board/Board'
 import { EvalBar } from './Board/EvalBar'
 import { Promotion } from './Board/Promotion'
@@ -17,6 +17,7 @@ import { useCoach } from './useCoach'
 import { useHints, type HintAnalyze, type HintReasoner } from './hints/useHints'
 import { useEvaluation, type EvalAnalyze } from './useEvaluation'
 import { useOpeningBook } from './useOpeningBook'
+import type { OpeningEntry } from '../openings/book'
 import { gameIdOf } from './gameKey'
 import {
   clearInProgress,
@@ -41,7 +42,12 @@ import { Scoreboard } from './panels/Scoreboard'
 import { NewGame, type Mode } from './panels/NewGame'
 import { GameIO } from './panels/GameIO'
 import { SettingsPanel } from './panels/SettingsPanel'
+import { Tabs } from './panels/Tabs'
+import { Explorer } from './panels/Explorer'
 import './app.css'
+
+/** Tasks 12–13 add the 'review' and 'history' tabs. */
+type RightTab = 'moves' | 'explorer' | 'review' | 'history'
 
 function timeControlFor(id: string) {
   return TIME_CONTROLS.find((t) => t.id === id)?.control ?? { kind: 'untimed' as const }
@@ -263,6 +269,7 @@ function AppInner({
   const [resumeChoice, setResumeChoice] = useState<'pending' | 'resolved'>(
     pendingResume ? 'pending' : 'resolved',
   )
+  const [tab, setTab] = useState<RightTab>('moves')
 
   // The engine can also fail *after* construction: a 404 on the asset, a
   // network failure, or a hung handshake all arrive asynchronously and
@@ -303,7 +310,7 @@ function AppInner({
     cache: evalCache,
   })
 
-  const { book } = useOpeningBook()
+  const { book, failed: bookFailed } = useOpeningBook()
   // The SANs up to the displayed ply: an undo followed by a different move
   // leaves ply/livePly unchanged, so the moves themselves are the memo key.
   const sanKey = game.moves.slice(0, game.ply).map((m) => m.san).join(' ')
@@ -416,6 +423,15 @@ function AppInner({
       false,
     )
     setMode('two-player')
+  }
+
+  /** The explorer's "Start from this opening": the line, with the current New-game choices. */
+  const handleStartOpening = (entry: OpeningEntry) => {
+    const built = gameFromSan(entry.moves)
+    if (!built.ok) return
+    loadMatch(buildConfig({ mode, level, timeControlId, color, engineAvailable }), built.game, false)
+    setOrientation(mode === 'one-player' ? color : 'white')
+    setTab('moves')
   }
 
   const handleResumeAccept = () => {
@@ -664,17 +680,31 @@ function AppInner({
         </div>
 
         <div className="right-column">
-          <div className="tabs">
-            <div className="tabs-header">
-              <button type="button">Moves</button>
-            </div>
-            <MoveList
-              moves={game.moves}
-              currentPly={game.ply}
-              onJump={handleJump}
-              disabled={snapshot.phase.kind === 'engine-thinking'}
-            />
-          </div>
+          <Tabs
+            active={tab}
+            onChange={(id) => setTab(id as RightTab)}
+            tabs={[
+              {
+                id: 'moves',
+                label: 'Moves',
+                content: (
+                  <MoveList
+                    moves={game.moves}
+                    currentPly={game.ply}
+                    onJump={handleJump}
+                    disabled={snapshot.phase.kind === 'engine-thinking'}
+                  />
+                ),
+              },
+              {
+                id: 'explorer',
+                label: 'Explorer',
+                content: (
+                  <Explorer book={book} unavailable={bookFailed} current={opening} onStart={handleStartOpening} />
+                ),
+              },
+            ]}
+          />
         </div>
       </div>
     </main>
