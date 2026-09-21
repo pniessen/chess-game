@@ -21,7 +21,7 @@ export type MatchPhase =
   | { kind: 'awaiting-human'; side: Color }
   | { kind: 'engine-thinking'; side: Color; requestId: number }
   | { kind: 'paused' }
-  | { kind: 'finished'; status: GameStatus; reason: FinishReason }
+  | { kind: 'finished'; status: GameStatus; reason: FinishReason; winner: Color | null }
 
 export interface MatchSnapshot {
   phase: MatchPhase

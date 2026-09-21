@@ -90,7 +90,7 @@ describe('MatchController', () => {
     expect(c.snapshot().phase).toEqual({ kind: 'awaiting-human', side: 'w' })
   })
 
-  test('running out of time finishes the game as a flag loss', async () => {
+  test('running out of time finishes the game as a flag loss, not a checkmate', async () => {
     const e = fakeEngine()
     const c = new MatchController({ engine: e.client })
     c.start({
@@ -100,10 +100,17 @@ describe('MatchController', () => {
     await vi.advanceTimersByTimeAsync(2_000)
     const phase = c.snapshot().phase
     expect(phase.kind).toBe('finished')
-    if (phase.kind === 'finished') expect(phase.reason).toBe('flag')
+    if (phase.kind === 'finished') {
+      expect(phase.reason).toBe('flag')
+      // White (the human seat in HUMAN_VS_ENGINE) is to move and flags;
+      // black is the winner. The rules never ended the game, so status
+      // must NOT claim checkmate.
+      expect(phase.winner).toBe('b')
+      expect(phase.status.kind).not.toBe('checkmate')
+    }
   })
 
-  test('checkmate finishes the game normally', () => {
+  test('checkmate finishes the game normally with the mating side as winner', () => {
     const e = fakeEngine()
     const c = new MatchController({ engine: e.client })
     c.start({
@@ -118,7 +125,149 @@ describe('MatchController', () => {
     if (phase.kind === 'finished') {
       expect(phase.reason).toBe('normal')
       expect(phase.status).toEqual({ kind: 'checkmate', winner: 'w' })
+      expect(phase.winner).toBe('w')
     }
+  })
+
+  test('a draw reports winner null', () => {
+    const e = fakeEngine()
+    const c = new MatchController({ engine: e.client })
+    c.start({
+      white: { kind: 'human' },
+      black: { kind: 'human' },
+      timeControl: { kind: 'untimed' },
+      // Black to move, stalemated.
+      startFen: '7k/5Q2/6K1/8/8/8/8/8 b - - 0 1',
+    })
+    const phase = c.snapshot().phase
+    expect(phase.kind).toBe('finished')
+    if (phase.kind === 'finished') {
+      expect(phase.status).toEqual({ kind: 'draw', reason: 'stalemate' })
+      expect(phase.winner).toBeNull()
+    }
+  })
+
+  test('resign reports the true rules status and the opponent as winner', () => {
+    const e = fakeEngine()
+    const c = new MatchController({ engine: e.client })
+    c.start({
+      white: { kind: 'human' },
+      black: { kind: 'human' },
+      timeControl: { kind: 'untimed' },
+    })
+    c.resign('w')
+    const phase = c.snapshot().phase
+    expect(phase.kind).toBe('finished')
+    if (phase.kind === 'finished') {
+      expect(phase.reason).toBe('resign')
+      expect(phase.winner).toBe('b')
+      // The rules did not end this game; a UI branching on 'checkmate'
+      // must not show "Checkmate" for a resignation.
+      expect(phase.status.kind).not.toBe('checkmate')
+    }
+  })
+
+  test('a flag reports the true rules status and the opponent of the flagged side as winner', async () => {
+    const e = fakeEngine()
+    const c = new MatchController({ engine: e.client })
+    c.start({
+      white: { kind: 'human' },
+      black: { kind: 'human' },
+      timeControl: { kind: 'timed', initialMs: 1_000, incrementMs: 0 },
+    })
+    await vi.advanceTimersByTimeAsync(2_000)
+    const phase = c.snapshot().phase
+    expect(phase.kind).toBe('finished')
+    if (phase.kind === 'finished') {
+      expect(phase.reason).toBe('flag')
+      expect(phase.winner).toBe('b')
+      expect(phase.status.kind).not.toBe('checkmate')
+    }
+  })
+
+  test('a step interrupted by pause() before the engine replies does not leak into resume()', async () => {
+    const e = fakeEngine()
+    const c = new MatchController({ engine: e.client })
+    const zeroPlayer: MatchConfig = {
+      white: { kind: 'engine', level: 1 },
+      black: { kind: 'engine', level: 1 },
+      timeControl: { kind: 'untimed' },
+      engineDelayMs: 0,
+    }
+    c.start(zeroPlayer)
+    c.pause() // interrupt start()'s own engine request before it reaches search()
+    expect(c.snapshot().phase.kind).toBe('paused')
+
+    c.step()
+    await vi.advanceTimersByTimeAsync(0) // let askEngine reach engine.search()
+    expect(c.snapshot().phase.kind).toBe('engine-thinking')
+
+    c.pause() // interrupt the step itself, BEFORE the engine replies
+    expect(c.snapshot().phase.kind).toBe('paused')
+
+    c.resume()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(c.snapshot().phase.kind).toBe('engine-thinking')
+
+    // The interrupted step's own request resolves late; it must be dropped
+    // by the requestId check rather than applied.
+    e.calls[0]?.resolve('e2e4')
+    await vi.advanceTimersByTimeAsync(0)
+    expect(c.snapshot().game.moves).toHaveLength(0)
+
+    // resume()'s own fresh request resolves.
+    e.calls[1]?.resolve('e2e4')
+    await vi.advanceTimersByTimeAsync(0)
+    expect(c.snapshot().game.moves).toHaveLength(1)
+    // THE LEAK: with the stale flag, afterMove() would wrongly re-pause
+    // here after exactly one move. Continuous zero-player play must
+    // instead keep going and ask the engine for black's reply.
+    expect(c.snapshot().phase.kind).toBe('engine-thinking')
+
+    e.calls[2]?.resolve('e7e5')
+    await vi.advanceTimersByTimeAsync(0)
+    expect(c.snapshot().game.moves).toHaveLength(2)
+    expect(c.snapshot().phase.kind).not.toBe('paused')
+  })
+
+  test('a step interrupted by undo() before the engine replies does not leak into resume()', async () => {
+    const e = fakeEngine()
+    const c = new MatchController({ engine: e.client })
+    const zeroPlayer: MatchConfig = {
+      white: { kind: 'engine', level: 1 },
+      black: { kind: 'engine', level: 1 },
+      timeControl: { kind: 'untimed' },
+      engineDelayMs: 0,
+    }
+    c.start(zeroPlayer)
+    c.pause()
+    c.step()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(c.snapshot().phase.kind).toBe('engine-thinking')
+
+    c.undo() // interrupt the step via undo() instead of pause()
+    // Both seats are engines and no move has been played yet, so undo()
+    // lands directly back on 'paused' without issuing a new request.
+    expect(c.snapshot().phase.kind).toBe('paused')
+
+    c.resume()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(c.snapshot().phase.kind).toBe('engine-thinking')
+
+    e.calls[0]?.resolve('e2e4') // the interrupted step's stale reply
+    await vi.advanceTimersByTimeAsync(0)
+    expect(c.snapshot().game.moves).toHaveLength(0)
+
+    e.calls[1]?.resolve('e2e4') // resume()'s fresh request
+    await vi.advanceTimersByTimeAsync(0)
+    expect(c.snapshot().game.moves).toHaveLength(1)
+    // Same leak, via undo() this time: must not re-pause after one move.
+    expect(c.snapshot().phase.kind).toBe('engine-thinking')
+
+    e.calls[2]?.resolve('e7e5')
+    await vi.advanceTimersByTimeAsync(0)
+    expect(c.snapshot().game.moves).toHaveLength(2)
+    expect(c.snapshot().phase.kind).not.toBe('paused')
   })
 
   test('step plays exactly one engine move, then re-pauses', async () => {
