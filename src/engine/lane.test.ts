@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
+import { EngineClient, type EngineTransport } from './client'
 import { AnalysisAborted, EngineLane, StaleRequest } from './lane'
 import { profileFor } from './strength'
 import type { EngineInfo } from './uci'
@@ -261,5 +262,75 @@ describe('EngineLane', () => {
     expect(f.searches).toHaveLength(3)
     f.searches[2]?.resolve('g1f3')
     await expect(analysis).resolves.toMatchObject({ best: 'g1f3' })
+  })
+})
+
+/**
+ * EngineLane over the real EngineClient, with a hand-driven transport.
+ * Reproduces the ordering probed on stockfish-19-lite-single: the stopped
+ * analysis's `bestmove` can arrive AFTER a `readyok` that was requested
+ * behind the `stop`.
+ */
+describe('EngineLane over EngineClient', () => {
+  beforeEach(() => vi.useFakeTimers())
+  afterEach(() => vi.useRealTimers())
+
+  function wired() {
+    const sent: string[] = []
+    let handler: ((line: string) => void) | null = null
+    const transport: EngineTransport = {
+      post: (cmd) => void sent.push(cmd),
+      onMessage: (cb) => void (handler = cb),
+      onError: () => {},
+      terminate: () => {},
+    }
+    const client = new EngineClient(transport)
+    const lane = new EngineLane(client)
+    const emit = (line: string) => handler?.(line)
+    const gos = () => sent.filter((c) => c.startsWith('go '))
+    return { sent, client, lane, emit, gos }
+  }
+
+  test('a move that pre-empts analysis gets its own bestmove even when readyok beats the stale one', async () => {
+    const w = wired()
+    w.emit('readyok') // handshake
+    const analysis = w.lane.analyze(REQ)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(w.gos()).toEqual(['go depth 14 movetime 300'])
+
+    const move = w.lane.move(MOVE, () => true)
+    await vi.advanceTimersByTimeAsync(0)
+    w.emit('readyok') // any isready on the wire answers first...
+    w.emit('bestmove d2d4 ponder d7d5') // ...then the stopped analysis's reply
+    expect(w.gos()).toEqual(['go depth 14 movetime 300', 'go depth 3 movetime 150'])
+    w.emit('bestmove e7e5') // the move search's own reply
+    await expect(move).resolves.toMatchObject({ best: 'e7e5' })
+
+    // The pre-empted analysis re-runs and gets ITS reply, not one behind.
+    await vi.advanceTimersByTimeAsync(0)
+    expect(w.gos()).toHaveLength(3)
+    w.emit('info depth 14 multipv 1 score mate 1 pv h5f7')
+    w.emit('bestmove h5f7')
+    await expect(analysis).resolves.toMatchObject({ best: 'h5f7' })
+  })
+
+  test('newGame while a move searches, then a new move, stays in step', async () => {
+    const w = wired()
+    w.emit('readyok') // handshake
+    let firstCurrent = true
+    const first = w.lane.move(MOVE, () => firstCurrent)
+    first.catch(() => {})
+    await vi.advanceTimersByTimeAsync(0)
+    expect(w.gos()).toEqual(['go depth 3 movetime 150'])
+    firstCurrent = false
+    w.lane.newGame()
+    const second = w.lane.move({ ...MOVE, fen: 'MOVE2-FEN' }, () => true)
+    await vi.advanceTimersByTimeAsync(0)
+    w.emit('readyok') // newGame()'s isready, before the stopped search's bestmove
+    w.emit('bestmove d2d4')
+    expect(w.gos()).toHaveLength(2)
+    w.emit('bestmove g8f6')
+    await expect(first).rejects.toThrow(/supersed/i)
+    await expect(second).resolves.toMatchObject({ best: 'g8f6' })
   })
 })

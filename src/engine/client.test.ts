@@ -123,22 +123,20 @@ describe('EngineClient', () => {
   test('search() while one is in flight settles the FIRST promise as superseded', async () => {
     const f = fakeTransport()
     const client = new EngineClient(f.transport)
-    f.emit('readyok') // completes the initial handshake, distinct from the barrier's readyok below
+    f.emit('readyok') // completes the initial handshake
     const first = client.search({ depth: 6, moveTimeMs: 200, multiPv: 1 })
     const second = client.search({ depth: 6, moveTimeMs: 200, multiPv: 1 })
 
     await expect(first).rejects.toThrow(/supersed/i)
 
-    // The second search sends `stop` for the abandoned first search, then
-    // opens an isready barrier — it must NOT send its own `go` yet.
+    // The second search sends `stop` for the abandoned first search and
+    // must NOT send its own `go` yet.
     expect(f.sent.filter((c) => c === 'stop')).toHaveLength(1)
     expect(f.sent.filter((c) => c === 'go depth 6 movetime 200')).toHaveLength(1)
 
-    // Stockfish answers our `stop` with one `bestmove` for the abandoned
-    // first search, then the barrier's `readyok`, before the new search's
-    // own `go` is sent and answered.
+    // Stockfish answers the stopped `go` with one `bestmove`; only then is
+    // the new search's own `go` sent and answered.
     f.emit('bestmove g1f3')
-    f.emit('readyok')
     f.emit('bestmove e7e5')
     await expect(second).resolves.toMatchObject({ best: 'e7e5' })
   })
@@ -146,17 +144,14 @@ describe('EngineClient', () => {
   test('a late bestmove for a superseded search does not resolve the new search with the stale move', async () => {
     const f = fakeTransport()
     const client = new EngineClient(f.transport)
-    f.emit('readyok') // completes the initial handshake, distinct from the barrier's readyok below
+    f.emit('readyok') // completes the initial handshake
     const first = client.search({ depth: 6, moveTimeMs: 200, multiPv: 1 })
     first.catch(() => {
       // Expected: superseded below. Prevent an unhandled rejection warning.
     })
     const second = client.search({ depth: 8, moveTimeMs: 300, multiPv: 1 })
 
-    // The engine answers the `stop` we sent for the abandoned first search
-    // with a `bestmove` for THAT search, arriving before the barrier clears.
-    f.emit('bestmove g1f3') // stale reply for the abandoned search
-    f.emit('readyok') // barrier clears; the new search's `go` is sent now
+    f.emit('bestmove g1f3') // stale reply for the abandoned search; releases the new `go`
     f.emit('bestmove e7e5') // real reply for the new search
 
     const result = await second
@@ -164,47 +159,97 @@ describe('EngineClient', () => {
     expect(result.best).not.toBe('g1f3')
   })
 
-  test('a supersede whose stop produces ZERO stale bestmove replies still resolves the new search', async () => {
+  // Probed on the bundled stockfish-19-lite-single build: after
+  // `go` + `stop` + `isready`, `readyok` sometimes arrives BEFORE the
+  // stopped search's `bestmove`. A client that releases the next `go` on
+  // that `readyok` lets the stale `bestmove` resolve the new search, and
+  // every later search then runs one reply behind.
+  test('a readyok that arrives before the stopped search\'s bestmove does not release the new search', async () => {
     const f = fakeTransport()
     const client = new EngineClient(f.transport)
-    f.emit('readyok') // completes the initial handshake, distinct from the barrier's readyok below
-    const first = client.search({ depth: 6, moveTimeMs: 200, multiPv: 1 })
-    first.catch(() => {})
-    const second = client.search({ depth: 8, moveTimeMs: 300, multiPv: 1 })
+    f.emit('readyok') // completes the initial handshake
+    const analysis = client.search({ depth: 14, moveTimeMs: 300, multiPv: 1 })
+    analysis.catch(() => {})
 
-    // The abandoned search's `stop` produces NO bestmove at all — the
-    // engine folded it straight into readying up for the next search. This
-    // is exactly the sequence that broke the old counter-based scheme.
+    // EngineLane pre-empting analysis for a move: stop, configure, position, search.
+    client.stop()
+    client.configure(profileFor(1))
+    client.setPosition('rnbqkbnr/pppppppp/8/8/5P2/8/PPPPP1PP/RNBQKBNR b KQkq - 0 1')
+    const move = client.search({ depth: 1, moveTimeMs: 50, multiPv: 1 })
+
+    // Whatever `isready` is on the wire gets its `readyok` first...
     f.emit('readyok')
+    expect(f.sent.filter((c) => c.startsWith('go '))).toEqual(['go depth 14 movetime 300'])
+    // ...and only then does the stopped analysis report its `bestmove`.
+    f.emit('bestmove d2d4 ponder d7d5')
+    expect(f.sent.filter((c) => c.startsWith('go '))).toEqual([
+      'go depth 14 movetime 300',
+      'go depth 1 movetime 50',
+    ])
     f.emit('bestmove e7e5')
 
-    const result = await second
-    expect(result.best).toBe('e7e5')
+    await expect(analysis).rejects.toThrow(/supersed/i)
+    await expect(move).resolves.toMatchObject({ best: 'e7e5' })
   })
 
-  test('a supersede whose stop produces TWO stale bestmove replies still resolves the new search', async () => {
+  test('after a supersede whose readyok came early, later searches are not one reply behind', async () => {
     const f = fakeTransport()
     const client = new EngineClient(f.transport)
-    f.emit('readyok') // completes the initial handshake, distinct from the barrier's readyok below
-    const first = client.search({ depth: 6, moveTimeMs: 200, multiPv: 1 })
-    first.catch(() => {})
-    const second = client.search({ depth: 8, moveTimeMs: 300, multiPv: 1 })
-
-    f.emit('bestmove g1f3') // stale #1
-    f.emit('bestmove b1c3') // stale #2
+    f.emit('readyok') // completes the initial handshake
+    client.search({ depth: 14, moveTimeMs: 300, multiPv: 1 }).catch(() => {})
+    const second = client.search({ depth: 1, moveTimeMs: 50, multiPv: 1 })
     f.emit('readyok')
-    f.emit('bestmove e7e5') // the new search's real reply
+    f.emit('bestmove d2d4') // the stopped search's reply
+    f.emit('bestmove e7e5') // the second search's own reply
+    await expect(second).resolves.toMatchObject({ best: 'e7e5' })
 
-    const result = await second
-    expect(result.best).toBe('e7e5')
-    expect(result.best).not.toBe('g1f3')
-    expect(result.best).not.toBe('b1c3')
+    const third = client.search({ depth: 1, moveTimeMs: 50, multiPv: 1 })
+    expect(f.sent.filter((c) => c.startsWith('go '))).toHaveLength(3)
+    f.emit('bestmove g1f3')
+    await expect(third).resolves.toMatchObject({ best: 'g1f3' })
   })
 
-  test("the new search's go is not sent until after the barrier's readyok", async () => {
+  test('newGame()\'s readyok during an unwinding search does not release the next search', async () => {
     const f = fakeTransport()
     const client = new EngineClient(f.transport)
-    f.emit('readyok') // completes the initial handshake, distinct from the barrier's readyok below
+    f.emit('readyok') // completes the initial handshake
+    client.search({ depth: 14, moveTimeMs: 300, multiPv: 1 }).catch(() => {})
+    client.stop()
+    client.newGame()
+    const next = client.search({ depth: 1, moveTimeMs: 50, multiPv: 1 })
+
+    f.emit('readyok') // newGame()'s isready (probed: can precede the stopped search's bestmove)
+    expect(f.sent.filter((c) => c.startsWith('go '))).toHaveLength(1)
+    f.emit('bestmove d2d4')
+    f.emit('bestmove e2e4')
+    await expect(next).resolves.toMatchObject({ best: 'e2e4' })
+  })
+
+  test('several supersedes in a row stop the engine once and send only the latest go', async () => {
+    const f = fakeTransport()
+    const client = new EngineClient(f.transport)
+    f.emit('readyok') // completes the initial handshake
+    const first = client.search({ depth: 6, moveTimeMs: 200, multiPv: 1 })
+    const second = client.search({ depth: 7, moveTimeMs: 200, multiPv: 1 })
+    const third = client.search({ depth: 8, moveTimeMs: 300, multiPv: 1 })
+
+    await expect(first).rejects.toThrow(/supersed/i)
+    await expect(second).rejects.toThrow(/supersed/i)
+    expect(f.sent.filter((c) => c === 'stop')).toHaveLength(1)
+
+    f.emit('bestmove g1f3') // the first (stopped) search's only reply
+    expect(f.sent.filter((c) => c.startsWith('go '))).toEqual([
+      'go depth 6 movetime 200',
+      'go depth 8 movetime 300',
+    ])
+    f.emit('bestmove e7e5')
+    await expect(third).resolves.toMatchObject({ best: 'e7e5' })
+  })
+
+  test("the new search's go is not sent until the stopped search's bestmove arrives", async () => {
+    const f = fakeTransport()
+    const client = new EngineClient(f.transport)
+    f.emit('readyok') // completes the initial handshake
     const first = client.search({ depth: 6, moveTimeMs: 200, multiPv: 1 })
     first.catch(() => {})
     void client.search({ depth: 8, moveTimeMs: 300, multiPv: 1 })
@@ -212,13 +257,8 @@ describe('EngineClient', () => {
     // Only the first search's `go` has been sent so far.
     expect(f.sent.filter((c) => c.startsWith('go '))).toEqual(['go depth 6 movetime 200'])
     expect(f.sent).toContain('stop')
-    expect(f.sent).toContain('isready')
 
     f.emit('bestmove g1f3')
-    // Still no second `go` — the barrier hasn't cleared yet.
-    expect(f.sent.filter((c) => c.startsWith('go '))).toEqual(['go depth 6 movetime 200'])
-
-    f.emit('readyok')
     expect(f.sent.filter((c) => c.startsWith('go '))).toEqual([
       'go depth 6 movetime 200',
       'go depth 8 movetime 300',
@@ -226,7 +266,33 @@ describe('EngineClient', () => {
     f.emit('bestmove e7e5')
   })
 
-  test('an extra stop() before a superseding search() (EngineLane pre-empting a move) does not double-barrier or hang', async () => {
+  test('a stop() with no search running (e.g. from newGame) does not hold back the next search', async () => {
+    const f = fakeTransport()
+    const client = new EngineClient(f.transport)
+    f.emit('readyok') // completes the initial handshake
+    client.stop()
+    client.newGame()
+    const next = client.search({ depth: 4, moveTimeMs: 100, multiPv: 1 })
+    expect(f.sent.filter((c) => c.startsWith('go '))).toEqual(['go depth 4 movetime 100'])
+    f.emit('readyok') // newGame()'s isready
+    f.emit('bestmove e2e4')
+    await expect(next).resolves.toMatchObject({ best: 'e2e4' })
+  })
+
+  test('a stray bestmove with no go outstanding resolves nothing', async () => {
+    const f = fakeTransport()
+    const client = new EngineClient(f.transport)
+    f.emit('readyok')
+    const first = client.search({ depth: 2, moveTimeMs: 50, multiPv: 1 })
+    f.emit('bestmove e2e4')
+    await expect(first).resolves.toMatchObject({ best: 'e2e4' })
+    f.emit('bestmove h2h4') // answers no `go` of ours
+    const second = client.search({ depth: 2, moveTimeMs: 50, multiPv: 1 })
+    f.emit('bestmove d2d4')
+    await expect(second).resolves.toMatchObject({ best: 'd2d4' })
+  })
+
+  test('an extra stop() before a superseding search() (EngineLane pre-empting a move) does not hang', async () => {
     const f = fakeTransport()
     const client = new EngineClient(f.transport)
     f.emit('readyok') // completes the initial handshake (its own isready)
@@ -244,16 +310,13 @@ describe('EngineClient', () => {
     const second = client.search({ depth: 8, moveTimeMs: 300, multiPv: 1 })
 
     // Two `stop`s reach the wire (the explicit one, then search()'s own for
-    // the supersede) but only ONE barrier (isready) opens beyond the
-    // handshake's — pending state is not corrupted by the extra stop.
+    // the supersede); a second `stop` on a stopping engine is harmless and
+    // produces no extra `bestmove`. No `isready` beyond the handshake's.
     expect(f.sent.filter((c) => c === 'stop')).toHaveLength(2)
-    expect(f.sent.filter((c) => c === 'isready')).toHaveLength(2) // handshake + barrier
+    expect(f.sent.filter((c) => c === 'isready')).toHaveLength(1)
     expect(f.sent.filter((c) => c.startsWith('go '))).toEqual(['go depth 6 movetime 200'])
 
-    f.emit('bestmove g1f3') // stale reply for the abandoned first search
-    // The new search's `go` still waits for the barrier's `readyok`.
-    expect(f.sent.filter((c) => c.startsWith('go '))).toEqual(['go depth 6 movetime 200'])
-    f.emit('readyok') // barrier clears
+    f.emit('bestmove g1f3') // the stopped first search's reply
     expect(f.sent.filter((c) => c.startsWith('go '))).toEqual([
       'go depth 6 movetime 200',
       'go depth 8 movetime 300',
@@ -264,7 +327,7 @@ describe('EngineClient', () => {
     await expect(second).resolves.toMatchObject({ best: 'e7e5' })
   })
 
-  test('a CRITICAL ERROR while a barrier is outstanding still marks the client dead and rejects pending work', async () => {
+  test('a CRITICAL ERROR while a superseding search is held back marks the client dead and rejects it', async () => {
     const f = fakeTransport()
     const client = new EngineClient(f.transport)
     f.emit('readyok') // completes the initial handshake
@@ -272,28 +335,39 @@ describe('EngineClient', () => {
     first.catch(() => {})
     const second = client.search({ depth: 8, moveTimeMs: 300, multiPv: 1 })
 
-    // Barrier is now outstanding (stop + isready sent, no readyok yet).
+    // The second search is held back (stop sent, no bestmove yet).
     f.emit('info string CRITICAL ERROR: illegal move')
 
     await expect(second).rejects.toThrow(/critical/i)
     // The client is now dead and rejects promptly rather than waiting
-    // forever for a readyok that will never come.
+    // forever for a bestmove that will never come.
     await expect(client.search({ depth: 4, moveTimeMs: 100, multiPv: 1 })).rejects.toThrow(/dead/i)
   })
 
-  test("info lines emitted before the barrier completes do not appear in the new search's lines", async () => {
+  test('a transport error while a superseding search is held back rejects it promptly', async () => {
     const f = fakeTransport()
     const client = new EngineClient(f.transport)
-    f.emit('readyok') // completes the initial handshake, distinct from the barrier's readyok below
+    f.emit('readyok')
+    client.search({ depth: 6, moveTimeMs: 200, multiPv: 1 }).catch(() => {})
+    const second = client.search({ depth: 8, moveTimeMs: 300, multiPv: 1 })
+    f.emitError({ message: 'worker crashed' })
+    await expect(second).rejects.toThrow(/error/i)
+    await expect(client.search({ depth: 4, moveTimeMs: 100, multiPv: 1 })).rejects.toThrow(/dead/i)
+  })
+
+  test("info lines from the stopped search do not appear in the new search's lines", async () => {
+    const f = fakeTransport()
+    const client = new EngineClient(f.transport)
+    f.emit('readyok') // completes the initial handshake
     const first = client.search({ depth: 6, moveTimeMs: 200, multiPv: 1 })
     first.catch(() => {})
     const second = client.search({ depth: 8, moveTimeMs: 300, multiPv: 1 })
 
     // An info line from the abandoned first search, still arriving while
-    // the barrier is outstanding — must not contaminate the new search.
+    // it unwinds — must not contaminate the new search.
     f.emit('info depth 6 multipv 1 score cp 10 pv g1f3')
-    f.emit('readyok')
-    // A legitimate info line for the new search, after the barrier clears.
+    f.emit('bestmove g1f3')
+    // A legitimate info line for the new search, after its `go` was sent.
     f.emit('info depth 8 multipv 1 score cp -5 pv e7e5')
     f.emit('bestmove e7e5')
 
