@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
-import { MatchController } from './controller'
+import { MatchController, chooseEngineMove } from './controller'
 import type { MatchConfig } from './types'
 import type { EngineInfo } from '../engine/uci'
 
@@ -774,5 +774,98 @@ describe('MatchController: one-player undo pops to the human\'s turn (I5)', () =
     expect(c.clockState().running).toBe('b')
     c.undo()
     expect(c.clockState().running).toBe('w')
+  })
+})
+
+describe('blunder injection (I3)', () => {
+  beforeEach(() => vi.useFakeTimers())
+  afterEach(() => vi.useRealTimers())
+
+  /** A random source that returns the given values in order, then repeats the last. */
+  const seq = (...values: number[]) => {
+    let i = 0
+    return () => values[Math.min(i++, values.length - 1)] ?? 0
+  }
+
+  // Black's candidate replies to 1.e4, as MultiPV would report them over two
+  // iterations. Rank 3's depth-1 report (a7a6) is superseded by its deeper
+  // depth-2 report (e7e6): the pool must use the deepest line per rank.
+  const LINES: EngineInfo[] = [
+    { depth: 1, multipv: 1, scoreCp: 30, pv: ['e7e5'] },
+    { depth: 1, multipv: 2, scoreCp: 20, pv: ['c7c5'] },
+    { depth: 1, multipv: 3, scoreCp: 10, pv: ['a7a6'] },
+    { depth: 1, multipv: 4, scoreCp: 0, pv: ['d7d6'] },
+    { depth: 2, multipv: 1, scoreCp: 35, pv: ['e7e5', 'g1f3'] },
+    { depth: 2, multipv: 2, scoreCp: 25, pv: ['c7c5', 'g1f3'] },
+    { depth: 2, multipv: 3, scoreCp: 5, pv: ['e7e6', 'd2d4'] },
+    { depth: 2, multipv: 4, scoreCp: -10, pv: ['d7d6', 'd2d4'] },
+  ]
+
+  async function replyTo(e4With: { level: 1 | 8; random: () => number }) {
+    const e = fakeEngine()
+    const c = new MatchController({ engine: e.client, random: e4With.random })
+    c.start({ ...HUMAN_VS_ENGINE, black: { kind: 'engine', level: e4With.level } })
+    c.submitHumanMove({ from: 'e2', to: 'e4' })
+    await vi.advanceTimersByTimeAsync(0)
+    e.calls[0]?.resolve('e7e5', LINES)
+    await vi.advanceTimersByTimeAsync(0)
+    return c.snapshot().game.moves.map((m) => m.san)
+  }
+
+  test('a forced hit plays a lower-ranked line from the engine\'s own MultiPV, not best', async () => {
+    // First draw 0 < 0.55 => blunder; second draw 0 => first of the weaker half.
+    const moves = await replyTo({ level: 1, random: seq(0, 0) })
+    expect(moves).toEqual(['e4', 'e6']) // rank 3 at its DEEPEST report, not a6
+    expect(moves[1]).not.toBe('e5')
+  })
+
+  test('a forced hit picks only from the weaker half of the ranking', async () => {
+    const moves = await replyTo({ level: 1, random: seq(0, 0.999) })
+    expect(moves).toEqual(['e4', 'd6']) // rank 4, the weakest
+  })
+
+  test('a forced miss plays best', async () => {
+    const moves = await replyTo({ level: 1, random: seq(0.99) })
+    expect(moves).toEqual(['e4', 'e5'])
+  })
+
+  test('blunderChance 0 (level 8) never blunders, even with a source that always returns 0', async () => {
+    const random = vi.fn(() => 0)
+    const moves = await replyTo({ level: 8, random })
+    expect(moves).toEqual(['e4', 'e5'])
+    expect(random).not.toHaveBeenCalled()
+  })
+
+  test('the default random source is Math.random', async () => {
+    const spy = vi.spyOn(Math, 'random').mockReturnValue(0)
+    const e = fakeEngine()
+    const c = new MatchController({ engine: e.client }) // no random injected
+    c.start({ ...HUMAN_VS_ENGINE, black: { kind: 'engine', level: 1 } })
+    c.submitHumanMove({ from: 'e2', to: 'e4' })
+    await vi.advanceTimersByTimeAsync(0)
+    e.calls[0]?.resolve('e7e5', LINES)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(spy).toHaveBeenCalled()
+    expect(c.snapshot().game.moves[1]?.san).toBe('e6')
+    spy.mockRestore()
+  })
+
+  test('with too few lines to choose from, a hit still plays best', () => {
+    expect(chooseEngineMove({ best: 'e7e5', lines: [] }, { blunderChance: 1 }, () => 0)).toBe('e7e5')
+    expect(
+      chooseEngineMove(
+        { best: 'e7e5', lines: [{ depth: 3, multipv: 1, pv: ['e7e5'] }] },
+        { blunderChance: 1 },
+        () => 0,
+      ),
+    ).toBe('e7e5')
+  })
+
+  test('with two lines, a hit plays the second', () => {
+    const lines: EngineInfo[] = [
+      { depth: 3, multipv: 1, pv: ['e7e5'] },
+      { depth: 3, multipv: 2, pv: ['c7c5'] },
+    ]
+    expect(chooseEngineMove({ best: 'e7e5', lines }, { blunderChance: 1 }, () => 0)).toBe('c7c5')
   })
 })

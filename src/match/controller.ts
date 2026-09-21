@@ -1,6 +1,6 @@
 import { Clock } from '../clock/clock'
 import { Game } from '../game-core/game'
-import { uciToIntent } from '../engine/uci'
+import { uciToIntent, type EngineInfo } from '../engine/uci'
 import type { Color, GameStatus, MoveIntent, MoveResult } from '../game-core/types'
 import { profileFor, type StrengthProfile } from '../engine/strength'
 import type { Level } from '../storage/storage'
@@ -15,7 +15,7 @@ export interface EngineLike {
   setPosition(fen: string, moves: string[]): void
   search(limits: { depth: number; moveTimeMs: number; multiPv: number }): Promise<{
     best: string
-    lines: unknown[]
+    lines: readonly EngineInfo[]
   }>
   stop(): void
   dispose(): void
@@ -27,6 +27,51 @@ const IDLE_CONFIG: MatchConfig = {
   timeControl: { kind: 'untimed' },
 }
 
+/**
+ * Pick the engine's move for this turn, applying the profile's deliberate
+ * blunder rate (spec: "not optional garnish" — without it the low levels
+ * are unbeatable and never err in a human-looking way).
+ *
+ * On a blunder the move comes from the engine's OWN ranked MultiPV lines,
+ * never a random legal move (which would hang the queen and feel absurd):
+ * take the deepest report for each `multipv` rank, then choose among the
+ * weaker half of that ranking (always excluding rank 1, the best line).
+ * Plays `best` on a miss, when `blunderChance` is 0, or when there are
+ * fewer than two distinct candidate moves to choose from.
+ */
+export function chooseEngineMove(
+  result: { best: string; lines: readonly EngineInfo[] },
+  profile: Pick<StrengthProfile, 'blunderChance'>,
+  random: () => number,
+): string {
+  if (profile.blunderChance <= 0) return result.best
+  if (random() >= profile.blunderChance) return result.best
+
+  // Deepest report per rank. (A later report at equal depth wins: it is the
+  // more complete search of that iteration.)
+  const byRank = new Map<number, EngineInfo>()
+  for (const line of result.lines) {
+    const rank = line.multipv ?? 1
+    const seen = byRank.get(rank)
+    if (!seen || (line.depth ?? 0) >= (seen.depth ?? 0)) byRank.set(rank, line)
+  }
+
+  const ranked: string[] = []
+  for (const rank of [...byRank.keys()].sort((a, b) => a - b)) {
+    const move = byRank.get(rank)?.pv[0]
+    if (move && !ranked.includes(move)) ranked.push(move)
+  }
+  // The best move (by the engine's own verdict) is never a blunder candidate.
+  const candidates = ranked.filter((m) => m !== result.best)
+  if (ranked.length < 2 || candidates.length === 0) return result.best
+
+  // The weaker portion: the bottom half of the ranking, rank 1 excluded.
+  const weaker = ranked.slice(Math.max(1, Math.floor(ranked.length / 2))).filter((m) => m !== result.best)
+  const pool = weaker.length > 0 ? weaker : candidates
+  const index = Math.min(pool.length - 1, Math.floor(random() * pool.length))
+  return pool[index] ?? result.best
+}
+
 /** The true rules winner, or null when the rules did not decide one. */
 function winnerFor(status: GameStatus): Color | null {
   return status.kind === 'checkmate' ? status.winner : null
@@ -34,6 +79,8 @@ function winnerFor(status: GameStatus): Color | null {
 
 export class MatchController {
   private readonly engine: EngineLike
+  /** Injectable so blunder injection is deterministic under test. */
+  private readonly random: () => number
   private game = new Game()
   private clock = new Clock({ kind: 'untimed' })
   private config: MatchConfig = IDLE_CONFIG
@@ -60,8 +107,9 @@ export class MatchController {
    */
   private cachedSnapshot: MatchSnapshot
 
-  constructor(deps: { engine: EngineLike }) {
+  constructor(deps: { engine: EngineLike; random?: () => number }) {
     this.engine = deps.engine
+    this.random = deps.random ?? Math.random
     this.cachedSnapshot = this.buildSnapshot()
   }
 
@@ -207,7 +255,7 @@ export class MatchController {
         if (id !== this.requestId) return
       }
 
-      this.applyEngineMove(result.best, side, level, id)
+      this.applyEngineMove(chooseEngineMove(result, profile, this.random), side, level, id)
     } catch {
       // A rejection here can be a genuine engine failure OR our own
       // supersede (search() rejects the superseded promise when a new
