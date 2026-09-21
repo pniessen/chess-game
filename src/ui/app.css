@@ -361,6 +361,14 @@ body {
 }
 .coach-notice button { margin-left: 8px; }
 
+.opening {
+  color: var(--color-muted);
+  max-width: 28em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 @media (max-width: 768px) {
   .layout {
     grid-template-columns: 1fr;

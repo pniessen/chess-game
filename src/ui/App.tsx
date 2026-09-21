@@ -16,6 +16,7 @@ import { CoachClient } from '../coach/client'
 import { useCoach } from './useCoach'
 import { useHints, type HintAnalyze, type HintReasoner } from './hints/useHints'
 import { useEvaluation, type EvalAnalyze } from './useEvaluation'
+import { useOpeningBook } from './useOpeningBook'
 import { gameIdOf } from './gameKey'
 import {
   clearInProgress,
@@ -302,6 +303,16 @@ function AppInner({
     cache: evalCache,
   })
 
+  const { book } = useOpeningBook()
+  // The SANs up to the displayed ply: an undo followed by a different move
+  // leaves ply/livePly unchanged, so the moves themselves are the memo key.
+  const sanKey = game.moves.slice(0, game.ply).map((m) => m.san).join(' ')
+  const opening = useMemo(
+    () => (book ? book.identify(game.epds(Math.min(game.ply, book.maxPly))) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [book, game, game.ply, sanKey],
+  )
+
   // ---- persistence --------------------------------------------------------
 
   useEffect(() => {
@@ -546,6 +557,9 @@ function AppInner({
         <p data-testid="turn">{position.turn() === 'w' ? 'White to move' : 'Black to move'}</p>
         <p className="result" data-testid="result">
           {describeResult(snapshot.phase, displayedStatus)}
+        </p>
+        <p className="opening" data-testid="opening" title={opening ? `${opening.eco} ${opening.name}` : undefined}>
+          {opening ? `${opening.eco} ${opening.name}` : ''}
         </p>
         {coachState.status === 'offline' || coachState.status === 'no-key' ? (
           <span
