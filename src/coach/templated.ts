@@ -1,9 +1,6 @@
-import { uciToIntent, type EngineInfo } from '../engine/uci'
+import { principalLine, uciToIntent, type EngineInfo } from '../engine/uci'
 import type { Position } from '../game-core/position'
-
-const PIECE_NAME: Record<string, string> = {
-  p: 'pawn', n: 'knight', b: 'bishop', r: 'rook', q: 'queen', k: 'king',
-}
+import { PIECE_NAME } from './hints'
 
 /**
  * Build a hint from engine output alone.
@@ -12,17 +9,11 @@ const PIECE_NAME: Record<string, string> = {
  * evaluation, and material won. No invented positional commentary.
  */
 export function templatedHint(lines: EngineInfo[], position: Position): string | null {
-  // Select the best line explicitly: multipv=1 (or undefined) at greatest depth.
-  let best: EngineInfo | undefined
-  let maxDepth = -1
-  for (const line of lines) {
-    const isMultipvOne = line.multipv === undefined || line.multipv === 1
-    const depth = line.depth ?? 0
-    if (isMultipvOne && depth > maxDepth) {
-      best = line
-      maxDepth = depth
-    }
-  }
+  // Best line: multipv=1 (or undefined) at greatest depth. `principalLine`
+  // is the ONE place this selection is made — the hint's arrow (coach/hints.ts
+  // suggestionFrom) uses the same function, so the arrow move and this text
+  // always agree, whatever order the engine's info lines arrived in.
+  const best = principalLine(lines)
   const uci = best?.pv[0]
   if (!best || !uci) return null
 

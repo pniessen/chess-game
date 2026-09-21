@@ -6,10 +6,8 @@ export function Controls({
   canUndo,
   canRedo,
   canResign,
-  engineAvailable,
   speed,
-  hintText,
-  hintPending,
+  hint,
   onUndo,
   onRedo,
   onFlip,
@@ -25,10 +23,8 @@ export function Controls({
   canUndo: boolean
   canRedo: boolean
   canResign: boolean
-  engineAvailable: boolean
   speed: number
-  hintText: string
-  hintPending: boolean
+  hint: { label: string; text: string; disabled: boolean }
   onUndo: () => void
   onRedo: () => void
   onFlip: () => void
@@ -46,7 +42,6 @@ export function Controls({
   const pauseDisabled = !hasEngineSeat || !(isPaused || isRunning)
   const stepDisabled = !hasEngineSeat || !isPaused
   const speedDisabled = !hasEngineSeat || phase.kind === 'finished' || phase.kind === 'idle'
-  const hintDisabled = !engineAvailable || phase.kind !== 'awaiting-human' || hintPending
 
   return (
     <div className="controls">
@@ -90,11 +85,11 @@ export function Controls({
         </label>
       </div>
       <div className="controls-row hint-row">
-        <button data-testid="hint" onClick={onHint} disabled={hintDisabled}>
-          {hintPending ? 'Thinking…' : 'Hint'}
+        <button data-testid="hint" onClick={onHint} disabled={hint.disabled}>
+          {hint.label}
         </button>
-        <span className="hint-text" data-testid="hint-text">
-          {hintText}
+        <span className="hint-text" data-testid="hint-text" aria-live="polite">
+          {hint.text}
         </span>
       </div>
     </div>

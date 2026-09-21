@@ -2,6 +2,8 @@ import { useRef } from 'react'
 import { flushSync } from 'react-dom'
 import type { Position } from '../../game-core/position'
 import type { Color, PieceSymbol, Square as SquareName } from '../../game-core/types'
+import type { Annotation } from './annotations'
+import { BoardOverlay } from './BoardOverlay'
 import { Piece } from './Piece'
 import { Square } from './Square'
 import { filesInOrder, ranksInOrder, squaresInOrder } from './squares'
@@ -23,6 +25,7 @@ export function Board({
   onSquareClick,
   onPointerDown,
   dragging,
+  annotations = [],
 }: {
   position: Position
   orientation: 'white' | 'black'
@@ -32,6 +35,8 @@ export function Board({
   onPointerDown?: (e: React.PointerEvent) => void
   /** Overrides which square shows the "dragging" fade; defaults to the hook's own drag state. */
   dragging?: SquareName | null
+  /** Square highlights and arrows drawn above the pieces (hints, review). */
+  annotations?: readonly Annotation[]
 }) {
   // A real two-click sequence works because each click is its own React
   // event: App's onSquareClick closure re-created with fresh `selection`
@@ -119,6 +124,7 @@ export function Board({
             </Square>
           )
         })}
+        <BoardOverlay annotations={annotations} orientation={orientation} />
       </div>
       <div className="coords coords-files" aria-hidden="true">
         {filesInOrder(orientation).map((f) => (

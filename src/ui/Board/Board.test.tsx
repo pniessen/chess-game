@@ -79,4 +79,35 @@ describe('Board', () => {
     e2.click()
     expect(onSquareClick).toHaveBeenCalledWith('e2')
   })
+
+  test('annotations render in an overlay that never claims a square', () => {
+    const { container } = render(
+      <Board
+        position={new Position()}
+        orientation="white"
+        highlights={{}}
+        onSquareClick={vi.fn()}
+        annotations={[
+          { kind: 'square', square: 'g1', tone: 'hint' },
+          { kind: 'arrow', from: 'g1', to: 'f3', tone: 'hint' },
+        ]}
+      />,
+    )
+    const rect = container.querySelector('[data-annotation="square"]')
+    expect(rect?.getAttribute('data-annotation-square')).toBe('g1')
+    expect(rect?.getAttribute('x')).toBe('6')
+    expect(rect?.getAttribute('y')).toBe('7')
+    const arrow = container.querySelector('[data-annotation="arrow"]')
+    expect(arrow?.getAttribute('data-from')).toBe('g1')
+    expect(arrow?.getAttribute('data-to')).toBe('f3')
+    // Still exactly 64 squares: the overlay must not add [data-square] nodes.
+    expect(container.querySelectorAll('[data-square]')).toHaveLength(64)
+  })
+
+  test('no annotations, no overlay', () => {
+    const { container } = render(
+      <Board position={new Position()} orientation="white" highlights={{}} onSquareClick={vi.fn()} />,
+    )
+    expect(container.querySelector('[data-testid="board-overlay"]')).toBeNull()
+  })
 })

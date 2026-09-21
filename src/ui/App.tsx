@@ -10,6 +10,9 @@ import type { MatchConfig, MatchPhase } from '../match/types'
 import { EngineClient, createWorkerTransport } from '../engine/client'
 import { profileFor } from '../engine/strength'
 import { templatedHint } from '../coach/templated'
+import { HINT_BUDGET } from '../coach/hints'
+import { useHints, type HintAnalyze, type HintReasoner } from './hints/useHints'
+import { gameIdOf } from './gameKey'
 import {
   clearInProgress,
   loadInProgress,
@@ -232,8 +235,6 @@ function AppInner({
   const [timeControlId, setTimeControlId] = useState(settings.timeControlId)
   const [color, setColor] = useState<'white' | 'black'>(settings.orientation)
   const [canRedo, setCanRedo] = useState(false)
-  const [hintText, setHintText] = useState('')
-  const [hintPending, setHintPending] = useState(false)
   const [score, setScore] = useState<MatchScore>(loadScore)
   const [resumeChoice, setResumeChoice] = useState<'pending' | 'resolved'>(
     pendingResume ? 'pending' : 'resolved',
@@ -333,7 +334,6 @@ function AppInner({
     controller.start(config)
     scoredRef.current = false
     setCanRedo(false)
-    setHintText('')
     setSelection({ kind: 'idle' })
   }
 
@@ -363,7 +363,6 @@ function AppInner({
     scoredRef.current = alreadyScored || history.status().kind !== 'in-progress'
     controller.load(config, history)
     setCanRedo(false)
-    setHintText('')
     setSelection({ kind: 'idle' })
   }
 
@@ -449,25 +448,35 @@ function AppInner({
     if (side) controller.resign(side)
   }
 
-  const handleHint = async () => {
-    if (!engine || snapshot.phase.kind !== 'awaiting-human') return
-    setHintPending(true)
-    setHintText('')
-    try {
+  // Interim adapter: Task 3 replaces this body with controller.analyze(),
+  // which schedules against the controller's own searches. Until then the
+  // hint button is only enabled on the human's turn, when the controller is
+  // not searching.
+  const analyzeForHint = useCallback<HintAnalyze>(
+    async (fen) => {
+      if (!engine) throw new Error('engine unavailable')
       await engine.waitReady()
       engine.configure(profileFor(8))
-      // The hint is for the move about to be made: the LIVE position, not
-      // whatever earlier ply the user may be browsing.
-      const pos = game.positionAt(game.livePly)
-      engine.setPosition(pos.fen(), [])
-      const result = await engine.search({ depth: 12, moveTimeMs: 500, multiPv: 1 })
-      setHintText(templatedHint(result.lines, pos) ?? 'No hint available.')
-    } catch {
-      setHintText('Hint unavailable.')
-    } finally {
-      setHintPending(false)
-    }
-  }
+      engine.setPosition(fen, [])
+      return engine.search(HINT_BUDGET)
+    },
+    [engine],
+  )
+
+  // Press 3 = reasoning. Templated for now; Task 6 asks Claude first.
+  const reasonForHint = useCallback<HintReasoner>(
+    async (s, pos) => templatedHint([...s.lines], pos) ?? `${s.san} is the engine's choice.`,
+    [],
+  )
+
+  const hints = useHints({
+    resetKey: `${gameIdOf(game)}:${game.livePly}:${game.ply}`,
+    analyze: analyzeForHint,
+    reason: reasonForHint,
+  })
+
+  // Hints are always about the LIVE position (the button is disabled while browsing).
+  const handleHint = () => hints.advance(game.positionAt(game.livePly))
 
   // ---- render -----------------------------------------------------------
 
@@ -525,6 +534,7 @@ function AppInner({
             orientation={orientation}
             highlights={highlights}
             onSquareClick={onSquareClick}
+            annotations={hints.annotations}
           />
           <span className="sr-only" data-testid="ply-count">
             {game.moves.length}
@@ -549,15 +559,22 @@ function AppInner({
             canUndo={game.moves.length > 0 && snapshot.phase.kind !== 'idle'}
             canRedo={canRedo}
             canResign={resignableSide(snapshot.config, snapshot.phase) !== null}
-            engineAvailable={engineAvailable}
             speed={snapshot.config.engineDelayMs ?? 500}
-            hintText={hintText}
-            hintPending={hintPending}
+            hint={{
+              label: hints.label,
+              text: hints.text,
+              disabled:
+                !engineAvailable ||
+                snapshot.phase.kind !== 'awaiting-human' ||
+                !game.isViewingLive() ||
+                hints.pending ||
+                hints.exhausted,
+            }}
             onUndo={handleUndo}
             onRedo={handleRedo}
             onFlip={handleFlip}
             onResign={handleResign}
-            onHint={() => void handleHint()}
+            onHint={handleHint}
             onPause={() => controller.pause()}
             onResume={() => controller.resume()}
             onStep={() => controller.step()}

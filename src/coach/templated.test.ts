@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import { templatedHint } from './templated'
+import { suggestionFrom } from './hints'
 import { Position } from '../game-core/position'
 import type { EngineInfo } from '../engine/uci'
 
@@ -58,5 +59,30 @@ describe('templatedHint', () => {
     expect(hint).not.toBeNull()
     expect(hint).toMatch(/mate.*against/)
     expect(hint).not.toMatch(/holds out longest/)
+  })
+
+  // Controller ruling: templatedHint and the hint's arrow (coach/hints.ts
+  // suggestionFrom) must derive from the SAME engine line, via the ONE
+  // selection rule in engine/uci.ts's principalLine. This constructs info
+  // lines where "first multipv=1 line at the max depth" (e2e4) and "last
+  // multipv=1 line at the max depth" (d2d4) differ, so a regression to two
+  // independent selections (e.g. templatedHint reverting to its old
+  // depth-strictly-greater loop) would pick e2e4 here while suggestionFrom
+  // picks d2d4 — and this test would catch that divergence.
+  test('arrow move and templated text agree on the same line when first-at-depth and last-at-depth differ', () => {
+    const lines: EngineInfo[] = [
+      { depth: 10, multipv: 1, scoreCp: 40, pv: ['e2e4'] }, // first line at the max depth
+      { depth: 10, multipv: 1, scoreCp: 35, pv: ['d2d4'] }, // last line at the max depth
+    ]
+    const pos = new Position()
+
+    const hint = templatedHint(lines, pos)
+    const suggestion = suggestionFrom(lines, pos)
+
+    expect(suggestion?.san).toBe('d4')
+    expect(hint).toContain('d4')
+    expect(hint).not.toContain('e4')
+    // Same move, not just similar wording.
+    expect(hint).toContain(suggestion!.san)
   })
 })

@@ -83,3 +83,22 @@ export function uciToIntent(uci: string): MoveIntent | null {
     ...(promo ? { promotion: promo as MoveIntent['promotion'] } : {}),
   }
 }
+
+/**
+ * The engine's main line: multipv 1 (or unlabelled) at the greatest depth.
+ * Not simply the last line received — with MultiPV the last line is usually
+ * a weaker alternative.
+ */
+export function principalLine(lines: readonly EngineInfo[]): EngineInfo | null {
+  let best: EngineInfo | null = null
+  let maxDepth = -1
+  for (const line of lines) {
+    if (line.multipv !== undefined && line.multipv !== 1) continue
+    const depth = line.depth ?? 0
+    if (depth >= maxDepth) {
+      best = line
+      maxDepth = depth
+    }
+  }
+  return best
+}

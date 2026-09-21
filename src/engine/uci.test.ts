@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { isCriticalError, parseBestMove, parseInfo, uciToIntent } from './uci'
+import { isCriticalError, parseBestMove, parseInfo, principalLine, uciToIntent } from './uci'
 
 describe('uciToIntent', () => {
   test('parses a plain move', () => {
@@ -75,5 +75,20 @@ describe('isCriticalError', () => {
 
   test('ordinary info strings are not errors', () => {
     expect(isCriticalError('info string NNUE evaluation using nn-abc.nnue')).toBe(false)
+  })
+})
+
+describe('principalLine', () => {
+  test('prefers multipv 1 at the greatest depth over later, weaker lines', () => {
+    const best = principalLine([
+      { depth: 8, multipv: 1, pv: ['d2d4'] },
+      { depth: 10, multipv: 1, pv: ['e2e4'] },
+      { depth: 10, multipv: 2, pv: ['g1f3'] },
+    ])
+    expect(best?.pv[0]).toBe('e2e4')
+  })
+  test('lines without multipv count as rank 1; empty input gives null', () => {
+    expect(principalLine([{ depth: 3, pv: ['e2e4'] }])?.pv[0]).toBe('e2e4')
+    expect(principalLine([])).toBeNull()
   })
 })
