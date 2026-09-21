@@ -309,6 +309,19 @@ describe('MatchController', () => {
     expect(c.snapshot().game.moves.map((m) => m.san)).toEqual(['e4'])
   })
 
+  test('snapshot() returns the identical object when nothing has changed', () => {
+    const e = fakeEngine()
+    const c = new MatchController({ engine: e.client })
+    c.start({
+      white: { kind: 'human' },
+      black: { kind: 'human' },
+      timeControl: { kind: 'untimed' },
+    })
+    const a = c.snapshot()
+    const b = c.snapshot()
+    expect(a).toBe(b)
+  })
+
   test('subscribers are notified on every change', () => {
     const e = fakeEngine()
     const c = new MatchController({ engine: e.client })

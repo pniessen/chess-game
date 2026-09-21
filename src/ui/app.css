@@ -1,0 +1,265 @@
+.app {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 16px;
+  font-family: system-ui, sans-serif;
+}
+
+.app h1 {
+  text-align: center;
+  margin: 0 0 8px;
+}
+
+.status-row {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.result {
+  font-weight: 600;
+  min-height: 1.2em;
+}
+
+.engine-warning,
+.resume-banner {
+  text-align: center;
+  background: #fff3cd;
+  border: 1px solid #e0c36a;
+  border-radius: 6px;
+  padding: 8px 12px;
+  margin: 0 auto 12px;
+  max-width: 640px;
+}
+
+.resume-banner button {
+  margin-left: 8px;
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 640px) 260px;
+  grid-template-areas: 'left board right';
+  gap: 16px;
+  justify-content: center;
+  align-items: start;
+}
+
+.left-column {
+  grid-area: left;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.board-column {
+  grid-area: board;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.right-column {
+  grid-area: right;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.tabs {
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.tabs-header {
+  display: flex;
+  background: #eee;
+  border-bottom: 1px solid #ccc;
+}
+
+.tabs-header button {
+  flex: 1;
+  padding: 6px;
+  border: none;
+  background: transparent;
+  cursor: default;
+  font-weight: 600;
+}
+
+.move-list {
+  list-style: none;
+  margin: 0;
+  padding: 8px;
+  max-height: 360px;
+  overflow-y: auto;
+}
+
+.move-list li {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding: 2px 0;
+}
+
+.move-list .number {
+  color: #666;
+  min-width: 2.5em;
+}
+
+.move-list .move {
+  border: none;
+  background: transparent;
+  padding: 2px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  font: inherit;
+}
+
+.move-list .move:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.move-list .move.current {
+  background: #cfe6ff;
+  font-weight: 700;
+}
+
+.clocks {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.clock {
+  display: flex;
+  justify-content: space-between;
+  padding: 6px 10px;
+  border-radius: 4px;
+  background: #f4f4f4;
+  font-variant-numeric: tabular-nums;
+}
+
+.clock.running {
+  background: #dff5df;
+  font-weight: 700;
+}
+
+.clock.flagged {
+  background: #f8d3d3;
+}
+
+.captured {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.captured-tray {
+  min-height: 1.4em;
+  font-size: 1.2em;
+}
+
+.material-balance {
+  font-size: 0.85em;
+  color: #555;
+}
+
+.scoreboard {
+  display: flex;
+  justify-content: space-between;
+  padding: 6px 10px;
+  background: #f4f4f4;
+  border-radius: 4px;
+}
+
+.controls {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  max-width: 640px;
+}
+
+.controls-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.hint-row {
+  align-items: flex-start;
+}
+
+.hint-text {
+  flex: 1;
+  min-height: 1.2em;
+  font-style: italic;
+}
+
+.new-game {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: flex-end;
+}
+
+.new-game label {
+  display: flex;
+  flex-direction: column;
+  font-size: 0.85em;
+  gap: 2px;
+}
+
+.game-io {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.game-io .import {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.game-io textarea {
+  min-height: 70px;
+  font-family: monospace;
+}
+
+.import-error {
+  color: #b00020;
+  min-height: 1.2em;
+  font-size: 0.9em;
+}
+
+/* Visually hidden but present for assistive tech and test assertions —
+   NOT the `hidden` attribute, which some end-to-end tooling treats as
+   "not in the accessibility tree at all" and makes assertions fragile. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (max-width: 768px) {
+  .layout {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      'board'
+      'left'
+      'right';
+  }
+}

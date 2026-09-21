@@ -1,46 +1,285 @@
-import { useState } from 'react'
-import { Game } from '../game-core/game'
-import type { GameStatus, PieceSymbol, Square } from '../game-core/types'
+import { useEffect, useReducer, useRef, useState } from 'react'
+import type { Game } from '../game-core/game'
+import type { Color, DrawReason, GameStatus, PieceSymbol, Square } from '../game-core/types'
+import { exportPgn, importPgn } from '../game-core/io'
 import { Board, type Highlights } from './Board/Board'
 import { Promotion } from './Board/Promotion'
 import { reduceSelection, type SelectionState } from './Board/selection'
+import { MatchController, type EngineLike } from '../match/controller'
+import type { MatchConfig, MatchPhase } from '../match/types'
+import { EngineClient, createWorkerTransport } from '../engine/client'
+import { profileFor } from '../engine/strength'
+import { templatedHint } from '../coach/templated'
+import {
+  clearInProgress,
+  loadInProgress,
+  loadScore,
+  loadSettings,
+  saveInProgress,
+  saveScore,
+  saveSettings,
+  type Level,
+  type MatchScore,
+} from '../storage/storage'
+import { TIME_CONTROLS } from '../clock/types'
+import { useMatch } from './useMatch'
+import { MoveList } from './panels/MoveList'
+import { Captured } from './panels/Captured'
+import { Clocks } from './panels/Clocks'
+import { Controls } from './panels/Controls'
+import { Scoreboard } from './panels/Scoreboard'
+import { NewGame, type Mode } from './panels/NewGame'
+import { GameIO } from './panels/GameIO'
+import './app.css'
 
-function describeStatus(status: GameStatus): string {
-  switch (status.kind) {
-    case 'checkmate':
-      return `Checkmate — ${status.winner === 'w' ? 'White' : 'Black'} wins`
-    case 'draw':
-      return {
-        stalemate: 'Draw — stalemate',
-        'insufficient-material': 'Draw — insufficient material',
-        'threefold-repetition': 'Draw — threefold repetition',
-        'fifty-move-rule': 'Draw — fifty-move rule',
-      }[status.reason]
-    case 'in-progress':
-      return status.inCheck ? 'Check' : ''
+function timeControlFor(id: string) {
+  return TIME_CONTROLS.find((t) => t.id === id)?.control ?? { kind: 'untimed' as const }
+}
+
+function buildConfig(opts: {
+  mode: Mode
+  level: Level
+  timeControlId: string
+  color: 'white' | 'black'
+  engineAvailable: boolean
+}): MatchConfig {
+  const timeControl = timeControlFor(opts.timeControlId)
+  if (opts.mode === 'two-player' || !opts.engineAvailable) {
+    return { white: { kind: 'human' }, black: { kind: 'human' }, timeControl }
+  }
+  if (opts.mode === 'zero-player') {
+    return {
+      white: { kind: 'engine', level: opts.level },
+      black: { kind: 'engine', level: opts.level },
+      timeControl,
+      engineDelayMs: 500,
+    }
+  }
+  const humanIsWhite = opts.color === 'white'
+  return {
+    white: humanIsWhite ? { kind: 'human' } : { kind: 'engine', level: opts.level },
+    black: humanIsWhite ? { kind: 'engine', level: opts.level } : { kind: 'human' },
+    timeControl,
   }
 }
 
-export function App() {
-  const [game] = useState(() => new Game())
-  const [selection, setSelection] = useState<SelectionState>({ kind: 'idle' })
-  // Game is a mutable object, not React state, so nothing about it is
-  // reactive on its own. This counter is a deliberate, temporary shim to
-  // force a re-render after mutating `game` directly. Task 12 replaces it
-  // with a proper useSyncExternalStore subscription to MatchController —
-  // don't copy this pattern elsewhere.
-  const [, forceRender] = useState(0)
-  const [orientation, setOrientation] = useState<'white' | 'black'>('white')
+/**
+ * Build the real MatchController, wired to a real Stockfish worker — but
+ * never let a missing/broken worker (no `Worker` in this environment, the
+ * asset failing to load, etc.) take the whole game down. On failure we fall
+ * back to a controller backed by a stub engine that always rejects, and the
+ * caller disables every engine-dependent control.
+ */
+function buildController(): {
+  controller: MatchController
+  engine: EngineClient | null
+  engineAvailable: boolean
+} {
+  try {
+    const engine = new EngineClient(createWorkerTransport())
+    return { controller: new MatchController({ engine }), engine, engineAvailable: true }
+  } catch {
+    const stub: EngineLike = {
+      waitReady: () => Promise.reject(new Error('engine unavailable')),
+      configure: () => {},
+      newGame: () => {},
+      setPosition: () => {},
+      search: () => Promise.reject(new Error('engine unavailable')),
+      stop: () => {},
+      dispose: () => {},
+    }
+    return { controller: new MatchController({ engine: stub }), engine: null, engineAvailable: false }
+  }
+}
 
+const DRAW_TEXT: Record<DrawReason, string> = {
+  stalemate: 'Draw — stalemate',
+  'insufficient-material': 'Draw — insufficient material',
+  'threefold-repetition': 'Draw — threefold repetition',
+  'fifty-move-rule': 'Draw — fifty-move rule',
+}
+
+/**
+ * The result banner. Decision: derive it from `phase.reason` / `phase.winner`
+ * — never from `status.kind` alone — because a resignation or a flag leaves
+ * `status.kind` at 'in-progress' (the rules didn't end the game). `status`
+ * here is only ever `phase.status`, the status captured at the moment the
+ * match finished, so browsing history afterwards can never change the banner.
+ */
+function describeResult(phase: MatchPhase, displayed: GameStatus): string {
+  const name = (c: Color) => (c === 'w' ? 'White' : 'Black')
+  if (phase.kind === 'finished') {
+    const { status, reason, winner } = phase
+    switch (reason) {
+      case 'normal':
+        if (status.kind === 'checkmate') return `Checkmate — ${name(status.winner)} wins`
+        if (status.kind === 'draw') return DRAW_TEXT[status.reason]
+        return winner ? `${name(winner)} wins` : 'Game over'
+      case 'flag':
+        return winner ? `${name(winner)} wins on time` : 'Draw on time'
+      case 'resign': {
+        if (!winner) return 'Resignation'
+        const loser = winner === 'w' ? 'b' : 'w'
+        return `${name(loser)} resigns — ${name(winner)} wins`
+      }
+      case 'engine-error':
+        return 'Game halted — engine error'
+    }
+  }
+  return displayed.kind === 'in-progress' && displayed.inCheck ? 'Check' : ''
+}
+
+/** Which side, if any, is a human who can actually click "Resign" right now. */
+function resignableSide(config: MatchConfig, phase: MatchPhase): Color | null {
+  const whiteHuman = config.white.kind === 'human'
+  const blackHuman = config.black.kind === 'human'
+  if (whiteHuman && blackHuman) {
+    return phase.kind === 'awaiting-human' ? phase.side : null
+  }
+  if (whiteHuman) return 'w'
+  if (blackHuman) return 'b'
+  return null
+}
+
+export function App() {
+  const [init] = useState(() => {
+    const { controller, engine, engineAvailable } = buildController()
+    const settings = loadSettings()
+    controller.start({
+      white: { kind: 'human' },
+      black: { kind: 'human' },
+      timeControl: timeControlFor(settings.timeControlId),
+    })
+    return { controller, engine, engineAvailable, settings, pendingResume: loadInProgress() }
+  })
+  const { controller, engine, engineAvailable, settings, pendingResume } = init
+
+  const snapshot = useMatch(controller)
+
+  const [selection, setSelection] = useState<SelectionState>({ kind: 'idle' })
+  const [orientation, setOrientation] = useState<'white' | 'black'>(settings.orientation)
+  const [mode, setMode] = useState<Mode>('two-player')
+  const [level, setLevel] = useState<Level>(settings.level)
+  const [timeControlId, setTimeControlId] = useState(settings.timeControlId)
+  const [color, setColor] = useState<'white' | 'black'>(settings.orientation)
+  const [canRedo, setCanRedo] = useState(false)
+  const [hintText, setHintText] = useState('')
+  const [hintPending, setHintPending] = useState(false)
+  const [score, setScore] = useState<MatchScore>(loadScore)
+  const [resumeChoice, setResumeChoice] = useState<'pending' | 'resolved'>(
+    pendingResume ? 'pending' : 'resolved',
+  )
+
+  // Bumps to force a re-render after mutating the controller's live `game`
+  // object directly (history browsing via goTo(), and redo()) — operations
+  // the controller itself has no API for, so they can't go through
+  // useMatch/controller.subscribe(). This is intentionally narrow: it only
+  // ever follows a direct `snapshot.game.*` mutation, never a stand-in for
+  // reacting to gameplay in general (that's useMatch's job).
+  const [, bumpView] = useReducer((n: number) => n + 1, 0)
+
+  const scoredRef = useRef(false)
+
+  const game: Game = snapshot.game
   const position = game.current()
-  const status = game.status()
+  const displayedStatus = position.status()
   const lastMove = game.moves[game.ply - 1]
 
-  const apply = (next: SelectionState, move?: { from: Square; to: Square; promotion?: PieceSymbol }) => {
+  // ---- persistence --------------------------------------------------------
+
+  useEffect(() => {
+    if (resumeChoice !== 'resolved') return
+    if (snapshot.phase.kind === 'idle') return
+    if (game.moves.length > 0) {
+      saveInProgress(exportPgn(game))
+    } else {
+      clearInProgress()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [game, game.moves.length, resumeChoice])
+
+  useEffect(() => {
+    if (snapshot.phase.kind !== 'finished') return
+    if (scoredRef.current) return
+    scoredRef.current = true
+    // Only track W/L/D against a single human opponent — the score has no
+    // meaning for a two-player (hotseat) or zero-player (engine-vs-engine)
+    // game, so leave it untouched there.
+    const whiteHuman = snapshot.config.white.kind === 'human'
+    const blackHuman = snapshot.config.black.kind === 'human'
+    if (whiteHuman === blackHuman) return
+    const humanSide: Color = whiteHuman ? 'w' : 'b'
+    const next = { ...score }
+    if (snapshot.phase.winner === null) next.draws++
+    else if (snapshot.phase.winner === humanSide) next.wins++
+    else next.losses++
+    setScore(next)
+    saveScore(next)
+    clearInProgress()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [snapshot.phase])
+
+  // ---- match lifecycle ------------------------------------------------------
+
+  const startMatch = (config: MatchConfig) => {
+    controller.start(config)
+    scoredRef.current = false
+    setCanRedo(false)
+    setHintText('')
+    setSelection({ kind: 'idle' })
+  }
+
+  const handleNewGame = () => {
+    const config = buildConfig({ mode, level, timeControlId, color, engineAvailable })
+    startMatch(config)
+    saveSettings({
+      ...settings,
+      level,
+      timeControlId,
+      orientation: mode === 'one-player' ? color : settings.orientation,
+    })
+    setOrientation(mode === 'one-player' ? color : 'white')
+  }
+
+  const handleImport = (imported: Game) => {
+    startMatch({
+      white: { kind: 'human' },
+      black: { kind: 'human' },
+      timeControl: timeControlFor(timeControlId),
+      startFen: imported.startFen,
+    })
+    for (const m of imported.moves) {
+      controller.submitHumanMove({
+        from: m.from,
+        to: m.to,
+        ...(m.promotion ? { promotion: m.promotion } : {}),
+      })
+    }
+    setMode('two-player')
+  }
+
+  const handleResumeAccept = () => {
+    if (!pendingResume) return
+    const result = importPgn(pendingResume)
+    if (result.ok) handleImport(result.game)
+    setResumeChoice('resolved')
+  }
+
+  const handleResumeDecline = () => {
+    clearInProgress()
+    setResumeChoice('resolved')
+  }
+
+  // ---- moves ----------------------------------------------------------------
+
+  const apply = (
+    next: SelectionState,
+    move?: { from: Square; to: Square; promotion?: PieceSymbol },
+  ) => {
     setSelection(next)
     if (move) {
-      game.play(move)
-      forceRender((n) => n + 1)
+      const result = controller.submitHumanMove(move)
+      if (result.ok) setCanRedo(false)
     }
   }
 
@@ -49,6 +288,59 @@ export function App() {
     apply(out.state, out.move)
   }
 
+  const handleUndo = () => {
+    if (game.moves.length === 0) return
+    controller.undo()
+    setCanRedo(true)
+    setSelection({ kind: 'idle' })
+  }
+
+  const handleRedo = () => {
+    if (!canRedo) return
+    const restored = game.redo()
+    if (restored) {
+      setCanRedo(false)
+      bumpView()
+    }
+  }
+
+  // Move-list jumps browse history via Game.goTo(), bypassing the
+  // controller entirely. Disabled while the engine is thinking: jumping away
+  // from the live position would make the engine's reply fail Game.play's
+  // live-only guard, and two of those halt the game as an "engine error".
+  const handleJump = (ply: number) => {
+    if (snapshot.phase.kind === 'engine-thinking') return
+    game.goTo(ply)
+    bumpView()
+  }
+
+  const handleFlip = () => setOrientation((o) => (o === 'white' ? 'black' : 'white'))
+
+  const handleResign = () => {
+    const side = resignableSide(snapshot.config, snapshot.phase)
+    if (side) controller.resign(side)
+  }
+
+  const handleHint = async () => {
+    if (!engine || snapshot.phase.kind !== 'awaiting-human') return
+    setHintPending(true)
+    setHintText('')
+    try {
+      await engine.waitReady()
+      engine.configure(profileFor(8))
+      const pos = game.current()
+      engine.setPosition(pos.fen(), [])
+      const result = await engine.search({ depth: 12, moveTimeMs: 500, multiPv: 1 })
+      setHintText(templatedHint(result.lines, pos) ?? 'No hint available.')
+    } catch {
+      setHintText('Hint unavailable.')
+    } finally {
+      setHintPending(false)
+    }
+  }
+
+  // ---- render -----------------------------------------------------------
+
   const highlights: Highlights = {
     ...(selection.kind === 'selected' ? { selected: selection.square } : {}),
     legal:
@@ -56,7 +348,7 @@ export function App() {
         ? position.legalMovesFrom(selection.square).map((m) => m.to)
         : [],
     ...(lastMove ? { lastMove: [lastMove.from, lastMove.to] as [Square, Square] } : {}),
-    ...(status.kind === 'in-progress' && status.inCheck
+    ...(displayedStatus.kind === 'in-progress' && displayedStatus.inCheck
       ? { check: position.kingSquare(position.turn()) ?? undefined }
       : {}),
   }
@@ -64,36 +356,112 @@ export function App() {
   return (
     <main className="app">
       <h1>Chess</h1>
-      <p data-testid="turn">{position.turn() === 'w' ? 'White to move' : 'Black to move'}</p>
-      <p data-testid="result">{describeStatus(status)}</p>
-      <Board
-        position={position}
-        orientation={orientation}
-        highlights={highlights}
-        onSquareClick={onSquareClick}
-      />
-      <button onClick={() => setOrientation((o) => (o === 'white' ? 'black' : 'white'))}>
-        Flip board
-      </button>
-      <button
-        onClick={() => {
-          game.undo()
-          setSelection({ kind: 'idle' })
-          forceRender((n) => n + 1)
-        }}
-      >
-        Undo
-      </button>
-      {selection.kind === 'awaiting-promotion' ? (
-        <Promotion
-          color={position.turn()}
-          onChoose={(piece) => {
-            const out = reduceSelection(selection, { kind: 'promotion-chosen', piece }, position)
-            apply(out.state, out.move)
-          }}
-          onCancel={() => setSelection({ kind: 'idle' })}
-        />
+
+      {!engineAvailable ? (
+        <p className="engine-warning">
+          The chess engine is unavailable — playing in two-player mode only.
+        </p>
       ) : null}
+
+      {resumeChoice === 'pending' ? (
+        <p className="resume-banner" data-testid="resume-banner">
+          Resume your previous game?
+          <button data-testid="resume-accept" onClick={handleResumeAccept}>
+            Resume
+          </button>
+          <button data-testid="resume-decline" onClick={handleResumeDecline}>
+            Discard
+          </button>
+        </p>
+      ) : null}
+
+      <div className="status-row">
+        <p data-testid="turn">{position.turn() === 'w' ? 'White to move' : 'Black to move'}</p>
+        <p className="result" data-testid="result">
+          {describeResult(snapshot.phase, displayedStatus)}
+        </p>
+      </div>
+
+      <div className="layout">
+        <div className="left-column">
+          <Clocks clock={snapshot.clock} orientation={orientation} />
+          <Captured moves={game.moves.slice(0, game.ply)} />
+          <Scoreboard score={score} />
+        </div>
+
+        <div className="board-column">
+          <Board
+            position={position}
+            orientation={orientation}
+            highlights={highlights}
+            onSquareClick={onSquareClick}
+          />
+          <span className="sr-only" data-testid="ply-count">
+            {game.moves.length}
+          </span>
+          {selection.kind === 'awaiting-promotion' ? (
+            <Promotion
+              color={position.turn()}
+              onChoose={(piece) => {
+                const out = reduceSelection(
+                  selection,
+                  { kind: 'promotion-chosen', piece },
+                  position,
+                )
+                apply(out.state, out.move)
+              }}
+              onCancel={() => setSelection({ kind: 'idle' })}
+            />
+          ) : null}
+          <Controls
+            phase={snapshot.phase}
+            config={snapshot.config}
+            canUndo={game.moves.length > 0 && snapshot.phase.kind !== 'idle'}
+            canRedo={canRedo}
+            canResign={resignableSide(snapshot.config, snapshot.phase) !== null}
+            engineAvailable={engineAvailable}
+            speed={snapshot.config.engineDelayMs ?? 500}
+            hintText={hintText}
+            hintPending={hintPending}
+            onUndo={handleUndo}
+            onRedo={handleRedo}
+            onFlip={handleFlip}
+            onResign={handleResign}
+            onHint={() => void handleHint()}
+            onPause={() => controller.pause()}
+            onResume={() => controller.resume()}
+            onStep={() => controller.step()}
+            onSpeedChange={(ms) => controller.setSpeed(ms)}
+          />
+          <NewGame
+            mode={mode}
+            level={level}
+            timeControlId={timeControlId}
+            color={color}
+            engineAvailable={engineAvailable}
+            onModeChange={setMode}
+            onLevelChange={setLevel}
+            onTimeControlChange={setTimeControlId}
+            onColorChange={setColor}
+            onStart={handleNewGame}
+          />
+          <GameIO game={game} onImport={handleImport} />
+        </div>
+
+        <div className="right-column">
+          <div className="tabs">
+            <div className="tabs-header">
+              <button type="button">Moves</button>
+            </div>
+            <MoveList
+              moves={game.moves}
+              currentPly={game.ply}
+              onJump={handleJump}
+              disabled={snapshot.phase.kind === 'engine-thinking'}
+            />
+          </div>
+        </div>
+      </div>
     </main>
   )
 }

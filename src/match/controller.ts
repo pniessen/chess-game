@@ -50,9 +50,18 @@ export class MatchController {
    * just the step's own successful completion.
    */
   private stepRequestId: number | null = null
+  /**
+   * Cached so repeated snapshot() calls with no intervening state change
+   * return the SAME object (by reference). useSyncExternalStore compares
+   * snapshots with Object.is; without this, snapshot() building a fresh
+   * object every call would make every render look like a change and React
+   * would re-render (and can warn about an infinite loop) on every check.
+   */
+  private cachedSnapshot: MatchSnapshot
 
   constructor(deps: { engine: EngineLike }) {
     this.engine = deps.engine
+    this.cachedSnapshot = this.buildSnapshot()
   }
 
   // ---- subscription -----------------------------------------------------
@@ -64,7 +73,7 @@ export class MatchController {
     }
   }
 
-  snapshot(): MatchSnapshot {
+  private buildSnapshot(): MatchSnapshot {
     return {
       phase: this.phase,
       game: this.game,
@@ -73,9 +82,13 @@ export class MatchController {
     }
   }
 
+  snapshot(): MatchSnapshot {
+    return this.cachedSnapshot
+  }
+
   private emit(): void {
-    const snap = this.snapshot()
-    for (const l of this.listeners) l(snap)
+    this.cachedSnapshot = this.buildSnapshot()
+    for (const l of this.listeners) l(this.cachedSnapshot)
   }
 
   // ---- lifecycle --------------------------------------------------------
@@ -297,13 +310,15 @@ export class MatchController {
     this.toMoveOf(this.game.current().turn())
     // Only an engine turn actually issues a request to tie the step to; if
     // it's a human's turn there is nothing pending, so nothing to flag.
-    // Read the fresh phase back out through snapshot() rather than
+    // Read the fresh phase back out through buildSnapshot() rather than
     // `this.phase` directly: TS's control-flow narrowing from the
     // early-return guard above (this.phase.kind !== 'paused') survives the
     // toMoveOf() call textually even though toMoveOf() just reassigned the
     // field, so `this.phase` would still (wrongly) type-check as 'paused'
     // here. Going through the method call's declared return type avoids it.
-    const phaseAfter = this.snapshot().phase
+    // buildSnapshot() (not the cached, public snapshot()) so this reads the
+    // state toMoveOf() just wrote, not a stale cached snapshot from before it.
+    const phaseAfter = this.buildSnapshot().phase
     this.stepRequestId = phaseAfter.kind === 'engine-thinking' ? phaseAfter.requestId : null
     this.emit()
   }
