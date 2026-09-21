@@ -122,3 +122,21 @@ describe('App (two-player)', () => {
     expect(screen.getByTestId('ply-count')).toHaveTextContent('1')
   })
 })
+
+describe('import credits no clock increment per replayed move (I6)', () => {
+  test('six imported moves at Blitz 3+2 leave both clocks at 3:00, not 3:06', () => {
+    localStorage.setItem(
+      'chess-game:settings',
+      JSON.stringify({ level: 3, timeControlId: 'blitz-3-2', orientation: 'white', soundEnabled: true, themeId: 'classic' }),
+    )
+    render(<App />)
+    fireEvent.change(screen.getByTestId('import-text'), {
+      target: { value: '1. e4 e5 2. Nf3 Nc6 3. Bb5 a6 *' },
+    })
+    fireEvent.click(screen.getByTestId('import-submit'))
+    expect(screen.getByTestId('ply-count')).toHaveTextContent('6')
+    expect(screen.getByTestId('clock-w')).toHaveTextContent(/^3:00$/)
+    expect(screen.getByTestId('clock-b')).toHaveTextContent(/^3:00$/)
+    localStorage.clear()
+  })
+})

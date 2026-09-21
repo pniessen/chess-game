@@ -1,7 +1,7 @@
 import { Clock } from '../clock/clock'
 import { Game } from '../game-core/game'
 import { uciToIntent, type EngineInfo } from '../engine/uci'
-import type { Color, GameStatus, MoveIntent, MoveResult } from '../game-core/types'
+import type { Color, GameStatus, MoveIntent, MoveResult, PlayedMove } from '../game-core/types'
 import { profileFor, type StrengthProfile } from '../engine/strength'
 import type { Level } from '../storage/storage'
 import type { MatchConfig, MatchPhase, MatchSnapshot, Seat } from './types'
@@ -157,6 +157,38 @@ export class MatchController {
   // ---- lifecycle --------------------------------------------------------
 
   start(config: MatchConfig): void {
+    this.begin(config, new Game(config.startFen ? { fen: config.startFen } : undefined))
+  }
+
+  /**
+   * Start a match from existing history (an imported PGN, a resumed game).
+   *
+   * The history is rebuilt directly into a fresh `Game` — never replayed
+   * through submitHumanMove(), which would switch the clock once per move
+   * and credit an increment for every historical move (+80s each side for a
+   * resumed 40-move blitz game), and emit once per move. The clock starts
+   * only afterwards, for the side to move, with its initial time. If that
+   * side is an engine seat, the engine is asked to move. Emits once.
+   *
+   * `config.startFen` is ignored in favour of `history.startFen`. Returns
+   * false (leaving the current match untouched) if the history does not
+   * replay legally, which a validated import never produces.
+   */
+  load(
+    config: MatchConfig,
+    history: { readonly startFen: string; readonly moves: readonly PlayedMove[] },
+  ): boolean {
+    const game = new Game({ fen: history.startFen })
+    for (const m of history.moves) {
+      const r = game.play({ from: m.from, to: m.to, ...(m.promotion ? { promotion: m.promotion } : {}) })
+      if (!r.ok) return false
+    }
+    this.begin({ ...config, startFen: history.startFen }, game)
+    return true
+  }
+
+  /** Shared by start()/load(): adopt `game` as the live match and route the first turn. */
+  private begin(config: MatchConfig, game: Game): void {
     // Invalidate anything the engine still owes us from a previous game.
     this.requestId++
     this.illegalEngineMoves = 0
@@ -164,7 +196,7 @@ export class MatchController {
 
     this.clock.dispose()
     this.config = config
-    this.game = new Game(config.startFen ? { fen: config.startFen } : undefined)
+    this.game = game
     this.clock = new Clock(config.timeControl)
     this.clock.onFlag((side) => this.finishOnFlag(side))
 
@@ -177,6 +209,8 @@ export class MatchController {
       return
     }
 
+    // The clock starts only now, for whoever is to move: no increment is
+    // ever credited for moves that were already on the board.
     const side = this.livePosition().turn()
     this.clock.start(side)
     this.toMoveOf(side)

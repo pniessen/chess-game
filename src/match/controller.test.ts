@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { MatchController, chooseEngineMove } from './controller'
 import type { MatchConfig } from './types'
 import type { EngineInfo } from '../engine/uci'
+import { Game } from '../game-core/game'
 
 /**
  * An engine we resolve by hand, so no Stockfish and no waiting.
@@ -867,5 +868,60 @@ describe('blunder injection (I3)', () => {
       { depth: 3, multipv: 2, pv: ['c7c5'] },
     ]
     expect(chooseEngineMove({ best: 'e7e5', lines }, { blunderChance: 1 }, () => 0)).toBe('c7c5')
+  })
+})
+
+describe('load(): starting from existing history (I6)', () => {
+  beforeEach(() => vi.useFakeTimers())
+  afterEach(() => vi.useRealTimers())
+
+  const SIX_PLIES = new Game()
+  for (const [from, to] of [['e2', 'e4'], ['e7', 'e5'], ['g1', 'f3'], ['b8', 'c6'], ['f1', 'b5'], ['a7', 'a6']] as const) {
+    SIX_PLIES.play({ from, to })
+  }
+  const BLITZ = { kind: 'timed', initialMs: 180_000, incrementMs: 2_000 } as const
+
+  test('credits NO increment for historical moves, and starts the clock for the side to move', () => {
+    const e = fakeEngine()
+    const c = new MatchController({ engine: e.client })
+    const emits = vi.fn()
+    c.subscribe(emits)
+    expect(c.load({ white: { kind: 'human' }, black: { kind: 'human' }, timeControl: BLITZ }, SIX_PLIES)).toBe(true)
+
+    expect(c.snapshot().game.moves).toHaveLength(6)
+    expect(c.clockState()).toEqual({ whiteMs: 180_000, blackMs: 180_000, running: 'w', flagged: null })
+    expect(c.snapshot().phase).toEqual({ kind: 'awaiting-human', side: 'w' })
+    expect(emits).toHaveBeenCalledTimes(1) // one emit, not one per move
+  })
+
+  test('asks the engine to move when it is the engine\'s turn after loading', async () => {
+    const e = fakeEngine()
+    const c = new MatchController({ engine: e.client })
+    c.load({ ...HUMAN_VS_ENGINE, white: { kind: 'engine', level: 4 }, black: { kind: 'human' } }, SIX_PLIES)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(c.snapshot().phase).toMatchObject({ kind: 'engine-thinking', side: 'w' })
+    expect(e.calls).toHaveLength(1)
+    expect(lastSearchedFen(e)).toBe(SIX_PLIES.current().fen())
+  })
+
+  test('a finished history loads straight into finished, with no clock running', () => {
+    const e = fakeEngine()
+    const c = new MatchController({ engine: e.client })
+    const mate = new Game()
+    for (const [from, to] of [['e2', 'e4'], ['e7', 'e5'], ['f1', 'c4'], ['b8', 'c6'], ['d1', 'h5'], ['g8', 'f6'], ['h5', 'f7']] as const) {
+      mate.play({ from, to })
+    }
+    c.load({ white: { kind: 'human' }, black: { kind: 'human' }, timeControl: BLITZ }, mate)
+    expect(c.snapshot().phase).toMatchObject({ kind: 'finished', winner: 'w' })
+    expect(c.clockState().running).toBeNull()
+  })
+
+  test('the loaded Game is the controller\'s own copy, not the caller\'s object', () => {
+    const e = fakeEngine()
+    const c = new MatchController({ engine: e.client })
+    c.load({ white: { kind: 'human' }, black: { kind: 'human' }, timeControl: { kind: 'untimed' } }, SIX_PLIES)
+    expect(c.snapshot().game).not.toBe(SIX_PLIES)
+    c.submitHumanMove({ from: 'b5', to: 'a4' })
+    expect(SIX_PLIES.moves).toHaveLength(6)
   })
 })

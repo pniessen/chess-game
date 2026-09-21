@@ -338,19 +338,17 @@ function AppInner({
   }
 
   const handleImport = (imported: Game) => {
-    startMatch({
-      white: { kind: 'human' },
-      black: { kind: 'human' },
-      timeControl: timeControlFor(timeControlId),
-      startFen: imported.startFen,
-    })
-    for (const m of imported.moves) {
-      controller.submitHumanMove({
-        from: m.from,
-        to: m.to,
-        ...(m.promotion ? { promotion: m.promotion } : {}),
-      })
-    }
+    // load(), not start() + N x submitHumanMove(): replaying through the
+    // move path credited a clock increment per historical move and emitted
+    // once per move. load() rebuilds the history and starts the clock after.
+    controller.load(
+      { white: { kind: 'human' }, black: { kind: 'human' }, timeControl: timeControlFor(timeControlId) },
+      imported,
+    )
+    scoredRef.current = false
+    setCanRedo(false)
+    setHintText('')
+    setSelection({ kind: 'idle' })
     setMode('two-player')
   }
 
