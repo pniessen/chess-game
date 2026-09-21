@@ -50,14 +50,11 @@ export class Position {
 
   /**
    * The position as an EPD key: placement, side, castling, en passant.
-   * The en-passant square is kept only when an en-passant capture is
-   * actually legal, so two move orders reaching the same position always
-   * produce the same key, however chess.js chooses to print that field.
+   * The en-passant square is omitted when unusable, relying on chess.js
+   * to filter it from its own fen() output.
    */
   epd(): string {
-    const [placement, turn, castling, ep] = this.chess.fen().split(' ')
-    const epUsable = ep !== undefined && ep !== '-' && this.chess.moves({ verbose: true }).some((m) => m.isEnPassant())
-    return `${placement} ${turn} ${castling} ${epUsable ? ep : '-'}`
+    return this.chess.fen().split(' ').slice(0, 4).join(' ')
   }
 
   turn(): Color {

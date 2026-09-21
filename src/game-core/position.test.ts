@@ -34,6 +34,8 @@ describe('Position', () => {
   })
 })
 
+// Dependency-contract tests: these pin chess.js's behaviour of omitting unusable
+// en-passant squares. They turn red if a chess.js upgrade starts printing naive ep squares.
 describe('epd', () => {
   test('the start position', () => {
     expect(new Position().epd()).toBe('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq -')
