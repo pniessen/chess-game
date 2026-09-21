@@ -40,12 +40,12 @@ describe('templatedHint', () => {
 
   test('MultiPV: selects multipv=1 at greatest depth, not the last-received line', () => {
     // Simulate a MultiPV search where:
-    // - depth 10, multipv=2 (worse move): Nf3
     // - depth 10, multipv=1 (best move): e4
+    // - depth 10, multipv=2 (worse move): Nf3
     // The last-received line is multipv=2, but we should pick multipv=1.
     const lines: EngineInfo[] = [
-      { depth: 10, multipv: 2, scoreCp: 20, pv: ['g1f3'] },
       { depth: 10, multipv: 1, scoreCp: 50, pv: ['e2e4'] },
+      { depth: 10, multipv: 2, scoreCp: 20, pv: ['g1f3'] },
     ]
     const hint = templatedHint(lines, new Position())
     expect(hint).toMatch(/e4/)
