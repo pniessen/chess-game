@@ -22,3 +22,30 @@ export async function coachOnline(
   await page.route('**/api/hint', handlers.hint ?? ((r) => r.fulfill({ json: { text: 'MOCK hint reasoning.' } })))
   await page.route('**/api/review', handlers.review ?? ((r) => r.fulfill({ json: { text: 'MOCK review summary.' } })))
 }
+
+/**
+ * Pin `Math.random()` to a constant on every future navigation, so the
+ * controller's book and blunder draws (both seeded from `Math.random` by
+ * default — see MatchController's `random` param) become deterministic.
+ *
+ * Must be called (awaited) BEFORE `page.goto()`: Playwright only applies an
+ * init script to navigations that happen after it is registered.
+ *
+ * Why 0, and why it is safe for a long-running zero-player game: at level 1
+ * `bookChance` is 0.9, so `0 < 0.9` always takes the book, and index
+ * `floor(0 * n) = 0` always takes the position's FIRST listed continuation.
+ * Walking public/openings/openings.json that way from the start position
+ * (1. Nh3 d5 2. g3 e5 3. f4 Bxh3 4. Bxh3 exf4 5. O-O fxg3 6. hxg3, verified
+ * with a one-off script against the real dataset) runs out of book only at
+ * ply 11 — long past the 4-9 ply thresholds these specs wait for — and is
+ * not a short forced mate, unlike some other book lines (e.g. 1.f3 e5 2.g4
+ * Qh4#, which this constant value never reaches because it never plays f3).
+ * Once out of book, `0 < blunderChance` also always takes the engine's own
+ * "weaker" candidate from its real MultiPV search, which still plays
+ * legally through real Stockfish — just consistently the weaker choice.
+ */
+export async function pinRandom(page: Page, value = 0): Promise<void> {
+  await page.addInitScript((v) => {
+    Math.random = () => v
+  }, value)
+}

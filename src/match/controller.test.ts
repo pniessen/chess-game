@@ -1,3 +1,6 @@
+/// <reference types="node" />
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { MatchController, chooseBookMove, chooseEngineMove } from './controller'
 import type { MatchConfig } from './types'
@@ -1137,5 +1140,39 @@ describe('book moves in the controller', () => {
     c.submitHumanMove({ from: 'e2', to: 'e4' })
     await vi.advanceTimersByTimeAsync(0)
     expect(e.calls).toHaveLength(1)
+  })
+
+  // Fix round 1, Finding 2: legalBookMoves() keys continuations as
+  // `${from}${to}${promotion ?? ''}` off game-core's legalMoves(), which is
+  // chess.js underneath. Proves against the REAL dataset (not a fixture)
+  // that its castling encoding (king-to-destination, 'e1g1' — not
+  // king-takes-rook 'e1h1') matches game-core's, so a real book castling
+  // move survives legalBookMoves' filter unmutated and is actually played
+  // through, with no search. RED if the encodings disagreed: the filter
+  // would drop 'e1g1' as "illegal" and the engine would search instead.
+  test('a real dataset castling continuation (Ruy Lopez, e1g1) survives the legality filter and is played', async () => {
+    const openingsPath = join(process.cwd(), 'public/openings/openings.json')
+    const raw = JSON.parse(readFileSync(openingsPath, 'utf8')) as {
+      positions: Record<string, [number, string[]]>
+    }
+    // 1.e4 e5 2.Nf3 Nc6 3.Bb5 a6 4.Ba4 Nf6 (Ruy Lopez, Morphy Defense).
+    // White to move; the dataset lists 'e1g1' (5.O-O) among its continuations.
+    const RUY_LOPEZ_EPD = 'r1bqkb1r/1ppp1ppp/p1n2n2/4p3/B3P3/5N2/PPPP1PPP/RNBQK2R w KQkq -'
+    const listed = raw.positions[RUY_LOPEZ_EPD]?.[1] ?? []
+    expect(listed).toContain('e1g1')
+
+    const e = fakeEngine()
+    const c = new MatchController({ engine: e.client, random: () => 0 })
+    c.setBook({ continuations: (epd) => (epd === RUY_LOPEZ_EPD ? ['e1g1'] : []) })
+    c.start({
+      white: { kind: 'engine', level: 1 },
+      black: { kind: 'human' },
+      timeControl: { kind: 'untimed' },
+      engineDelayMs: 0,
+      startFen: `${RUY_LOPEZ_EPD} 0 5`,
+    })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(c.snapshot().game.moves.map((m) => m.san)).toEqual(['O-O'])
+    expect(e.calls).toHaveLength(0) // played from the book, no search
   })
 })

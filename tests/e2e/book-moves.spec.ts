@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { coachOffline } from './helpers'
+import { coachOffline, pinRandom } from './helpers'
 
 const START_EPD = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq -'
 
@@ -9,9 +9,7 @@ const START_EPD = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq -'
 test('a level-1 engine opens with a book move (deterministic RNG)', async ({ page }) => {
   await coachOffline(page)
   // Math.random() = 0: "use the book" (0 < 0.9) and continuation index 0, every time.
-  await page.addInitScript(() => {
-    Math.random = () => 0
-  })
+  await pinRandom(page)
   await page.goto('/')
 
   const data = (await (await page.request.get('/openings/openings.json')).json()) as {

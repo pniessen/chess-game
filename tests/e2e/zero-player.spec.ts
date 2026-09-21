@@ -1,9 +1,15 @@
 import { expect, test } from '@playwright/test'
-import { coachOffline } from './helpers'
+import { coachOffline, pinRandom } from './helpers'
 
 test.beforeEach(async ({ page }) => coachOffline(page))
 
+// Math.random() is pinned so the engine's book/blunder draws are
+// deterministic: without it, a level-1 zero-player game can (rarely) end in
+// a short forced book mate (e.g. Fool's Mate) before reaching 6 plies. See
+// pinRandom() in helpers.ts for why 0 is safe here. Both sides are still
+// real Stockfish engines playing real, legal moves throughout.
 test('engine vs engine runs, pauses, and steps', async ({ page }) => {
+  await pinRandom(page)
   await page.goto('/')
   await page.getByTestId('mode').selectOption('zero-player')
   await page.getByTestId('level').selectOption('1')
