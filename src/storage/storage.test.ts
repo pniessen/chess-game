@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import {
-  DEFAULT_SETTINGS, loadInProgress, loadScore, loadSettings, saveInProgress, saveScore, saveSettings,
+  DEFAULT_SETTINGS, addHistoryEntry, loadHistory, loadInProgress, loadScore, loadSettings, saveInProgress,
+  saveScore, saveSettings, updateHistoryAccuracy, HISTORY_LIMIT, type HistoryEntry,
 } from './storage'
 
 beforeEach(() => localStorage.clear())
@@ -84,5 +85,49 @@ describe('in-progress game storage', () => {
     expect(loadInProgress()).toBeNull()
     localStorage.setItem('chess-game:in-progress', JSON.stringify({ nope: 1 }))
     expect(loadInProgress()).toBeNull()
+  })
+})
+
+describe('history', () => {
+  const entry = (id: string): HistoryEntry => ({
+    id,
+    date: '2026-09-21T10:00:00.000Z',
+    result: '1-0',
+    termination: 'normal',
+    opening: 'B20 Sicilian Defense',
+    pgn: '1. e4 c5 *',
+    accuracy: null,
+    white: 'Human',
+    black: 'Stockfish (level 3)',
+  })
+
+  test('empty by default; newest first; versioned record', () => {
+    expect(loadHistory()).toEqual([])
+    addHistoryEntry(entry('a'))
+    addHistoryEntry(entry('b'))
+    expect(loadHistory().map((e) => e.id)).toEqual(['b', 'a'])
+    expect(JSON.parse(localStorage.getItem('chess-game:history') ?? 'null')).toMatchObject({ v: 1 })
+  })
+
+  test(`capped at the newest ${HISTORY_LIMIT}`, () => {
+    for (let i = 0; i < HISTORY_LIMIT + 5; i++) addHistoryEntry(entry(`g${i}`))
+    const all = loadHistory()
+    expect(all).toHaveLength(HISTORY_LIMIT)
+    expect(all[0]?.id).toBe(`g${HISTORY_LIMIT + 4}`)
+  })
+
+  test('accuracy can be added later', () => {
+    addHistoryEntry(entry('a'))
+    updateHistoryAccuracy('a', { w: 91.2, b: 64 })
+    expect(loadHistory()[0]?.accuracy).toEqual({ w: 91.2, b: 64 })
+  })
+
+  test('malformed entries are dropped; an unknown version reads as empty', () => {
+    localStorage.setItem('chess-game:history', JSON.stringify({ v: 1, games: [entry('ok'), { id: 3 }, null] }))
+    expect(loadHistory().map((e) => e.id)).toEqual(['ok'])
+    localStorage.setItem('chess-game:history', JSON.stringify({ v: 9, games: [entry('x')] }))
+    expect(loadHistory()).toEqual([])
+    localStorage.setItem('chess-game:history', '{broken')
+    expect(loadHistory()).toEqual([])
   })
 })

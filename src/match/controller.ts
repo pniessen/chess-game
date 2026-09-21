@@ -462,6 +462,18 @@ export class MatchController {
     this.emit()
   }
 
+  /**
+   * End the match with a result the rules did not produce — used to replay a
+   * stored game that ended by resignation or on time. Same bookkeeping as resign().
+   */
+  finishAs(reason: 'resign' | 'flag', winner: Color): void {
+    this.requestId++
+    this.stepRequestId = null
+    this.clock.pause()
+    this.phase = { kind: 'finished', status: this.game.status(), reason, winner }
+    this.emit()
+  }
+
   resign(side: Color): void {
     this.requestId++
     this.stepRequestId = null

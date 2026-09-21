@@ -59,7 +59,18 @@ export async function runReview(
     onEval?: (fen: string, e: WhiteEval) => void
   },
 ): Promise<GameReview> {
-  const fens = [opts.startFen, ...opts.moves.map((m) => m.fenAfter)]
+  // Snapshot the move list up front, synchronously, before any `await` below.
+  // `opts.moves` can be the LIVE, mutable `played` array of a `Game` (e.g.
+  // App.tsx passes `game.moves`); an undo() landing between two awaited
+  // analyses mutates that SAME array in place (Game.undo() pops it). Reading
+  // `opts.moves` again after the loop's last await — as this function used
+  // to, for `firstMover` and the final `.map()` — would then see a shorter
+  // array than the one `fens` was built from, misaligning `evals`/`bests`
+  // against `moves` and producing a review that doesn't match the game it
+  // was supposedly reviewing. Copying here, before the first `await`, is
+  // immune to that: every read below uses this fixed snapshot instead.
+  const moves = [...opts.moves]
+  const fens = [opts.startFen, ...moves.map((m) => m.fenAfter)]
   const total = fens.length
   const evals: WhiteEval[] = []
   const bests: Array<string | null> = []
@@ -81,8 +92,8 @@ export async function runReview(
     opts.onProgress?.(i + 1, total)
   }
 
-  const firstMover: Color = opts.moves[0]?.color ?? (opts.startFen.split(' ')[1] === 'b' ? 'b' : 'w')
-  const moves: ReviewedMove[] = opts.moves.map((m, idx) => {
+  const firstMover: Color = moves[0]?.color ?? (opts.startFen.split(' ')[1] === 'b' ? 'b' : 'w')
+  const reviewedMoves: ReviewedMove[] = moves.map((m, idx) => {
     const ply = idx + 1
     const bestUci = bests[idx] ?? null
     const uci = uciOf(m)
@@ -92,5 +103,5 @@ export async function runReview(
     return { ply, san: m.san, uci, mover: m.color, classification, loss, bestUci, bestSan: sanOf(fens[idx] ?? opts.startFen, bestUci) }
   })
 
-  return { firstMover, evals, moves, accuracy: gameAccuracy(evals.map(whiteWinPercent), firstMover) }
+  return { firstMover, evals, moves: reviewedMoves, accuracy: gameAccuracy(evals.map(whiteWinPercent), firstMover) }
 }

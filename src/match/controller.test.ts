@@ -660,6 +660,16 @@ describe('MatchController', () => {
     await vi.advanceTimersByTimeAsync(0)
     expect(c.snapshot().game.moves.map((m) => m.san)).toEqual(['e4', 'e5'])
   })
+
+  test('finishAs ends a replayed game with a non-rules result', () => {
+    const e = fakeEngine()
+    const c = new MatchController({ engine: e.client })
+    c.start({ white: { kind: 'human' }, black: { kind: 'human' }, timeControl: { kind: 'untimed' } })
+    c.submitHumanMove({ from: 'e2', to: 'e4' })
+    c.finishAs('resign', 'w')
+    expect(c.snapshot().phase).toMatchObject({ kind: 'finished', reason: 'resign', winner: 'w' })
+    expect(c.submitHumanMove({ from: 'e7', to: 'e5' }).ok).toBe(false)
+  })
 })
 
 describe('MatchController: browsing never changes the live game (C2)', () => {

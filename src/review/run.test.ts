@@ -60,6 +60,37 @@ describe('runReview', () => {
     expect(review.firstMover).toBe('w')
   })
 
+  test('a mutation of the source moves array after runReview starts does not change the result (Task 13 controller review, binding)', async () => {
+    // App.tsx's handleReview passes `game.moves`, which is the LIVE,
+    // in-place-mutable `played` array (Game.undo() pops it). Simulate the
+    // exact race the review flagged: an undo lands between two awaited
+    // analyses, after the caller captured `moves` but before runReview
+    // would (without the fix) read it again.
+    const game = scholar()
+    const moves = game.moves
+    let call = 0
+    const analyze = vi.fn<ReviewAnalyze>(async () => {
+      const s = SCRIPT[call++]!
+      if (call === 3) game.undo() // shortens the SAME array `moves` references
+      return {
+        best: s.pv,
+        lines: [{ depth: 12, pv: [s.pv], ...(s.mate !== undefined ? { scoreMate: s.mate } : { scoreCp: s.cp }) }],
+      }
+    })
+    const review = await runReview({
+      startFen: game.startFen,
+      moves,
+      finalStatus: game.status(), // captured before the undo, like a real caller would
+      analyze,
+      signal: new AbortController().signal,
+    })
+
+    expect(moves).toHaveLength(6) // the source array really was mutated mid-review
+    expect(review.moves).toHaveLength(7) // but the review still covers the full original game
+    expect(review.moves[6]).toMatchObject({ san: 'Qxf7#', classification: 'best' })
+    expect(review.firstMover).toBe('w')
+  })
+
   test('an aborted analysis rejects the whole review', async () => {
     const game = scholar()
     const ctrl = new AbortController()

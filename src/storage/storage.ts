@@ -30,6 +30,7 @@ const KEYS = {
   settings: 'chess-game:settings',
   score: 'chess-game:score',
   inProgress: 'chess-game:in-progress',
+  history: 'chess-game:history',
 } as const
 
 function readJson(key: string): unknown {
@@ -186,4 +187,79 @@ export function clearInProgress(): void {
   } catch {
     // ignore
   }
+}
+
+// ---- finished-game history ------------------------------------------------
+
+export const HISTORY_LIMIT = 200
+
+export interface HistoryEntry {
+  id: string
+  /** ISO 8601. */
+  date: string
+  result: '1-0' | '0-1' | '1/2-1/2'
+  termination: 'normal' | 'resign' | 'flag'
+  opening: string | null
+  pgn: string
+  /** Null until the game is reviewed. */
+  accuracy: { w: number | null; b: number | null } | null
+  white: string
+  black: string
+}
+
+const RESULTS = ['1-0', '0-1', '1/2-1/2'] as const
+const TERMINATIONS = ['normal', 'resign', 'flag'] as const
+
+function numOrNull(v: unknown): v is number | null {
+  return v === null || (typeof v === 'number' && Number.isFinite(v))
+}
+
+function parseHistoryEntry(v: unknown): HistoryEntry | null {
+  if (!isRecord(v)) return null
+  const { id, date, result, termination, opening, pgn, accuracy, white, black } = v
+  if (typeof id !== 'string' || typeof date !== 'string' || typeof pgn !== 'string') return null
+  if (typeof white !== 'string' || typeof black !== 'string') return null
+  if (!RESULTS.includes(result as HistoryEntry['result'])) return null
+  if (!TERMINATIONS.includes(termination as HistoryEntry['termination'])) return null
+  if (opening !== null && typeof opening !== 'string') return null
+  let acc: HistoryEntry['accuracy'] = null
+  if (accuracy !== null) {
+    if (!isRecord(accuracy) || !numOrNull(accuracy['w']) || !numOrNull(accuracy['b'])) return null
+    acc = { w: accuracy['w'] as number | null, b: accuracy['b'] as number | null }
+  }
+  return {
+    id,
+    date,
+    result: result as HistoryEntry['result'],
+    termination: termination as HistoryEntry['termination'],
+    opening,
+    pgn,
+    accuracy: acc,
+    white,
+    black,
+  }
+}
+
+/** Finished games, newest first. Unknown versions and malformed entries read as absent. */
+export function loadHistory(): HistoryEntry[] {
+  const raw = readJson(KEYS.history)
+  if (!isRecord(raw) || raw['v'] !== 1 || !Array.isArray(raw['games'])) return []
+  return raw['games'].map(parseHistoryEntry).filter((e): e is HistoryEntry => e !== null)
+}
+
+function saveHistory(games: HistoryEntry[]): HistoryEntry[] {
+  const capped = games.slice(0, HISTORY_LIMIT)
+  writeJson(KEYS.history, { v: 1, games: capped })
+  return capped
+}
+
+export function addHistoryEntry(entry: HistoryEntry): HistoryEntry[] {
+  return saveHistory([entry, ...loadHistory().filter((e) => e.id !== entry.id)])
+}
+
+export function updateHistoryAccuracy(
+  id: string,
+  accuracy: { w: number | null; b: number | null },
+): HistoryEntry[] {
+  return saveHistory(loadHistory().map((e) => (e.id === id ? { ...e, accuracy } : e)))
 }

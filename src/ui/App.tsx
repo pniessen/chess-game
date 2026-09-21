@@ -19,13 +19,17 @@ import { useOpeningBook } from './useOpeningBook'
 import type { OpeningEntry } from '../openings/book'
 import { gameIdOf } from './gameKey'
 import {
+  addHistoryEntry,
   clearInProgress,
+  loadHistory,
   loadInProgress,
   loadScore,
   loadSettings,
   saveInProgress,
   saveScore,
   saveSettings,
+  updateHistoryAccuracy,
+  type HistoryEntry,
   type Level,
   type MatchScore,
   type Settings,
@@ -48,6 +52,8 @@ import { ReviewPanel } from './review/ReviewPanel'
 import { currentMoveText, reviewAnnotations, reviewMarks } from './review/reviewView'
 import { reviewRequestFrom, templatedSummary } from '../review/summary'
 import { humanSideOf, resultTagOf } from '../match/result'
+import { HistoryPanel } from './history/HistoryPanel'
+import { historyEntryFor, newHistoryId } from './history/record'
 import './app.css'
 
 /** Task 13 adds the 'history' tab. */
@@ -290,6 +296,23 @@ function AppInner({
   const engineAvailable = engineConstructed && !engineDied
 
   const scoredRef = useRef(false)
+  const [history, setHistory] = useState<HistoryEntry[]>(() => loadHistory())
+  /** True once the current match's finish has been written to history. */
+  const recordedRef = useRef(false)
+  /**
+   * The history entry the current match corresponds to, paired with the
+   * exact `Game` object it was recorded/reattached for.
+   *
+   * Required fix (Task 12 review, binding): a review's `onComplete` must
+   * never attach its accuracy to the wrong game. `useReview` already aborts
+   * (and masks) a review whose `gameKey` changed before it finished, but
+   * that alone doesn't prove `historyRef` itself still points at the entry
+   * for the CURRENT game — e.g. if some future change forgot to update this
+   * ref when the game changed. Pairing the id with the `Game` object
+   * (identity, not a derived string) and checking `rec.game === game` in
+   * `onComplete` below is a second, independent guard at the write site.
+   */
+  const historyRef = useRef<{ id: string; game: Game } | null>(null)
 
   // Stable, so the clock display's polling effect isn't torn down and
   // rebuilt on every App render.
@@ -405,11 +428,35 @@ function AppInner({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [snapshot.phase])
 
+  // A game is recorded once, the moment its finish is OBSERVED LIVE — never
+  // for an already-finished game that was imported, resumed or replayed
+  // (loadMatch sets recordedRef accordingly), and never twice for the same
+  // finish (recordedRef, like scoredRef above, guards a re-render or a
+  // redo landing back on the same finished `phase`).
+  useEffect(() => {
+    if (snapshot.phase.kind !== 'finished' || recordedRef.current) return
+    recordedRef.current = true
+    const entry = historyEntryFor({
+      phase: snapshot.phase,
+      game,
+      config: snapshot.config,
+      opening: finalOpeningName,
+      now: new Date(),
+      id: newHistoryId(),
+    })
+    if (!entry) return
+    setHistory(addHistoryEntry(entry))
+    historyRef.current = { id: entry.id, game }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [snapshot.phase])
+
   // ---- match lifecycle ------------------------------------------------------
 
   const startMatch = (config: MatchConfig) => {
     controller.start(config)
     scoredRef.current = false
+    recordedRef.current = false
+    historyRef.current = null
     setCanRedo(false)
     setSelection({ kind: 'idle' })
   }
@@ -433,6 +480,10 @@ function AppInner({
    */
   const loadMatch = (config: MatchConfig, history: Game, alreadyScored: boolean) => {
     scoredRef.current = alreadyScored || history.status().kind !== 'in-progress'
+    // A history that is already finished (an import, a resume, a replay) is
+    // never re-recorded: only a finish OBSERVED LIVE creates a history entry.
+    recordedRef.current = scoredRef.current
+    historyRef.current = null
     controller.load(config, history)
     setCanRedo(false)
     setSelection({ kind: 'idle' })
@@ -453,6 +504,34 @@ function AppInner({
     if (!built.ok) return
     loadMatch(buildConfig({ mode, level, timeControlId, color, engineAvailable }), built.game, false)
     setOrientation(mode === 'one-player' ? color : 'white')
+    setTab('moves')
+  }
+
+  /**
+   * Replay a stored game: load it as a finished two-player game to browse
+   * and review. Replaying never adds a second history entry or changes the
+   * score (loadMatch treats it as already-scored, like an import).
+   *
+   * A resignation/flag isn't a rules result `load()` can reconstruct by
+   * itself (the position after the last recorded move may still be
+   * 'in-progress'), so it's re-applied explicitly via `finishAs()`.
+   */
+  const handleReplay = (entry: HistoryEntry) => {
+    const parsed = importPgn(entry.pgn)
+    if (!parsed.ok) return
+    loadMatch({ white: { kind: 'human' }, black: { kind: 'human' }, timeControl: { kind: 'untimed' } }, parsed.game, true)
+    recordedRef.current = true
+    // `controller.load()` (called synchronously by loadMatch above) builds
+    // its OWN new Game internally — not `parsed.game` — so the object this
+    // review/accuracy guard must key on is read back from the controller,
+    // not captured from `parsed`.
+    historyRef.current = { id: entry.id, game: controller.snapshot().game }
+    if (parsed.game.status().kind === 'in-progress' && entry.termination !== 'normal') {
+      const winner = entry.result === '1-0' ? 'w' : entry.result === '0-1' ? 'b' : null
+      if (winner) controller.finishAs(entry.termination, winner)
+    }
+    setMode('two-player')
+    setOrientation('white')
     setTab('moves')
   }
 
@@ -582,7 +661,16 @@ function AppInner({
     analyze: analyzeForEval,
     summarize: summarizeReview,
     onEval: (fen, e) => evalCache.set(fen, e),
-    onComplete: () => {},
+    // Write the review's accuracy onto the history entry it belongs to —
+    // but only if `historyRef` still points at THIS exact game (see the
+    // ref's doc comment above; required fix, Task 12 review, binding).
+    // `useReview` already refuses to call this at all once its `gameKey`
+    // has changed (see useReview.ts's `activeKeyRef`/cancel), so this is a
+    // second, independent check at the write site.
+    onComplete: (r) => {
+      const rec = historyRef.current
+      if (rec && rec.game === game) setHistory(updateHistoryAccuracy(rec.id, r.accuracy))
+    },
   })
   const reviewed = review.state.kind === 'done' ? review.state.review : null
   const marks = useMemo(() => (reviewed ? reviewMarks(reviewed) : undefined), [reviewed])
@@ -774,6 +862,7 @@ function AppInner({
                   />
                 ),
               },
+              { id: 'history', label: 'History', content: <HistoryPanel entries={history} onReplay={handleReplay} /> },
             ]}
           />
         </div>

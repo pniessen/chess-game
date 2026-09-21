@@ -1,6 +1,8 @@
 import { fireEvent, render, screen } from '@testing-library/react'
-import { describe, expect, test } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { App } from './App'
+import { exportPgn, gameFromSan } from '../game-core/io'
+import { loadHistory } from '../storage/storage'
 
 // Deviation from the brief: the brief used a bare `el.click()` here. Under
 // this repo's actual React 19 + jsdom, a raw click's state update is not
@@ -138,5 +140,83 @@ describe('import credits no clock increment per replayed move (I6)', () => {
     expect(screen.getByTestId('clock-w')).toHaveTextContent(/^3:00$/)
     expect(screen.getByTestId('clock-b')).toHaveTextContent(/^3:00$/)
     localStorage.clear()
+  })
+})
+
+const SCHOLARS_MATE: Array<[string, string]> = [
+  ['e2', 'e4'], ['e7', 'e5'],
+  ['f1', 'c4'], ['b8', 'c6'],
+  ['d1', 'h5'], ['g8', 'f6'],
+  ['h5', 'f7'],
+]
+
+function scholarsMatePgn(): string {
+  const r = gameFromSan(['e4', 'e5', 'Bc4', 'Nc6', 'Qh5', 'Nf6', 'Qxf7#'])
+  if (!r.ok) throw new Error(r.error)
+  return exportPgn(r.game)
+}
+
+/**
+ * Exactly-once history recording (Task 13). Phase 1's lesson (double-scoring
+ * a finished game, resume flipping modes) applies here just as much: a
+ * finished game must produce exactly ONE history entry.
+ */
+describe('history (Task 13)', () => {
+  beforeEach(() => localStorage.clear())
+  afterEach(() => localStorage.clear())
+
+  test('a finished game is recorded exactly once — not again on a re-render, and not again when a redo lands back on the same finished position', () => {
+    const { container } = render(<App />)
+    for (const [from, to] of SCHOLARS_MATE) {
+      clickSquare(container, from)
+      clickSquare(container, to)
+    }
+    expect(screen.getByTestId('result')).toHaveTextContent(/checkmate/i)
+    expect(loadHistory()).toHaveLength(1)
+    expect(loadHistory()[0]).toMatchObject({ result: '1-0', termination: 'normal', accuracy: null })
+
+    // An unrelated re-render (switching tabs: no controller action, so the
+    // finished `phase` object is untouched) must not add a second entry.
+    fireEvent.click(screen.getByTestId('tab-history'))
+    expect(loadHistory()).toHaveLength(1)
+
+    // Undo the mating move, then redo it: MatchController rebuilds `phase`
+    // as a NEW object describing the exact same finished result (see
+    // redo()'s and the scoring effect's own comments on this). Without the
+    // `recordedRef` guard this would run the recording effect a second time.
+    fireEvent.click(screen.getByTestId('undo'))
+    fireEvent.click(screen.getByTestId('redo'))
+    expect(screen.getByTestId('result')).toHaveTextContent(/checkmate/i)
+    expect(loadHistory()).toHaveLength(1)
+  })
+
+  test('resuming an already-finished game never adds a new entry (it was not observed live in this session)', () => {
+    localStorage.setItem(
+      'chess-game:in-progress',
+      JSON.stringify({ v: 2, pgn: scholarsMatePgn(), setup: null, scored: true }),
+    )
+    render(<App />)
+    expect(screen.getByTestId('resume-banner')).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('resume-accept'))
+
+    expect(screen.getByTestId('result')).toHaveTextContent(/checkmate/i)
+    expect(loadHistory()).toHaveLength(0)
+  })
+
+  test('starting a new game after a finished one is recorded resets recording for the new game', () => {
+    const { container } = render(<App />)
+    for (const [from, to] of SCHOLARS_MATE) {
+      clickSquare(container, from)
+      clickSquare(container, to)
+    }
+    expect(loadHistory()).toHaveLength(1)
+
+    fireEvent.click(screen.getByTestId('new-game'))
+    for (const [from, to] of SCHOLARS_MATE) {
+      clickSquare(container, from)
+      clickSquare(container, to)
+    }
+    expect(screen.getByTestId('result')).toHaveTextContent(/checkmate/i)
+    expect(loadHistory()).toHaveLength(2)
   })
 })

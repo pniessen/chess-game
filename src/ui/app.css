@@ -405,3 +405,10 @@ body {
 .mark-inaccuracy { color: #b8860b; }
 .mark-mistake { color: #e67e22; }
 .mark-blunder { color: #e74c3c; }
+
+.history-list { list-style: none; margin: 0; padding: 8px; max-height: 360px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+.history-entry { border-bottom: 1px solid var(--color-panel-border); padding-bottom: 6px; }
+.history-line { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+.history-meta { font-size: 0.8em; color: var(--color-muted); }
+.history-result { font-weight: 700; font-variant-numeric: tabular-nums; }
+.history-empty { padding: 8px; color: var(--color-muted); }
