@@ -59,11 +59,18 @@ export function createClaude(opts: { apiKey?: string; client?: MessagesClient })
         const response = await client.messages.create({
           model: COACH_MODEL,
           max_tokens: req.maxTokens,
+          // claude-sonnet-5 runs adaptive thinking when `thinking` is omitted,
+          // and thinking tokens count toward max_tokens: a 1024-token hint
+          // could be spent entirely on thinking. These are short plain-text
+          // answers, so thinking is off and the budget is all visible text.
+          thinking: { type: 'disabled' },
           output_config: { effort: 'low' },
           system: req.system,
           messages: [{ role: 'user', content: req.user }],
         })
-        if (response.stop_reason === 'refusal') return failure('upstream')
+        // A refusal has no usable answer; a max_tokens stop is cut off
+        // mid-sentence, and truncated coaching is worse than the fallback.
+        if (response.stop_reason === 'refusal' || response.stop_reason === 'max_tokens') return failure('upstream')
         const text = response.content
           .map((block) => (block.type === 'text' ? block.text : ''))
           .join('')

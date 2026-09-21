@@ -50,6 +50,28 @@ describe('createClaude', () => {
       .toMatchObject({ ok: false, kind: 'upstream' })
   })
 
+  test('thinking is disabled so the whole max_tokens budget goes to the visible answer', async () => {
+    const f = fakeClient(async () => message())
+    await createClaude({ client: f.client }).complete(REQ)
+    expect(f.calls[0]?.thinking).toEqual({ type: 'disabled' })
+  })
+
+  test('a max_tokens stop is an upstream failure, never truncated text', async () => {
+    const r = await createClaude({
+      client: fakeClient(async () => message({ stop_reason: 'max_tokens' })).client,
+    }).complete(REQ)
+    expect(r).toMatchObject({ ok: false, kind: 'upstream' })
+  })
+
+  test('a response with no text block (e.g. only thinking) is an upstream failure', async () => {
+    const onlyThinking = message({ content: [{ type: 'thinking', thinking: '', signature: 'sig' }] })
+    expect(await createClaude({ client: fakeClient(async () => onlyThinking).client }).complete(REQ))
+      .toMatchObject({ ok: false, kind: 'upstream' })
+    const blankText = message({ content: [{ type: 'text', text: '   ', citations: null }] })
+    expect(await createClaude({ client: fakeClient(async () => blankText).client }).complete(REQ))
+      .toMatchObject({ ok: false, kind: 'upstream' })
+  })
+
   test.each([
     ['rate-limited', () => new Anthropic.RateLimitError(429, undefined, 'rate limited', new Headers())],
     ['auth', () => new Anthropic.AuthenticationError(401, undefined, 'invalid x-api-key', new Headers())],
