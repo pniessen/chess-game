@@ -17,7 +17,7 @@ import { useHints, type HintAnalyze, type HintReasoner } from './hints/useHints'
 import { BoundedEvalCache, useEvaluation, type EvalAnalyze } from './useEvaluation'
 import { useOpeningBook } from './useOpeningBook'
 import type { OpeningEntry } from '../openings/book'
-import { gameIdOf, reviewKeyOf } from './gameKey'
+import { displayedSanKeyOf, hintKeyOf, liveKeyOf, reviewKeyOf } from './gameKey'
 import {
   addHistoryEntry,
   clearInProgress,
@@ -384,7 +384,7 @@ function AppInner({
   }, [controller, book])
   // The SANs up to the displayed ply: an undo followed by a different move
   // leaves ply/livePly unchanged, so the moves themselves are the memo key.
-  const sanKey = game.moves.slice(0, game.ply).map((m) => m.san).join(' ')
+  const sanKey = displayedSanKeyOf(game)
   const opening = useMemo(
     () => (book ? book.identify(game.epds(Math.min(game.ply, book.maxPly))) : null),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -393,7 +393,7 @@ function AppInner({
 
   // The LIVE game's full move list: an undo followed by a different move
   // keeps the same Game object and length, so the SANs are the key.
-  const liveSanKey = game.moves.map((m) => m.san).join(' ')
+  const liveSanKey = liveKeyOf(game)
   const finalOpening = useMemo(
     () => (book ? book.identify(game.epds(Math.min(game.livePly, book.maxPly))) : null),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -672,7 +672,7 @@ function AppInner({
   )
 
   const hints = useHints({
-    resetKey: `${gameIdOf(game)}:${game.livePly}:${game.ply}`,
+    resetKey: hintKeyOf(game, snapshot.phase.kind),
     analyze: analyzeForHint,
     reason: reasonForHint,
   })
