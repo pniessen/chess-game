@@ -97,13 +97,75 @@ describe('MatchController', () => {
     c.start(HUMAN_VS_ENGINE)
     c.submitHumanMove({ from: 'e2', to: 'e4' })
     await vi.advanceTimersByTimeAsync(0)
+    expect(e.calls).toHaveLength(1)
 
-    c.start(HUMAN_VS_ENGINE) // new game while the engine is thinking
+    // New game while the engine is thinking. It starts from the SAME
+    // position the old search was about (after 1.e4, Black to move), so the
+    // stale reply e7e5 is perfectly LEGAL here: the rules cannot reject it,
+    // only the requestId guard can.
+    const AFTER_E4 = 'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1'
+    c.start({
+      white: { kind: 'human' },
+      black: { kind: 'human' },
+      timeControl: { kind: 'untimed' },
+      startFen: AFTER_E4,
+    })
+    expect(c.snapshot().phase).toEqual({ kind: 'awaiting-human', side: 'b' })
+
     e.calls[0]?.resolve('e7e5') // the old reply lands late
     await vi.advanceTimersByTimeAsync(0)
 
     expect(c.snapshot().game.moves).toHaveLength(0)
-    expect(c.snapshot().phase).toEqual({ kind: 'awaiting-human', side: 'w' })
+    expect(c.snapshot().game.current().fen()).toBe(AFTER_E4)
+    expect(c.snapshot().phase).toEqual({ kind: 'awaiting-human', side: 'b' })
+    // No retry search was started on the stale reply's behalf either.
+    expect(e.calls).toHaveLength(1)
+  })
+
+  test('New Game while the engine is thinking does NOT end the new game as engine-error', async () => {
+    // Mirrors the real EngineClient: the new game's search() REJECTS the
+    // old, still-pending one as superseded. That rejection lands in the old
+    // askEngine()'s catch, which must recognise it as stale by requestId.
+    const e = fakeEngine({ rejectOnSupersede: true })
+    const c = new MatchController({ engine: e.client })
+    c.start(HUMAN_VS_ENGINE)
+    c.submitHumanMove({ from: 'e2', to: 'e4' })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(c.snapshot().phase.kind).toBe('engine-thinking')
+
+    // The new game has the engine as White, so it searches immediately —
+    // superseding (and rejecting) the old game's search.
+    c.start({
+      white: { kind: 'engine', level: 4 },
+      black: { kind: 'human' },
+      timeControl: { kind: 'untimed' },
+      engineDelayMs: 0,
+    })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(e.calls).toHaveLength(2)
+
+    const phase = c.snapshot().phase
+    expect(phase.kind).not.toBe('finished')
+    expect(phase).toMatchObject({ kind: 'engine-thinking', side: 'w' })
+
+    // ...and the new game's own search still lands normally.
+    e.calls[1]?.resolve('e2e4')
+    await vi.advanceTimersByTimeAsync(0)
+    expect(c.snapshot().game.moves.map((m) => m.san)).toEqual(['e4'])
+    expect(c.snapshot().phase).toEqual({ kind: 'awaiting-human', side: 'b' })
+  })
+
+  test('a genuine engine failure still ends the game as engine-error', async () => {
+    const e = fakeEngine()
+    const c = new MatchController({ engine: e.client })
+    c.start(HUMAN_VS_ENGINE)
+    c.submitHumanMove({ from: 'e2', to: 'e4' })
+    await vi.advanceTimersByTimeAsync(0)
+    e.calls[0]?.reject(new Error('worker crashed'))
+    await vi.advanceTimersByTimeAsync(0)
+    const phase = c.snapshot().phase
+    expect(phase.kind).toBe('finished')
+    if (phase.kind === 'finished') expect(phase.reason).toBe('engine-error')
   })
 
   test('a human move is refused while the engine is thinking', async () => {
