@@ -2028,6 +2028,31 @@ Expected: FAIL — module not found.
 
 - [ ] **Step 3: Write `src/ui/Board/useDragMove.ts`**
 
+> **The code below is INCOMPLETE and was corrected during implementation.**
+> Review found three real defects in it, all in the touch paths that pointer
+> events exist to serve. The shipped implementation fixes all three; consult
+> `src/ui/Board/useDragMove.ts` in the repository rather than transcribing
+> this block verbatim. The defects were:
+>
+> 1. **No `pointercancel` handler.** A touch interrupted by a system gesture
+>    fires `pointercancel` *instead of* `pointerup`, so cleanup never ran: the
+>    square stayed faded and the listeners leaked. The next drag stacked a
+>    second listener pair on the live first pair, and a later `pointerup`
+>    fired both — submitting two moves from one gesture. The fix adds a
+>    `pointercancel` handler sharing one `cleanup()` with `up()` (so the paths
+>    cannot drift), which removes all three listeners including itself.
+> 2. **The suppression flag could strand itself true.** It was set before
+>    validating the drop target, but `setPointerCapture` does not redirect the
+>    synthesized `click`, which is hit-tested at the release point. Releasing
+>    off-board meant no click arrived, the flag was never consumed, and the
+>    user's next legitimate click was silently swallowed. The fix sets the
+>    flag only when the release landed on a real `[data-square]`, *and* resets
+>    it at the start of every `onPointerDown`.
+> 3. **No `pointerId` filtering.** Pointer capture only redirects the captured
+>    pointer, so a second finger's `pointerup` could complete the first
+>    finger's drag onto an unrelated square. The fix captures the initiating
+>    `pointerId` and gates all three handlers on it.
+
 ```ts
 import { useRef, useState } from 'react'
 import type { Position } from '../../game-core/position'
