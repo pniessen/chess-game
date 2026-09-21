@@ -419,6 +419,85 @@ describe('MatchController', () => {
     expect(after.game.moves).toHaveLength(2)
   })
 
+  test('one-player undo -> redo restores both plies with the ORIGINAL engine reply and starts no new search', async () => {
+    const e = fakeEngine()
+    const c = new MatchController({ engine: e.client })
+    c.start(HUMAN_VS_ENGINE)
+    c.submitHumanMove({ from: 'e2', to: 'e4' })
+    await vi.advanceTimersByTimeAsync(0)
+    e.calls[0]?.resolve('e7e5')
+    await vi.advanceTimersByTimeAsync(0)
+    expect(c.snapshot().game.moves.map((m) => m.san)).toEqual(['e4', 'e5'])
+
+    c.undo()
+    expect(c.snapshot().game.moves).toHaveLength(0)
+    expect(c.snapshot().phase).toEqual({ kind: 'awaiting-human', side: 'w' })
+
+    const callsBeforeRedo = e.calls.length
+    const redone = c.redo()
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(redone).toBe(true)
+    // Both plies restored, and the engine's reply is the ORIGINAL e7e5 —
+    // not a fresh search result.
+    expect(c.snapshot().game.moves.map((m) => m.san)).toEqual(['e4', 'e5'])
+    expect(c.snapshot().phase).toEqual({ kind: 'awaiting-human', side: 'w' })
+    // Redo restores recorded history; it must never issue a new search.
+    expect(e.calls.length).toBe(callsBeforeRedo)
+  })
+
+  test('zero-player undo -> redo restores one ply and stays paused, starting no new search', async () => {
+    const e = fakeEngine()
+    const c = new MatchController({ engine: e.client })
+    const zeroPlayer: MatchConfig = {
+      white: { kind: 'engine', level: 1 },
+      black: { kind: 'engine', level: 1 },
+      timeControl: { kind: 'untimed' },
+      engineDelayMs: 0,
+    }
+    c.start(zeroPlayer)
+    c.pause()
+    c.step()
+    await vi.advanceTimersByTimeAsync(0)
+    e.calls[0]?.resolve('e2e4')
+    await vi.advanceTimersByTimeAsync(0)
+    expect(c.snapshot().game.moves).toHaveLength(1)
+    expect(c.snapshot().phase.kind).toBe('paused')
+
+    c.undo()
+    expect(c.snapshot().game.moves).toHaveLength(0)
+    expect(c.snapshot().phase.kind).toBe('paused')
+
+    const callsBeforeRedo = e.calls.length
+    const redone = c.redo()
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(redone).toBe(true)
+    expect(c.snapshot().game.moves).toHaveLength(1)
+    expect(c.snapshot().phase).toEqual({ kind: 'paused' })
+    expect(e.calls.length).toBe(callsBeforeRedo)
+  })
+
+  test('one-player redo when the future holds only one ply restores it without throwing', async () => {
+    const e = fakeEngine()
+    const c = new MatchController({ engine: e.client })
+    c.start(HUMAN_VS_ENGINE)
+    c.submitHumanMove({ from: 'e2', to: 'e4' })
+    await vi.advanceTimersByTimeAsync(0) // engine now thinking, not yet resolved
+    expect(c.snapshot().phase.kind).toBe('engine-thinking')
+
+    c.undo() // only the human's move exists yet; the engine never replied
+    expect(c.snapshot().game.moves).toHaveLength(0)
+    expect(c.snapshot().phase).toEqual({ kind: 'awaiting-human', side: 'w' })
+
+    const redone = c.redo()
+    expect(redone).toBe(true)
+    // Only one ply was available to redo, and it must be restored cleanly.
+    expect(c.snapshot().game.moves.map((m) => m.san)).toEqual(['e4'])
+    // It is now the engine's turn, but redo() must never start a search.
+    expect(c.snapshot().phase).toEqual({ kind: 'paused' })
+  })
+
   test('goTo() is refused while the engine is thinking', async () => {
     const e = fakeEngine()
     const c = new MatchController({ engine: e.client })

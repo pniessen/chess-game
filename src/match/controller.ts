@@ -365,9 +365,31 @@ export class MatchController {
    * game already having been undone out of 'finished') has no way to know
    * which without us telling it. Returns false (no-op, no emit) when there
    * is nothing to redo.
+   *
+   * redo() must mirror undo() exactly, per mode: undo() in one-player mode
+   * pops TWO plies (the human's move and the engine's reply) so control
+   * returns to the human, so redo() must restore both of those same two
+   * recorded plies — never hand the second one back to a fresh engine
+   * search, which could substitute a different move than the one that was
+   * actually played and undone. And whatever mode we're in, redo() must
+   * NEVER start an engine search: it restores recorded history, so the
+   * phase afterward is derived directly from whose turn it is (paused for
+   * an engine seat) rather than routed through toMoveOf()/askEngine().
    */
   redo(): boolean {
+    const opponentIsEngine =
+      this.config.white.kind === 'engine' || this.config.black.kind === 'engine'
+    const bothEngines =
+      this.config.white.kind === 'engine' && this.config.black.kind === 'engine'
+    const redoesBothPlies = opponentIsEngine && !bothEngines
+
     if (!this.game.redo()) return false
+    if (redoesBothPlies) {
+      // Best-effort: restore the engine's recorded reply too, if one was
+      // actually undone (it may not have been, e.g. undo() interrupted the
+      // engine before it ever replied — leave state as redo() then found it).
+      this.game.redo()
+    }
 
     // The live position just changed under whatever engine request (if any)
     // was in flight for the position we redid away from.
@@ -383,13 +405,8 @@ export class MatchController {
     }
 
     const side = this.game.current().turn()
-    const bothEngines =
-      this.config.white.kind === 'engine' && this.config.black.kind === 'engine'
-    if (bothEngines) {
-      this.phase = { kind: 'paused' }
-    } else {
-      this.toMoveOf(side)
-    }
+    this.phase =
+      this.seatFor(side).kind === 'human' ? { kind: 'awaiting-human', side } : { kind: 'paused' }
     this.emit()
     return true
   }
