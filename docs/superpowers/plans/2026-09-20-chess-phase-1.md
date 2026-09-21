@@ -229,6 +229,13 @@ export default defineConfig({
 import '@testing-library/jest-dom/vitest'
 ```
 
+`src/vite-env.d.ts` — required before any module does `import './x.css'`,
+which a later task does. Without it TypeScript has no declaration for CSS
+side-effect imports and `npm run typecheck` fails:
+```ts
+/// <reference types="vite/client" />
+```
+
 `index.html`:
 ```html
 <!doctype html>
@@ -1469,7 +1476,9 @@ Run: `npx vitest run src/ui/Board/squares.test.ts` → PASS.
 
 `src/ui/Board/Board.test.tsx`:
 ```tsx
-import { render, screen } from '@testing-library/react'
+// NOTE: do not import `screen` here — these tests query via `container`,
+// and an unused import fails the project's `noUnusedLocals`.
+import { render } from '@testing-library/react'
 import { describe, expect, test, vi } from 'vitest'
 import { Board } from './Board'
 import { Position } from '../../game-core/position'
