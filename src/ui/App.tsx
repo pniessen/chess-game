@@ -54,6 +54,7 @@ import { reviewRequestFrom, templatedSummary } from '../review/summary'
 import { humanSideOf, resultTagOf } from '../match/result'
 import { HistoryPanel } from './history/HistoryPanel'
 import { historyEntryFor, newHistoryId } from './history/record'
+import { SoundPlayer, soundForTransition, type SoundFrame } from '../sound/sounds'
 import './app.css'
 
 /** Task 13 adds the 'history' tab. */
@@ -259,6 +260,21 @@ function AppInner({
   }, [])
   const [pendingResume] = useState(() => loadInProgress())
 
+  const [sound] = useState(() => new SoundPlayer({ enabled: settings.soundEnabled }))
+  useEffect(() => {
+    sound.setEnabled(settings.soundEnabled)
+  }, [sound, settings.soundEnabled])
+  useEffect(() => {
+    // Browsers only start audio inside a user gesture: create it on the first one.
+    const unlock = () => sound.unlock()
+    window.addEventListener('pointerdown', unlock)
+    window.addEventListener('keydown', unlock)
+    return () => {
+      window.removeEventListener('pointerdown', unlock)
+      window.removeEventListener('keydown', unlock)
+    }
+  }, [sound])
+
   // One coach client per app; it owns the offline badge and the one-time notice.
   const [coach] = useState(() => new CoachClient())
   const coachState = useCoach(coach)
@@ -329,6 +345,21 @@ function AppInner({
   const position = game.current()
   const displayedStatus = position.status()
   const lastMove = game.moves[game.ply - 1]
+
+  const lastSoundFrame = useRef<SoundFrame | null>(null)
+  useEffect(() => {
+    const finished = snapshot.phase.kind === 'finished'
+    const prev = lastSoundFrame.current
+    lastSoundFrame.current = { game, livePly: game.livePly, finished }
+    const name = soundForTransition(prev, {
+      game,
+      livePly: game.livePly,
+      finished,
+      lastMove: game.moves[game.livePly - 1],
+      status: game.status(),
+    })
+    if (name) sound.play(name)
+  }, [sound, game, game.livePly, snapshot.phase.kind])
 
   // Evaluations by FEN, shared by the eval bar and the review. Bounded (LRU):
   // both fill it, and it lives for the whole session.

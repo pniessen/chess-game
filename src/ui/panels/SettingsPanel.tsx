@@ -13,6 +13,15 @@ export function SettingsPanel({
       <label>
         <input
           type="checkbox"
+          data-testid="sound-toggle"
+          checked={settings.soundEnabled}
+          onChange={(e) => onChange({ soundEnabled: e.target.checked })}
+        />
+        Sound
+      </label>
+      <label>
+        <input
+          type="checkbox"
           data-testid="eval-toggle"
           checked={settings.showEval}
           onChange={(e) => onChange({ showEval: e.target.checked })}
