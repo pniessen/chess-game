@@ -8,6 +8,7 @@ export interface Settings {
   orientation: 'white' | 'black'
   soundEnabled: boolean
   themeId: string
+  showEval: boolean
 }
 
 export interface MatchScore {
@@ -22,6 +23,7 @@ export const DEFAULT_SETTINGS: Settings = {
   orientation: 'white',
   soundEnabled: true,
   themeId: 'classic',
+  showEval: true,
 }
 
 const KEYS = {
@@ -75,6 +77,7 @@ export function loadSettings(): Settings {
         ? raw['soundEnabled']
         : DEFAULT_SETTINGS.soundEnabled,
     themeId: typeof raw['themeId'] === 'string' ? raw['themeId'] : DEFAULT_SETTINGS.themeId,
+    showEval: typeof raw['showEval'] === 'boolean' ? raw['showEval'] : DEFAULT_SETTINGS.showEval,
   }
 }
 

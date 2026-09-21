@@ -44,6 +44,14 @@ describe('storage', () => {
     saveScore({ wins: 2, losses: 1, draws: 3 })
     expect(loadScore()).toEqual({ wins: 2, losses: 1, draws: 3 })
   })
+
+  test('showEval defaults to true, including for settings saved before it existed', () => {
+    expect(loadSettings().showEval).toBe(true)
+    localStorage.setItem('chess-game:settings', JSON.stringify({ level: 2 }))
+    expect(loadSettings().showEval).toBe(true)
+    saveSettings({ ...DEFAULT_SETTINGS, showEval: false })
+    expect(loadSettings().showEval).toBe(false)
+  })
 })
 
 describe('in-progress game storage', () => {

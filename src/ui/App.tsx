@@ -1,16 +1,19 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Game } from '../game-core/game'
 import type { Color, DrawReason, GameStatus, PieceSymbol, Square } from '../game-core/types'
 import { exportPgn, importPgn } from '../game-core/io'
 import { Board, type Highlights } from './Board/Board'
+import { EvalBar } from './Board/EvalBar'
 import { Promotion } from './Board/Promotion'
 import { reduceSelection, type SelectionState } from './Board/selection'
 import { MatchController, type EngineLike } from '../match/controller'
 import type { MatchConfig, MatchPhase } from '../match/types'
 import { EngineClient, createWorkerTransport } from '../engine/client'
+import type { WhiteEval } from '../engine/evaluation'
 import { templatedHint } from '../coach/templated'
 import { HINT_BUDGET } from '../coach/hints'
 import { useHints, type HintAnalyze, type HintReasoner } from './hints/useHints'
+import { useEvaluation, type EvalAnalyze } from './useEvaluation'
 import { gameIdOf } from './gameKey'
 import {
   clearInProgress,
@@ -22,6 +25,7 @@ import {
   saveSettings,
   type Level,
   type MatchScore,
+  type Settings,
 } from '../storage/storage'
 import { TIME_CONTROLS } from '../clock/types'
 import { useMatch } from './useMatch'
@@ -33,6 +37,7 @@ import { Controls } from './panels/Controls'
 import { Scoreboard } from './panels/Scoreboard'
 import { NewGame, type Mode } from './panels/NewGame'
 import { GameIO } from './panels/GameIO'
+import { SettingsPanel } from './panels/SettingsPanel'
 import './app.css'
 
 function timeControlFor(id: string) {
@@ -222,7 +227,17 @@ function AppInner({
   /** Whether the engine was built successfully at construction time (a *synchronous* outcome). */
   engineConstructed: boolean
 }) {
-  const [settings] = useState(() => loadSettings())
+  const [settings, setSettings] = useState(() => loadSettings())
+  // Every settings change is persisted immediately. (Phase 1 kept a frozen
+  // copy and re-saved it on New game, which would silently undo any other
+  // setting changed since the page loaded.)
+  const updateSettings = useCallback((patch: Partial<Settings>) => {
+    setSettings((s) => {
+      const next = { ...s, ...patch }
+      saveSettings(next)
+      return next
+    })
+  }, [])
   const [pendingResume] = useState(() => loadInProgress())
 
   const snapshot = useMatch(controller)
@@ -263,6 +278,20 @@ function AppInner({
   const position = game.current()
   const displayedStatus = position.status()
   const lastMove = game.moves[game.ply - 1]
+
+  // Evaluations by FEN, shared by the eval bar and (Task 12) the review.
+  const [evalCache] = useState(() => new Map<string, WhiteEval>())
+  const analyzeForEval = useMemo<EvalAnalyze | null>(
+    () => (engineAvailable ? (req, signal) => controller.analyze(req, signal) : null),
+    [engineAvailable, controller],
+  )
+  const evaluation = useEvaluation({
+    analyze: analyzeForEval,
+    fen: position.fen(),
+    status: displayedStatus,
+    enabled: settings.showEval,
+    cache: evalCache,
+  })
 
   // ---- persistence --------------------------------------------------------
 
@@ -339,12 +368,7 @@ function AppInner({
   const handleNewGame = () => {
     const config = buildConfig({ mode, level, timeControlId, color, engineAvailable })
     startMatch(config)
-    saveSettings({
-      ...settings,
-      level,
-      timeControlId,
-      orientation: mode === 'one-player' ? color : settings.orientation,
-    })
+    updateSettings({ level, timeControlId, ...(mode === 'one-player' ? { orientation: color } : {}) })
     setOrientation(mode === 'one-player' ? color : 'white')
   }
 
@@ -519,13 +543,16 @@ function AppInner({
         </div>
 
         <div className="board-column">
-          <Board
-            position={position}
-            orientation={orientation}
-            highlights={highlights}
-            onSquareClick={onSquareClick}
-            annotations={hints.annotations}
-          />
+          <div className="board-row">
+            {settings.showEval ? <EvalBar evaluation={evaluation} orientation={orientation} /> : null}
+            <Board
+              position={position}
+              orientation={orientation}
+              highlights={highlights}
+              onSquareClick={onSquareClick}
+              annotations={hints.annotations}
+            />
+          </div>
           <span className="sr-only" data-testid="ply-count">
             {game.moves.length}
           </span>
@@ -583,6 +610,7 @@ function AppInner({
             onStart={handleNewGame}
           />
           <GameIO game={game} onImport={handleImport} />
+          <SettingsPanel settings={settings} onChange={updateSettings} />
         </div>
 
         <div className="right-column">

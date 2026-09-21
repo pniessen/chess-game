@@ -86,6 +86,35 @@
 .annotation-arrow.tone-inaccuracy, .annotation-arrow.tone-mistake,
 .annotation-arrow.tone-blunder { fill: none; }
 
+.board-row {
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+}
+.board-row .board-frame { flex: 1 1 auto; min-width: 0; }
+.eval-bar {
+  position: relative;
+  flex: 0 0 22px;
+  display: flex;
+  flex-direction: column-reverse; /* White fills from the bottom */
+  margin-bottom: 1.25rem; /* = --coord-gutter: stop level with the board, not the file labels */
+  background: #403d39;
+  border-radius: 3px;
+  overflow: hidden;
+}
+.eval-bar.black { flex-direction: column; } /* flipped board: White fills from the top */
+.eval-bar-white { background: #f4f4f4; transition: height 0.3s ease; }
+.eval-label {
+  position: absolute; left: 0; right: 0;
+  text-align: center; font-size: 0.6rem; font-weight: 700; line-height: 1.4;
+}
+.eval-label.bottom { bottom: 2px; }
+.eval-label.top { top: 2px; }
+.eval-label.on-white { color: #403d39; }
+.eval-label.on-black { color: #f4f4f4; }
+
 .promotion-backdrop {
   position: fixed; inset: 0; background: rgba(0, 0, 0, 0.45);
   display: flex; align-items: center; justify-content: center; z-index: 10;

@@ -327,6 +327,20 @@ body {
   border: 0;
 }
 
+.settings {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  border: 1px solid var(--color-panel-border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  width: 100%;
+  max-width: 640px;
+  box-sizing: border-box;
+}
+.settings label { display: flex; align-items: center; gap: 4px; font-size: 0.9em; }
+
 @media (max-width: 768px) {
   .layout {
     grid-template-columns: 1fr;
