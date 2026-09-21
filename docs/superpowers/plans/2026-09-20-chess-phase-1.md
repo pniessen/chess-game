@@ -4270,7 +4270,9 @@ export function exportPgn(game: Game, headers: PgnHeaders = {}): string {
     all['SetUp'] = '1'
     all['FEN'] = game.startFen
   }
-  for (const [k, v] of Object.entries(all)) chess.header(k, v)
+  // setHeader, not header(): header() is deprecated in chess.js 1.4.0 and
+  // "will return null header tags". Verified against the installed .d.ts.
+  for (const [k, v] of Object.entries(all)) chess.setHeader(k, v)
 
   return chess.pgn({ maxWidth: 80 })
 }
