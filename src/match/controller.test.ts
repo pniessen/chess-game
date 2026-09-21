@@ -1,28 +1,67 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { MatchController } from './controller'
 import type { MatchConfig } from './types'
+import type { EngineInfo } from '../engine/uci'
 
-/** An engine we resolve by hand, so no Stockfish and no waiting. */
-function fakeEngine() {
-  const calls: Array<{ resolve: (best: string) => void; reject: (e: Error) => void }> = []
+/**
+ * An engine we resolve by hand, so no Stockfish and no waiting.
+ *
+ * `rejectOnSupersede` mirrors the real EngineClient: starting a new search
+ * while one is still pending REJECTS the old one ("search superseded").
+ * Without it, a superseded search simply never settles unless the test
+ * resolves it — which can never exercise the controller's catch path.
+ */
+function fakeEngine(opts: { rejectOnSupersede?: boolean } = {}) {
+  const calls: Array<{
+    resolve: (best: string, lines?: EngineInfo[]) => void
+    reject: (e: Error) => void
+    settled: boolean
+  }> = []
+  const setPosition = vi.fn<(fen: string, moves: string[]) => void>()
   return {
     calls,
+    setPosition,
     client: {
       waitReady: () => Promise.resolve(),
       configure: vi.fn(),
       newGame: vi.fn(),
-      setPosition: vi.fn(),
+      setPosition,
       search: () =>
-        new Promise<{ best: string; lines: [] }>((resolve, reject) => {
-          calls.push({
-            resolve: (best) => resolve({ best, lines: [] }),
-            reject,
-          })
+        new Promise<{ best: string; lines: EngineInfo[] }>((resolve, reject) => {
+          if (opts.rejectOnSupersede) {
+            for (const old of calls) {
+              if (!old.settled) old.reject(new Error('search superseded by a newer search() call'))
+            }
+          }
+          const call = {
+            settled: false,
+            resolve: (best: string, lines: EngineInfo[] = []) => {
+              call.settled = true
+              resolve({ best, lines })
+            },
+            reject: (e: Error) => {
+              call.settled = true
+              reject(e)
+            },
+          }
+          calls.push(call)
         }),
       stop: vi.fn(),
       dispose: vi.fn(),
     },
   }
+}
+
+const ZERO_PLAYER: MatchConfig = {
+  white: { kind: 'engine', level: 1 },
+  black: { kind: 'engine', level: 1 },
+  timeControl: { kind: 'untimed' },
+  engineDelayMs: 0,
+}
+
+/** The FEN the fake engine was most recently asked to search. */
+function lastSearchedFen(e: ReturnType<typeof fakeEngine>): string | undefined {
+  return e.setPosition.mock.calls.at(-1)?.[0]
 }
 
 const HUMAN_VS_ENGINE: MatchConfig = {
@@ -509,5 +548,88 @@ describe('MatchController', () => {
     const before = c.snapshot()
     c.goTo(0)
     expect(c.snapshot()).toBe(before) // refused: no emit, no browsing
+  })
+})
+
+describe('MatchController: browsing never changes the live game (C2)', () => {
+  beforeEach(() => vi.useFakeTimers())
+  afterEach(() => vi.useRealTimers())
+
+  const AFTER_E4_E5 = 'rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2'
+
+  /** Zero-player: play 1.e4 e5 through the fake engine, then pause. */
+  async function zeroPlayerAfterE4E5() {
+    const e = fakeEngine()
+    const c = new MatchController({ engine: e.client })
+    c.start(ZERO_PLAYER)
+    await vi.advanceTimersByTimeAsync(0)
+    e.calls[0]?.resolve('e2e4')
+    await vi.advanceTimersByTimeAsync(0)
+    e.calls[1]?.resolve('e7e5')
+    await vi.advanceTimersByTimeAsync(0)
+    expect(c.snapshot().game.moves.map((m) => m.san)).toEqual(['e4', 'e5'])
+    c.pause()
+    return { e, c }
+  }
+
+  test('pause -> browse to an earlier ply -> resume searches the LIVE position and keeps playing', async () => {
+    const { e, c } = await zeroPlayerAfterE4E5()
+    c.goTo(1) // browse to after 1.e4 (Black to move in the VIEWED position)
+    expect(c.snapshot().game.ply).toBe(1)
+
+    c.resume()
+    await vi.advanceTimersByTimeAsync(0)
+    // The engine must be asked about the live position (White to move after
+    // 1...e5), for White — not the browsed one.
+    expect(lastSearchedFen(e)).toBe(AFTER_E4_E5)
+    expect(c.snapshot().phase).toMatchObject({ kind: 'engine-thinking', side: 'w' })
+    // The view snaps back to live so the user sees the move being made.
+    expect(c.snapshot().game.ply).toBe(2)
+
+    e.calls.at(-1)?.resolve('g1f3') // legal for White in the LIVE position only
+    await vi.advanceTimersByTimeAsync(0)
+    expect(c.snapshot().game.moves.map((m) => m.san)).toEqual(['e4', 'e5', 'Nf3'])
+    expect(c.snapshot().phase).toMatchObject({ kind: 'engine-thinking', side: 'b' })
+  })
+
+  test('pause -> browse -> step plays exactly one move on the LIVE position', async () => {
+    const { e, c } = await zeroPlayerAfterE4E5()
+    c.goTo(1)
+
+    c.step()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(lastSearchedFen(e)).toBe(AFTER_E4_E5)
+
+    e.calls.at(-1)?.resolve('g1f3')
+    await vi.advanceTimersByTimeAsync(0)
+    expect(c.snapshot().game.moves.map((m) => m.san)).toEqual(['e4', 'e5', 'Nf3'])
+    expect(c.snapshot().phase).toEqual({ kind: 'paused' })
+  })
+
+  test('one-player: pause -> browse -> resume returns to the human, not an engine search', async () => {
+    const e = fakeEngine()
+    const c = new MatchController({ engine: e.client })
+    c.start(HUMAN_VS_ENGINE)
+    c.submitHumanMove({ from: 'e2', to: 'e4' })
+    await vi.advanceTimersByTimeAsync(0)
+    e.calls[0]?.resolve('e7e5')
+    await vi.advanceTimersByTimeAsync(0)
+    const searches = e.calls.length
+
+    c.pause()
+    c.goTo(1) // Black (the engine) to move in the VIEWED position
+    c.resume()
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(c.snapshot().phase).toEqual({ kind: 'awaiting-human', side: 'w' })
+    expect(e.calls.length).toBe(searches)
+    expect(c.submitHumanMove({ from: 'g1', to: 'f3' }).ok).toBe(true)
+  })
+
+  test('browsing while paused is non-destructive', async () => {
+    const { c } = await zeroPlayerAfterE4E5()
+    c.goTo(0)
+    expect(c.snapshot().game.moves).toHaveLength(2)
+    expect(c.snapshot().phase).toEqual({ kind: 'paused' })
   })
 })

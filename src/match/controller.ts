@@ -114,7 +114,7 @@ export class MatchController {
       return
     }
 
-    const side = this.game.current().turn()
+    const side = this.livePosition().turn()
     this.clock.start(side)
     this.toMoveOf(side)
     this.emit()
@@ -126,6 +126,27 @@ export class MatchController {
     this.clock.dispose()
     this.listeners = []
     this.engine.dispose()
+  }
+
+  // ---- live vs viewed position -------------------------------------------
+
+  /**
+   * The ACTUAL current game position — the one after every played move.
+   *
+   * Never use `this.game.current()` in the controller: that is the
+   * *displayed* position, which is an earlier ply whenever the user is
+   * browsing the move list (legal while paused, or while a human is to
+   * move). Everything the controller decides — whose turn it is, which FEN
+   * the engine searches, the result — is about the live game, so it must
+   * read it from here. `game.status()` is already live.
+   */
+  private livePosition() {
+    return this.game.positionAt(this.game.livePly)
+  }
+
+  /** Snap the display back to the live position (browsing is view-only). */
+  private viewLive(): void {
+    this.game.goTo(this.game.livePly)
   }
 
   // ---- turn routing -----------------------------------------------------
@@ -155,7 +176,8 @@ export class MatchController {
 
       this.engine.configure(profile)
       // We pass a validated FEN: Stockfish 19 kills its own worker on bad input.
-      this.engine.setPosition(this.game.current().fen(), [])
+      // Always the LIVE position: the user may be browsing an earlier ply.
+      this.engine.setPosition(this.livePosition().fen(), [])
 
       const multiPv = profile.blunderChance > 0 ? profile.blunderPool : 1
       const result = await this.engine.search({
@@ -186,6 +208,11 @@ export class MatchController {
 
   private applyEngineMove(uci: string, side: Color, level: Level, id: number): void {
     const intent = uciToIntent(uci)
+    // An engine move always lands on the live position. goTo() is refused
+    // while the engine thinks and resume()/step() snap to live, so this is
+    // belt-and-braces: Game.play() refuses outright off the live ply, which
+    // would otherwise be miscounted as an illegal engine move.
+    this.viewLive()
     const result = intent ? this.game.play(intent) : ({ ok: false } as const)
     if (!result.ok) {
       this.illegalEngineMoves++
@@ -232,7 +259,7 @@ export class MatchController {
       return
     }
 
-    const next = this.game.current().turn()
+    const next = this.livePosition().turn()
     this.clock.switchTo(next)
 
     if (this.stepRequestId !== null && completedRequestId === this.stepRequestId) {
@@ -300,15 +327,19 @@ export class MatchController {
 
   resume(): void {
     if (this.phase.kind !== 'paused') return
+    // The user may have browsed history while paused. Play resumes from the
+    // LIVE position, and the view snaps back there so they see the move.
+    this.viewLive()
     this.clock.resume()
-    this.toMoveOf(this.game.current().turn())
+    this.toMoveOf(this.livePosition().turn())
     this.emit()
   }
 
   /** Allow exactly one engine move, then return to paused. */
   step(): void {
     if (this.phase.kind !== 'paused') return
-    this.toMoveOf(this.game.current().turn())
+    this.viewLive() // same reasoning as resume()
+    this.toMoveOf(this.livePosition().turn())
     // Only an engine turn actually issues a request to tie the step to; if
     // it's a human's turn there is nothing pending, so nothing to flag.
     // Read the fresh phase back out through buildSnapshot() rather than
@@ -346,7 +377,7 @@ export class MatchController {
 
     const status = this.game.status()
     if (status.kind === 'in-progress') {
-      const side = this.game.current().turn()
+      const side = this.livePosition().turn()
       if (bothEngines) {
         this.phase = { kind: 'paused' }
       } else {
@@ -404,7 +435,7 @@ export class MatchController {
       return true
     }
 
-    const side = this.game.current().turn()
+    const side = this.livePosition().turn()
     this.phase =
       this.seatFor(side).kind === 'human' ? { kind: 'awaiting-human', side } : { kind: 'paused' }
     this.emit()

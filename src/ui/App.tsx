@@ -420,7 +420,9 @@ function AppInner({
     try {
       await engine.waitReady()
       engine.configure(profileFor(8))
-      const pos = game.current()
+      // The hint is for the move about to be made: the LIVE position, not
+      // whatever earlier ply the user may be browsing.
+      const pos = game.positionAt(game.livePly)
       engine.setPosition(pos.fen(), [])
       const result = await engine.search({ depth: 12, moveTimeMs: 500, multiPv: 1 })
       setHintText(templatedHint(result.lines, pos) ?? 'No hint available.')
