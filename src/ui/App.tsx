@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Game } from '../game-core/game'
 import type { Color, DrawReason, GameStatus, PieceSymbol, Square } from '../game-core/types'
 import { exportPgn, importPgn } from '../game-core/io'
@@ -254,6 +254,10 @@ function AppInner({
 
   const scoredRef = useRef(false)
 
+  // Stable, so the clock display's polling effect isn't torn down and
+  // rebuilt on every App render.
+  const readClock = useCallback(() => controller.clockState(), [controller])
+
   const game: Game = snapshot.game
   const position = game.current()
   const displayedStatus = position.status()
@@ -478,7 +482,7 @@ function AppInner({
 
       <div className="layout">
         <div className="left-column">
-          <Clocks clock={snapshot.clock} orientation={orientation} />
+          <Clocks clock={snapshot.clock} readClock={readClock} orientation={orientation} />
           <Captured moves={game.moves.slice(0, game.ply)} />
           <Scoreboard score={score} />
         </div>
