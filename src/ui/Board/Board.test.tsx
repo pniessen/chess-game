@@ -28,13 +28,23 @@ describe('Board', () => {
       <Board
         position={new Position()}
         orientation="white"
-        highlights={{ selected: 'e2', legal: ['e3', 'e4'], check: 'e1' }}
+        highlights={{
+          selected: 'e2',
+          legal: ['e3', 'e4'],
+          captures: ['d5'],
+          lastMove: ['e2', 'e4'],
+          check: 'e1',
+        }}
         onSquareClick={vi.fn()}
       />,
     )
     expect(container.querySelector('[data-square="e2"]')?.className).toContain('selected')
     expect(container.querySelector('[data-square="e4"]')?.className).toContain('legal')
+    expect(container.querySelector('[data-square="d5"]')?.className).toContain('capture')
     expect(container.querySelector('[data-square="e1"]')?.className).toContain('check')
+    // lastMove is a two-square tuple; both ends must carry the class.
+    expect(container.querySelector('[data-square="e2"]')?.className).toContain('last-move')
+    expect(container.querySelector('[data-square="e4"]')?.className).toContain('last-move')
   })
 
   test('coordinates label the two edges nearest the viewer and flip with the board', () => {
