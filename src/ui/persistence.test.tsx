@@ -61,19 +61,40 @@ describe('persistence', () => {
     expect(score.wins + score.losses + score.draws).toBe(1)
   })
 
-  test('a finished game is counted exactly once', () => {
-    const { container, rerender } = render(<App />)
+  test('a finished game is counted exactly once (undo-redo re-triggers effect)', () => {
+    const { container } = render(<App />)
+
+    // Play Scholar's Mate to checkmate
     for (const [from, to] of SCHOLARS_MATE) {
       clickSquare(container, from)
       clickSquare(container, to)
     }
-    // Force a re-render of the same mounted component (not a remount) —
-    // the finished-game score effect must not fire again just because the
-    // component re-rendered.
-    rerender(<App />)
-    rerender(<App />)
 
-    const score = JSON.parse(localStorage.getItem('chess-game:score') ?? '{}')
+    // Verify the game is finished: checkmate must be in the result banner
+    expect(screen.getByTestId('result')).toHaveTextContent('Checkmate')
+
+    // Check initial score
+    let score = JSON.parse(localStorage.getItem('chess-game:score') ?? '{}')
+    expect(score.wins + score.losses + score.draws).toBe(1)
+
+    // Click Undo to step back from checkmate (this clears scoredRef via undo's no-op)
+    const undoButton = screen.getByTestId('undo') as HTMLElement
+    fireEvent.click(undoButton)
+
+    // Verify the game is no longer finished (the banner should not mention checkmate)
+    expect(screen.getByTestId('result')).not.toHaveTextContent('Checkmate')
+
+    // Click Redo to re-enter the checkmate position. This calls controller.redo(),
+    // which re-derives phase.finished and calls emit(), producing a NEW phase object.
+    // This re-triggers the scoring effect (the dependency on snapshot.phase changed).
+    const redoButton = screen.getByTestId('redo') as HTMLElement
+    fireEvent.click(redoButton)
+
+    // Verify the game is finished again
+    expect(screen.getByTestId('result')).toHaveTextContent('Checkmate')
+
+    // Verify the score is still exactly 1. The guard (scoredRef) prevents double-counting.
+    score = JSON.parse(localStorage.getItem('chess-game:score') ?? '{}')
     expect(score.wins + score.losses + score.draws).toBe(1)
   })
 })
