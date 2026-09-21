@@ -1,3 +1,5 @@
+import { useRef } from 'react'
+import { flushSync } from 'react-dom'
 import type { Position } from '../../game-core/position'
 import type { Color, PieceSymbol, Square as SquareName } from '../../game-core/types'
 import { Piece } from './Piece'
@@ -31,6 +33,19 @@ export function Board({
   /** Overrides which square shows the "dragging" fade; defaults to the hook's own drag state. */
   dragging?: SquareName | null
 }) {
+  // A real two-click sequence works because each click is its own React
+  // event: App's onSquareClick closure re-created with fresh `selection`
+  // state between the two. Calling it twice back-to-back in a single
+  // synchronous callback (as a drop naturally does) does not get that
+  // in-between render for free — both calls would otherwise see the same
+  // stale `selection` and the second click-away's "select from, then move to"
+  // logic would never see `from` as selected. onSquareClickRef always holds
+  // the prop from the latest render, and flushSync forces that render to
+  // happen synchronously after the first call, so the second call reads the
+  // post-selection closure exactly as a real second click would.
+  const onSquareClickRef = useRef(onSquareClick)
+  onSquareClickRef.current = onSquareClick
+
   // Board owns drag-and-drop itself so click-to-move and drag-to-move share
   // one entry point: onSquareClick. A drop is routed as square-clicked(from)
   // then square-clicked(to) — the exact two events a click sequence would
@@ -40,8 +55,8 @@ export function Board({
     position,
     enabled: true,
     onDrop: ({ from, to }) => {
-      onSquareClick(from)
-      onSquareClick(to)
+      flushSync(() => onSquareClickRef.current(from))
+      flushSync(() => onSquareClickRef.current(to))
     },
   })
 

@@ -72,7 +72,6 @@ export function useDragMove({
     let dragging = false
     const pointerId = e.pointerId
     const target = e.currentTarget as Element
-    target.setPointerCapture(pointerId)
 
     // Shared by the pointerup and pointercancel paths so they cannot drift
     // apart — both must release capture, tear down every listener (this one
@@ -98,6 +97,16 @@ export function useDragMove({
       if (ev.pointerId !== pointerId) return // a second, uncaptured pointer
       if (!dragging && exceedsDragThreshold(start, { x: ev.clientX, y: ev.clientY })) {
         dragging = true
+        // Only take capture once the gesture is confirmed to be a drag. A
+        // plain click never reaches this branch, so it never triggers
+        // capture — and so the synthesized `click` that follows a plain
+        // click is never retargeted away from the square that was clicked.
+        try {
+          target.setPointerCapture(pointerId)
+        } catch {
+          // Pointer may already be gone (e.g. released mid-gesture) —
+          // cleanup's releasePointerCapture is similarly defensive.
+        }
       }
       if (dragging) setDrag({ from, x: ev.clientX, y: ev.clientY })
     }
