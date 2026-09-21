@@ -1,4 +1,4 @@
-import { useEffect, useReducer, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { Game } from '../game-core/game'
 import type { Color, DrawReason, GameStatus, PieceSymbol, Square } from '../game-core/types'
 import { exportPgn, importPgn } from '../game-core/io'
@@ -69,6 +69,13 @@ function buildConfig(opts: {
  * asset failing to load, etc.) take the whole game down. On failure we fall
  * back to a controller backed by a stub engine that always rejects, and the
  * caller disables every engine-dependent control.
+ *
+ * This only catches SYNCHRONOUS construction failures (e.g. no `Worker`
+ * global at all, as in Vitest/jsdom). A worker that loads but then fails
+ * asynchronously (a 404 on the engine asset, a bad deploy base path, a
+ * network failure, or a hung handshake) is a separate case, handled by
+ * `EngineClient` marking itself dead and notifying subscribers via
+ * `onDead()` — see `AppInner`'s `engineDied` state below.
  */
 function buildController(): {
   controller: MatchController
@@ -90,6 +97,18 @@ function buildController(): {
     }
     return { controller: new MatchController({ engine: stub }), engine: null, engineAvailable: false }
   }
+}
+
+type ControllerBundle = ReturnType<typeof buildController>
+
+function createControllerBundle(): ControllerBundle {
+  const bundle = buildController()
+  bundle.controller.start({
+    white: { kind: 'human' },
+    black: { kind: 'human' },
+    timeControl: timeControlFor(loadSettings().timeControlId),
+  })
+  return bundle
 }
 
 const DRAW_TEXT: Record<DrawReason, string> = {
@@ -141,18 +160,67 @@ function resignableSide(config: MatchConfig, phase: MatchPhase): Color | null {
   return null
 }
 
+/**
+ * Owns the lifecycle of the one `MatchController` (and the real Stockfish
+ * `Worker` its `EngineClient` spawns) for the whole app.
+ *
+ * This can't be `useState(() => createControllerBundle())`: React Strict
+ * Mode's development-only double-render calls a `useState` lazy initializer
+ * TWICE, and — unlike the state value itself, of which only one of the two
+ * results is kept — the *side effects* of both calls still happen. That was
+ * the original bug: two Stockfish workers spawned on every mount, and one
+ * was permanently orphaned (never terminated).
+ *
+ * Building the bundle inside a `useEffect` instead avoids that: an effect
+ * body runs once per real mount. Strict Mode still double-invokes *effects*
+ * on the initial mount (mount -> cleanup -> mount, synchronously, before
+ * the user can interact), but that's a paired create/dispose cycle here —
+ * each invocation of this effect owns exactly the bundle it created,
+ * closed over by its own cleanup — so the dance nets out to: a first
+ * bundle is created and immediately disposed, a second one is created and
+ * stays live until the component actually unmounts. At every point in that
+ * sequence at most one worker is alive, and every worker that was ever
+ * created eventually gets `dispose()`d. In production (no Strict Mode
+ * replay) the effect simply runs once.
+ *
+ * The trade-off is that `controller` isn't available for the very first
+ * render (effects run after the initial commit), so `App` renders nothing
+ * until the effect has fired — in practice a single, imperceptible tick.
+ */
 export function App() {
-  const [init] = useState(() => {
-    const { controller, engine, engineAvailable } = buildController()
-    const settings = loadSettings()
-    controller.start({
-      white: { kind: 'human' },
-      black: { kind: 'human' },
-      timeControl: timeControlFor(settings.timeControlId),
-    })
-    return { controller, engine, engineAvailable, settings, pendingResume: loadInProgress() }
-  })
-  const { controller, engine, engineAvailable, settings, pendingResume } = init
+  const [bundle, setBundle] = useState<ControllerBundle | null>(null)
+
+  useEffect(() => {
+    const b = createControllerBundle()
+    setBundle(b)
+    return () => {
+      b.controller.dispose()
+    }
+  }, [])
+
+  if (!bundle) return null
+
+  return (
+    <AppInner
+      controller={bundle.controller}
+      engine={bundle.engine}
+      engineConstructed={bundle.engineAvailable}
+    />
+  )
+}
+
+function AppInner({
+  controller,
+  engine,
+  engineConstructed,
+}: {
+  controller: MatchController
+  engine: EngineClient | null
+  /** Whether the engine was built successfully at construction time (a *synchronous* outcome). */
+  engineConstructed: boolean
+}) {
+  const [settings] = useState(() => loadSettings())
+  const [pendingResume] = useState(() => loadInProgress())
 
   const snapshot = useMatch(controller)
 
@@ -170,13 +238,19 @@ export function App() {
     pendingResume ? 'pending' : 'resolved',
   )
 
-  // Bumps to force a re-render after mutating the controller's live `game`
-  // object directly (history browsing via goTo(), and redo()) — operations
-  // the controller itself has no API for, so they can't go through
-  // useMatch/controller.subscribe(). This is intentionally narrow: it only
-  // ever follows a direct `snapshot.game.*` mutation, never a stand-in for
-  // reacting to gameplay in general (that's useMatch's job).
-  const [, bumpView] = useReducer((n: number) => n + 1, 0)
+  // The engine can also fail *after* construction: a 404 on the asset, a
+  // network failure, or a hung handshake all arrive asynchronously and
+  // can't be caught by buildController()'s try/catch. EngineClient detects
+  // all three and notifies via onDead(); we fold that into the same
+  // "engine unavailable" degradation that a synchronous failure produces
+  // (warning banner, engine modes disabled) rather than letting the game
+  // sit in engine-thinking with no way out.
+  const [engineDied, setEngineDied] = useState(false)
+  useEffect(() => {
+    if (!engine) return
+    return engine.onDead(() => setEngineDied(true))
+  }, [engine])
+  const engineAvailable = engineConstructed && !engineDied
 
   const scoredRef = useRef(false)
 
@@ -297,21 +371,21 @@ export function App() {
 
   const handleRedo = () => {
     if (!canRedo) return
-    const restored = game.redo()
-    if (restored) {
-      setCanRedo(false)
-      bumpView()
-    }
+    // The controller owns this: it re-derives `phase` from the position
+    // redo() lands on (e.g. back onto a checkmate), not just the move data.
+    const restored = controller.redo()
+    if (restored) setCanRedo(false)
   }
 
-  // Move-list jumps browse history via Game.goTo(), bypassing the
-  // controller entirely. Disabled while the engine is thinking: jumping away
-  // from the live position would make the engine's reply fail Game.play's
-  // live-only guard, and two of those halt the game as an "engine error".
+  // Move-list jumps browse history via the controller's goTo(), which only
+  // moves the *displayed* ply and never touches the live game. The
+  // controller itself also refuses this while the engine is thinking (the
+  // live position it's about to reply to must stay put); phase.kind is
+  // checked here too so the button reflects the same rule the controller
+  // enforces, rather than trusting the click to just no-op silently.
   const handleJump = (ply: number) => {
     if (snapshot.phase.kind === 'engine-thinking') return
-    game.goTo(ply)
-    bumpView()
+    controller.goTo(ply)
   }
 
   const handleFlip = () => setOrientation((o) => (o === 'white' ? 'black' : 'white'))

@@ -334,4 +334,101 @@ describe('MatchController', () => {
     c.submitHumanMove({ from: 'e2', to: 'e4' })
     expect(seen.mock.calls.length).toBeGreaterThanOrEqual(2)
   })
+
+  test('dispose() disposes the engine', () => {
+    const e = fakeEngine()
+    const c = new MatchController({ engine: e.client })
+    c.start({
+      white: { kind: 'human' },
+      black: { kind: 'human' },
+      timeControl: { kind: 'untimed' },
+    })
+    c.dispose()
+    expect(e.client.dispose).toHaveBeenCalledTimes(1)
+  })
+
+  test('redo after undo from checkmate restores the finished phase, not a stale awaiting-human', () => {
+    const e = fakeEngine()
+    const c = new MatchController({ engine: e.client })
+    c.start({
+      white: { kind: 'human' },
+      black: { kind: 'human' },
+      timeControl: { kind: 'untimed' },
+      startFen: 'r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5Q2/PPPP1PPP/RNB1K1NR w KQkq - 0 1',
+    })
+    c.submitHumanMove({ from: 'f3', to: 'f7' }) // checkmate
+    expect(c.snapshot().phase.kind).toBe('finished')
+
+    c.undo()
+    // undo() goes through the controller already, so this half already
+    // worked before this fix: the phase correctly reverts.
+    expect(c.snapshot().phase).toEqual({ kind: 'awaiting-human', side: 'w' })
+
+    // A version of redo() that only replayed the move on the live `Game`
+    // object (e.g. `game.redo()` called directly, bypassing the
+    // controller — the pre-fix behaviour) and forced a re-render without
+    // re-deriving `phase` the way afterMove() does for a freshly played
+    // move would leave `phase` exactly as undo() left it:
+    // `{ kind: 'awaiting-human', side: 'w' }`. The board would show the
+    // mated position again while the UI still thought it was White's turn
+    // to move and the game resignable — which is precisely the bug. This
+    // assertion fails under that behaviour and only passes once redo()
+    // re-derives phase from the post-redo position, as implemented below.
+    const redone = c.redo()
+    expect(redone).toBe(true)
+    const phase = c.snapshot().phase
+    expect(phase.kind).toBe('finished')
+    if (phase.kind === 'finished') {
+      expect(phase.status).toEqual({ kind: 'checkmate', winner: 'w' })
+      expect(phase.reason).toBe('normal')
+      expect(phase.winner).toBe('w')
+    }
+  })
+
+  test('redo() is a no-op when there is nothing to redo', () => {
+    const e = fakeEngine()
+    const c = new MatchController({ engine: e.client })
+    c.start({
+      white: { kind: 'human' },
+      black: { kind: 'human' },
+      timeControl: { kind: 'untimed' },
+    })
+    expect(c.redo()).toBe(false)
+  })
+
+  test('goTo(ply) browses without truncating, and emits', () => {
+    const e = fakeEngine()
+    const c = new MatchController({ engine: e.client })
+    c.start({
+      white: { kind: 'human' },
+      black: { kind: 'human' },
+      timeControl: { kind: 'untimed' },
+    })
+    c.submitHumanMove({ from: 'e2', to: 'e4' })
+    c.submitHumanMove({ from: 'e7', to: 'e5' })
+    const before = c.snapshot()
+    expect(before.game.moves).toHaveLength(2)
+
+    c.goTo(0)
+    const after = c.snapshot()
+    // useSyncExternalStore compares by reference: browsing must still emit
+    // a fresh snapshot object, or the board would never visually update.
+    expect(after).not.toBe(before)
+    expect(after.game.ply).toBe(0)
+    // Browsing must not discard the live moves.
+    expect(after.game.moves).toHaveLength(2)
+  })
+
+  test('goTo() is refused while the engine is thinking', async () => {
+    const e = fakeEngine()
+    const c = new MatchController({ engine: e.client })
+    c.start(HUMAN_VS_ENGINE)
+    c.submitHumanMove({ from: 'e2', to: 'e4' })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(c.snapshot().phase.kind).toBe('engine-thinking')
+
+    const before = c.snapshot()
+    c.goTo(0)
+    expect(c.snapshot()).toBe(before) // refused: no emit, no browsing
+  })
 })

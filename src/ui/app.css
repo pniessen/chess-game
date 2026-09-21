@@ -1,8 +1,72 @@
+:root {
+  /* Lets native controls (select, textarea, range input) pick a light or
+     dark rendering that matches the host, instead of always rendering
+     light-themed regardless of `prefers-color-scheme`. */
+  color-scheme: light dark;
+  --color-bg: #ffffff;
+  --color-fg: #1a1a1a;
+  --color-muted: #595959;
+  --color-panel-bg: #f4f4f4;
+  --color-panel-border: #cccccc;
+  --color-header-bg: #eeeeee;
+  --color-accent-bg: #cfe6ff;
+  --color-warning-bg: #fff3cd;
+  --color-warning-border: #e0c36a;
+  --color-error: #b00020;
+  --color-success-bg: #dff5df;
+  --color-danger-bg: #f8d3d3;
+}
+
+/* Support both an explicit host theme (`data-theme`, if the app is ever
+   embedded that way) and the host's own OS/browser preference — either can
+   be the only signal available on a dark host. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --color-bg: #16181d;
+    --color-fg: #eaecef;
+    --color-muted: #a7abb3;
+    --color-panel-bg: #24262c;
+    --color-panel-border: #40434b;
+    --color-header-bg: #2c2f36;
+    --color-accent-bg: #2d4a68;
+    --color-warning-bg: #4a3f14;
+    --color-warning-border: #8a7326;
+    --color-error: #ff8080;
+    --color-success-bg: #1f3d24;
+    --color-danger-bg: #4a1f1f;
+  }
+}
+
+:root[data-theme='dark'] {
+  --color-bg: #16181d;
+  --color-fg: #eaecef;
+  --color-muted: #a7abb3;
+  --color-panel-bg: #24262c;
+  --color-panel-border: #40434b;
+  --color-header-bg: #2c2f36;
+  --color-accent-bg: #2d4a68;
+  --color-warning-bg: #4a3f14;
+  --color-warning-border: #8a7326;
+  --color-error: #ff8080;
+  --color-success-bg: #1f3d24;
+  --color-danger-bg: #4a1f1f;
+}
+
+body {
+  /* The board/panels never rely on the page's default (transparent)
+     background or inherited (black) text color — a dark host would
+     otherwise render the heading and turn indicator invisible. */
+  background: var(--color-bg);
+  color: var(--color-fg);
+}
+
 .app {
   max-width: 1200px;
   margin: 0 auto;
   padding: 16px;
   font-family: system-ui, sans-serif;
+  color: var(--color-fg);
+  background: var(--color-bg);
 }
 
 .app h1 {
@@ -25,8 +89,9 @@
 .engine-warning,
 .resume-banner {
   text-align: center;
-  background: #fff3cd;
-  border: 1px solid #e0c36a;
+  background: var(--color-warning-bg);
+  border: 1px solid var(--color-warning-border);
+  color: var(--color-fg);
   border-radius: 6px;
   padding: 8px 12px;
   margin: 0 auto 12px;
@@ -59,6 +124,11 @@
   flex-direction: column;
   align-items: center;
   gap: 12px;
+  /* Let the grid track's own `minmax(0, 640px)` govern width — without
+     this, a flex/grid item's default min-width is `auto` (its content's
+     intrinsic size), which can force the track wider than the space
+     actually available and push it back into the side columns. */
+  min-width: 0;
 }
 
 .right-column {
@@ -70,15 +140,15 @@
 }
 
 .tabs {
-  border: 1px solid #ccc;
+  border: 1px solid var(--color-panel-border);
   border-radius: 6px;
   overflow: hidden;
 }
 
 .tabs-header {
   display: flex;
-  background: #eee;
-  border-bottom: 1px solid #ccc;
+  background: var(--color-header-bg);
+  border-bottom: 1px solid var(--color-panel-border);
 }
 
 .tabs-header button {
@@ -106,7 +176,7 @@
 }
 
 .move-list .number {
-  color: #666;
+  color: var(--color-muted);
   min-width: 2.5em;
 }
 
@@ -125,7 +195,8 @@
 }
 
 .move-list .move.current {
-  background: #cfe6ff;
+  background: var(--color-accent-bg);
+  color: var(--color-fg);
   font-weight: 700;
 }
 
@@ -140,17 +211,18 @@
   justify-content: space-between;
   padding: 6px 10px;
   border-radius: 4px;
-  background: #f4f4f4;
+  background: var(--color-panel-bg);
+  color: var(--color-fg);
   font-variant-numeric: tabular-nums;
 }
 
 .clock.running {
-  background: #dff5df;
+  background: var(--color-success-bg);
   font-weight: 700;
 }
 
 .clock.flagged {
-  background: #f8d3d3;
+  background: var(--color-danger-bg);
 }
 
 .captured {
@@ -166,14 +238,15 @@
 
 .material-balance {
   font-size: 0.85em;
-  color: #555;
+  color: var(--color-muted);
 }
 
 .scoreboard {
   display: flex;
   justify-content: space-between;
   padding: 6px 10px;
-  background: #f4f4f4;
+  background: var(--color-panel-bg);
+  color: var(--color-fg);
   border-radius: 4px;
 }
 
@@ -234,7 +307,7 @@
 }
 
 .import-error {
-  color: #b00020;
+  color: var(--color-error);
   min-height: 1.2em;
   font-size: 0.9em;
 }

@@ -6,15 +6,18 @@ import { profileFor } from './strength'
 function fakeTransport() {
   const sent: string[] = []
   let handler: ((line: string) => void) | null = null
+  let errorHandler: ((err: unknown) => void) | null = null
   const transport: EngineTransport = {
     post: (cmd) => { sent.push(cmd) },
     onMessage: (cb) => { handler = cb },
+    onError: (cb) => { errorHandler = cb },
     terminate: vi.fn(),
   }
   return {
     transport,
     sent,
     emit: (line: string) => handler?.(line),
+    emitError: (err: unknown) => errorHandler?.(err),
   }
 }
 
@@ -260,5 +263,70 @@ describe('EngineClient', () => {
     expect(result.best).toBe('e7e5')
     expect(result.lines).toHaveLength(1)
     expect(result.lines[0]?.scoreCp).toBe(-5)
+  })
+
+  test('a transport error event marks the client dead and rejects waitReady()', async () => {
+    const f = fakeTransport()
+    const client = new EngineClient(f.transport)
+    const ready = client.waitReady()
+
+    // `new Worker(url)` never throws for a 404 on the engine asset or a
+    // network failure — those only ever arrive asynchronously as the
+    // worker's own `error` event, with no `readyok` ever following.
+    f.emitError(new Error('Failed to load engine script'))
+
+    await expect(ready).rejects.toThrow(/dead/i)
+    await expect(client.search({ depth: 4, moveTimeMs: 100, multiPv: 1 })).rejects.toThrow(/dead/i)
+  })
+
+  test('a transport error event rejects a search already in flight', async () => {
+    const f = fakeTransport()
+    const client = new EngineClient(f.transport)
+    f.emit('readyok') // completes the handshake
+    const pending = client.search({ depth: 4, moveTimeMs: 100, multiPv: 1 })
+
+    f.emitError({ message: '404 Not Found' })
+
+    await expect(pending).rejects.toThrow(/error/i)
+  })
+
+  test('a handshake that never answers times out and marks the client dead', async () => {
+    vi.useFakeTimers()
+    try {
+      const f = fakeTransport()
+      const client = new EngineClient(f.transport)
+      const ready = client.waitReady()
+
+      // No 'readyok' ever arrives — the worker loaded but never speaks UCI.
+      const assertion = expect(ready).rejects.toThrow(/dead/i)
+      await vi.advanceTimersByTimeAsync(60_000)
+      await assertion
+
+      // The client is now dead and a later call rejects promptly instead of
+      // hanging forever.
+      await expect(client.search({ depth: 4, moveTimeMs: 100, multiPv: 1 })).rejects.toThrow(
+        /dead/i,
+      )
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  test('a handshake that answers before the timeout does not later mark the client dead', async () => {
+    vi.useFakeTimers()
+    try {
+      const f = fakeTransport()
+      const client = new EngineClient(f.transport)
+      const ready = client.waitReady()
+      f.emit('readyok')
+      await ready
+
+      // Advance well past the handshake timeout window — a client that
+      // already became ready must not spuriously die afterwards.
+      await vi.advanceTimersByTimeAsync(60_000)
+      await expect(client.waitReady()).resolves.toBeUndefined()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

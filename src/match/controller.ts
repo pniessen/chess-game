@@ -125,6 +125,7 @@ export class MatchController {
     this.stepRequestId = null
     this.clock.dispose()
     this.listeners = []
+    this.engine.dispose()
   }
 
   // ---- turn routing -----------------------------------------------------
@@ -352,6 +353,58 @@ export class MatchController {
         this.toMoveOf(side)
       }
     }
+    this.emit()
+  }
+
+  /**
+   * Redo a move taken back by undo(). `Game.redo()` always lands back on
+   * the live position (never a browsed one), so — like undo() — this must
+   * re-derive `phase` from the fresh position rather than leave whatever
+   * phase was current before the call: a redo can just as easily restore a
+   * checkmate as it can restore an ordinary position, and the caller (the
+   * game already having been undone out of 'finished') has no way to know
+   * which without us telling it. Returns false (no-op, no emit) when there
+   * is nothing to redo.
+   */
+  redo(): boolean {
+    if (!this.game.redo()) return false
+
+    // The live position just changed under whatever engine request (if any)
+    // was in flight for the position we redid away from.
+    this.requestId++
+    this.stepRequestId = null
+
+    const status = this.game.status()
+    if (status.kind !== 'in-progress') {
+      this.phase = { kind: 'finished', status, reason: 'normal', winner: winnerFor(status) }
+      this.clock.pause()
+      this.emit()
+      return true
+    }
+
+    const side = this.game.current().turn()
+    const bothEngines =
+      this.config.white.kind === 'engine' && this.config.black.kind === 'engine'
+    if (bothEngines) {
+      this.phase = { kind: 'paused' }
+    } else {
+      this.toMoveOf(side)
+    }
+    this.emit()
+    return true
+  }
+
+  /**
+   * Browse history without disturbing the live game: only the *displayed*
+   * ply moves. Refused while the engine is thinking, since the live
+   * position the engine is about to reply to must stay exactly what it was
+   * asked about — browsing away from it and back doesn't change that
+   * position, so there is nothing to invalidate here (contrast redo(),
+   * which does change the live position and so does invalidate).
+   */
+  goTo(ply: number): void {
+    if (this.phase.kind === 'engine-thinking') return
+    this.game.goTo(ply)
     this.emit()
   }
 }

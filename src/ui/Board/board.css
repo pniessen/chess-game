@@ -2,7 +2,10 @@
   display: grid;
   grid-template-columns: repeat(8, 1fr);
   grid-template-rows: repeat(8, 1fr);
-  width: min(80vmin, 640px);
+  /* Fit the board's own column, not the viewport: `vmin` sizing ignored the
+     side panels entirely and could size the board wider than the space
+     actually left for it, overlapping both columns. */
+  width: min(100%, 640px);
   aspect-ratio: 1;
   border: 2px solid #3a3226;
   user-select: none;

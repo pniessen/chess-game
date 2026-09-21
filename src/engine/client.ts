@@ -4,6 +4,14 @@ import { isCriticalError, parseBestMove, parseInfo, type EngineInfo } from './uc
 export interface EngineTransport {
   post(cmd: string): void
   onMessage(cb: (line: string) => void): void
+  /**
+   * Fired for a transport-level failure that has nothing to do with the UCI
+   * protocol — a 404 on the engine asset, a network failure, a wrong deploy
+   * base path, or any other reason the browser's Worker never got to run.
+   * `new Worker(url)` does not throw for these; they only ever surface here,
+   * asynchronously, via the worker's own `error` event.
+   */
+  onError(cb: (err: unknown) => void): void
   terminate(): void
 }
 
@@ -33,9 +41,30 @@ export function createWorkerTransport(url: string = DEFAULT_ENGINE_URL): EngineT
       worker.addEventListener('message', (e: MessageEvent<string>) => {
         if (typeof e.data === 'string') cb(e.data)
       }),
+    // A 404 on the script, a bad MIME type, or an uncaught exception while
+    // the worker script evaluates all land here as an ErrorEvent — never as
+    // a thrown exception from `new Worker(url)` itself.
+    onError: (cb) => worker.addEventListener('error', (e) => cb(e)),
     terminate: () => worker.terminate(),
   }
 }
+
+/** Best-effort human-readable text out of whatever a transport's `onError` handed us. */
+function describeTransportError(err: unknown): string {
+  if (err && typeof err === 'object' && 'message' in err) {
+    const message = (err as { message: unknown }).message
+    if (typeof message === 'string' && message.length > 0) return message
+  }
+  return String(err)
+}
+
+/**
+ * How long we'll wait for the initial `uci`/`isready` handshake to answer
+ * with `readyok` before treating the worker as dead. A worker that loaded
+ * but never speaks UCI (wrong script, hung wasm init, etc.) would otherwise
+ * leave every caller of `waitReady()`/`search()` hanging forever.
+ */
+const HANDSHAKE_TIMEOUT_MS = 10_000
 
 export class EngineClient {
   private readonly transport: EngineTransport
@@ -99,6 +128,12 @@ export class EngineClient {
    */
   private readonly readyokQueue: Array<'handshake' | 'barrier' | 'other'> = []
 
+  /** Timer for the initial handshake; cleared once it succeeds, fails, or we dispose. */
+  private handshakeTimer: ReturnType<typeof setTimeout> | null = null
+
+  /** Notified once, the first time this client transitions to dead, with the reason. */
+  private deadListeners: Array<(reason: string) => void> = []
+
   constructor(transport: EngineTransport) {
     this.transport = transport
     this.readyPromise = new Promise<void>((resolve, reject) => {
@@ -111,9 +146,63 @@ export class EngineClient {
     // from observing the rejection themselves.
     this.readyPromise.catch(() => {})
     this.transport.onMessage((line) => this.handle(line))
+    this.transport.onError((err) => {
+      this.markDead(`worker error: ${describeTransportError(err)}`)
+      this.failPendingWork(`engine worker failed: ${this.deadReason}`)
+    })
     this.transport.post('uci')
     this.transport.post('isready')
     this.readyokQueue.push('handshake')
+
+    this.handshakeTimer = setTimeout(() => {
+      this.handshakeTimer = null
+      if (this.deadReason !== null) return
+      this.markDead('handshake timed out waiting for readyok')
+      this.failPendingWork(`engine handshake timed out: ${this.deadReason}`)
+    }, HANDSHAKE_TIMEOUT_MS)
+  }
+
+  /**
+   * Record the fatal reason (once — later calls are no-ops so an error event
+   * racing a CRITICAL ERROR line can't clobber the original cause) and tear
+   * down everything that assumed the engine was still alive: no `readyok`
+   * or further replies will ever arrive again.
+   */
+  private markDead(reason: string): void {
+    if (this.deadReason !== null) return
+    this.deadReason = reason
+    this.awaitingBarrier = false
+    this.queuedLimits = null
+    this.readyokQueue.length = 0
+    if (this.handshakeTimer !== null) {
+      clearTimeout(this.handshakeTimer)
+      this.handshakeTimer = null
+    }
+    for (const l of this.deadListeners) l(reason)
+  }
+
+  /** Reject whatever `search()`/`waitReady()` callers are currently waiting on. */
+  private failPendingWork(pendingMessage: string): void {
+    const p = this.pending
+    this.pending = null
+    p?.reject(new Error(pendingMessage))
+    if (this.rejectReady) {
+      this.rejectReady(this.deadClientError())
+      this.resolveReady = null
+      this.rejectReady = null
+    }
+  }
+
+  /**
+   * Subscribe to this client's death (from a CRITICAL ERROR line, a
+   * transport error event, or a handshake timeout). Fires at most once,
+   * with the reason. Returns an unsubscribe function.
+   */
+  onDead(cb: (reason: string) => void): () => void {
+    this.deadListeners.push(cb)
+    return () => {
+      this.deadListeners = this.deadListeners.filter((l) => l !== cb)
+    }
   }
 
   private handle(line: string): void {
@@ -125,24 +214,18 @@ export class EngineClient {
       // clearly different "engine died" message instead of hanging. No
       // `readyok` will ever arrive again, so a barrier left outstanding
       // must not keep anyone waiting on it.
-      this.deadReason = line
-      this.awaitingBarrier = false
-      this.queuedLimits = null
-      this.readyokQueue.length = 0
-      const p = this.pending
-      this.pending = null
-      p?.reject(new Error(`Stockfish crashed: ${line}`))
-      if (this.rejectReady) {
-        this.rejectReady(this.deadClientError())
-        this.resolveReady = null
-        this.rejectReady = null
-      }
+      this.markDead(line)
+      this.failPendingWork(`Stockfish crashed: ${line}`)
       return
     }
 
     if (line === 'readyok') {
       const kind = this.readyokQueue.shift()
       if (kind === 'handshake') {
+        if (this.handshakeTimer !== null) {
+          clearTimeout(this.handshakeTimer)
+          this.handshakeTimer = null
+        }
         this.resolveReady?.()
         this.resolveReady = null
         this.rejectReady = null
@@ -284,6 +367,10 @@ export class EngineClient {
   }
 
   dispose(): void {
+    if (this.handshakeTimer !== null) {
+      clearTimeout(this.handshakeTimer)
+      this.handshakeTimer = null
+    }
     this.pending?.reject(new Error('engine disposed'))
     this.pending = null
     this.awaitingBarrier = false
