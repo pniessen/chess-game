@@ -47,24 +47,27 @@ describe('Board', () => {
     expect(container.querySelector('[data-square="e4"]')?.className).toContain('last-move')
   })
 
-  test('coordinates label the two edges nearest the viewer and flip with the board', () => {
+  test('coordinates sit in a gutter outside the board and flip with it', () => {
+    const labels = (container: HTMLElement, sel: string) =>
+      [...container.querySelectorAll(`${sel} .coord-label`)].map((e) => e.textContent)
+
     const { container, unmount } = render(
       <Board position={new Position()} orientation="white" highlights={{}} onSquareClick={vi.fn()} />,
     )
-    // White view: files along rank 1, ranks up the a-file.
-    expect(container.querySelector('[data-square="a1"] .coord.file')).toHaveTextContent('a')
-    expect(container.querySelector('[data-square="a1"] .coord.rank')).toHaveTextContent('1')
-    expect(container.querySelector('[data-square="h8"] .coord')).toBeNull()
-    expect(container.querySelectorAll('.coord.file')).toHaveLength(8)
-    expect(container.querySelectorAll('.coord.rank')).toHaveLength(8)
+    expect(labels(container, '.coords-files')).toEqual(['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'])
+    expect(labels(container, '.coords-ranks')).toEqual(['8', '7', '6', '5', '4', '3', '2', '1'])
+    // Nothing inside the board grid itself any more.
+    expect(container.querySelector('[data-square] .coord, .board .coord-label')).toBeNull()
+    // The gutters are siblings of the grid, not children of it.
+    const grid = container.querySelector('[role="grid"]')
+    expect(grid?.querySelector('.coords-files, .coords-ranks')).toBeNull()
     unmount()
 
     const flipped = render(
       <Board position={new Position()} orientation="black" highlights={{}} onSquareClick={vi.fn()} />,
     )
-    // Black view: files along rank 8, ranks up the h-file.
-    expect(flipped.container.querySelector('[data-square="h8"] .coord.file')).toHaveTextContent('h')
-    expect(flipped.container.querySelector('[data-square="h8"] .coord.rank')).toHaveTextContent('8')
+    expect(labels(flipped.container, '.coords-files')).toEqual(['h', 'g', 'f', 'e', 'd', 'c', 'b', 'a'])
+    expect(labels(flipped.container, '.coords-ranks')).toEqual(['1', '2', '3', '4', '5', '6', '7', '8'])
   })
 
   test('clicking a square reports it', async () => {

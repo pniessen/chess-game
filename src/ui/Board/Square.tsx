@@ -6,24 +6,14 @@ export function Square({
   name,
   classes,
   onClick,
-  fileLabel,
-  rankLabel,
   children,
 }: {
   name: SquareName
   classes: string[]
   onClick: (square: SquareName) => void
-  /** Shown in the corner of squares along the bottom edge of the view. */
-  fileLabel?: string
-  /** Shown in the corner of squares along the left edge of the view. */
-  rankLabel?: string
   children?: ReactNode
 }) {
-  const className = [
-    'square',
-    isLightSquare(name) ? 'light' : 'dark',
-    ...classes,
-  ].join(' ')
+  const className = ['square', isLightSquare(name) ? 'light' : 'dark', ...classes].join(' ')
   return (
     <div
       className={className}
@@ -32,8 +22,6 @@ export function Square({
       aria-label={name}
       onClick={() => onClick(name)}
     >
-      {rankLabel ? <span className="coord rank">{rankLabel}</span> : null}
-      {fileLabel ? <span className="coord file">{fileLabel}</span> : null}
       {children}
     </div>
   )

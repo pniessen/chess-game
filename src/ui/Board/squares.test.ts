@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { isLightSquare, squaresInOrder } from './squares'
+import { filesInOrder, isLightSquare, ranksInOrder, squaresInOrder } from './squares'
 
 describe('isLightSquare', () => {
   test('pins standard board colouring: a1 dark, h1 light, a8 light, h8 dark', () => {
@@ -24,5 +24,17 @@ describe('squaresInOrder', () => {
 
   test('every square appears exactly once', () => {
     expect(new Set(squaresInOrder('white')).size).toBe(64)
+  })
+})
+
+describe('gutter label order', () => {
+  test('white view: files a..h left to right, ranks 8..1 top to bottom', () => {
+    expect(filesInOrder('white')).toEqual(['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'])
+    expect(ranksInOrder('white')).toEqual(['8', '7', '6', '5', '4', '3', '2', '1'])
+  })
+
+  test('black view is mirrored on both axes', () => {
+    expect(filesInOrder('black')).toEqual(['h', 'g', 'f', 'e', 'd', 'c', 'b', 'a'])
+    expect(ranksInOrder('black')).toEqual(['1', '2', '3', '4', '5', '6', '7', '8'])
   })
 })

@@ -4,7 +4,7 @@ import type { Position } from '../../game-core/position'
 import type { Color, PieceSymbol, Square as SquareName } from '../../game-core/types'
 import { Piece } from './Piece'
 import { Square } from './Square'
-import { squaresInOrder } from './squares'
+import { filesInOrder, ranksInOrder, squaresInOrder } from './squares'
 import { useDragMove } from './useDragMove'
 import './board.css'
 
@@ -87,40 +87,46 @@ export function Board({
   const captures = new Set(highlights.captures ?? [])
 
   return (
-    <div
-      className={`board ${orientation}`}
-      role="grid"
-      aria-label="Chess board"
-      onPointerDown={handlePointerDown}
-    >
-      {squaresInOrder(orientation).map((name) => {
-        const classes: string[] = []
-        if (highlights.selected === name) classes.push('selected')
-        if (legal.has(name)) classes.push('legal')
-        if (captures.has(name)) classes.push('capture')
-        if (highlights.lastMove?.includes(name)) classes.push('last-move')
-        if (highlights.check === name) classes.push('check')
-        if (draggingSquare === name) classes.push('dragging')
-        const piece = pieces.get(name)
-        // Coordinates sit on the two edges nearest the viewer, so they flip
-        // with the board: files along the bottom rank, ranks up the left file.
-        const file = name[0]
-        const rank = name[1]
-        const bottomRank = orientation === 'white' ? '1' : '8'
-        const leftFile = orientation === 'white' ? 'a' : 'h'
-        return (
-          <Square
-            key={name}
-            name={name}
-            classes={classes}
-            onClick={handleSquareClick}
-            {...(rank === bottomRank ? { fileLabel: file } : {})}
-            {...(file === leftFile ? { rankLabel: rank } : {})}
-          >
-            {piece ? <Piece color={piece.color} type={piece.type} /> : null}
-          </Square>
-        )
-      })}
+    <div className={`board-frame ${orientation}`} data-testid="board-frame">
+      {/* Coordinates live OUTSIDE the grid: they are page text, not square
+          content, so they stay readable in every theme and never sit under a
+          piece. aria-hidden because every square already has aria-label. */}
+      <div className="coords coords-ranks" aria-hidden="true">
+        {ranksInOrder(orientation).map((r) => (
+          <span key={r} className="coord-label" data-testid={`coord-rank-${r}`}>
+            {r}
+          </span>
+        ))}
+      </div>
+      <div
+        className={`board ${orientation}`}
+        role="grid"
+        aria-label="Chess board"
+        onPointerDown={handlePointerDown}
+      >
+        {squaresInOrder(orientation).map((name) => {
+          const classes: string[] = []
+          if (highlights.selected === name) classes.push('selected')
+          if (legal.has(name)) classes.push('legal')
+          if (captures.has(name)) classes.push('capture')
+          if (highlights.lastMove?.includes(name)) classes.push('last-move')
+          if (highlights.check === name) classes.push('check')
+          if (draggingSquare === name) classes.push('dragging')
+          const piece = pieces.get(name)
+          return (
+            <Square key={name} name={name} classes={classes} onClick={handleSquareClick}>
+              {piece ? <Piece color={piece.color} type={piece.type} /> : null}
+            </Square>
+          )
+        })}
+      </div>
+      <div className="coords coords-files" aria-hidden="true">
+        {filesInOrder(orientation).map((f) => (
+          <span key={f} className="coord-label" data-testid={`coord-file-${f}`}>
+            {f}
+          </span>
+        ))}
+      </div>
     </div>
   )
 }

@@ -1,16 +1,44 @@
+.board-frame {
+  --coord-gutter: 1.25rem;
+  display: grid;
+  grid-template-columns: var(--coord-gutter) minmax(0, 1fr);
+  grid-template-rows: auto var(--coord-gutter);
+  grid-template-areas:
+    'ranks board'
+    '.     files';
+  /* The board itself may be at most 640px; the gutter comes on top. */
+  width: min(100%, calc(640px + var(--coord-gutter)));
+}
 .board {
+  grid-area: board;
   display: grid;
   grid-template-columns: repeat(8, 1fr);
   grid-template-rows: repeat(8, 1fr);
-  /* Fit the board's own column, not the viewport: `vmin` sizing ignored the
-     side panels entirely and could size the board wider than the space
-     actually left for it, overlapping both columns. */
-  width: min(100%, 640px);
+  width: 100%;
+  /* border-box so the 2px border is inside the width and aspect-ratio, and
+     the 8x8 grid inside stays exactly square. */
+  box-sizing: border-box;
   aspect-ratio: 1;
   border: 2px solid #3a3226;
+  position: relative; /* anchors the annotation overlay (Task 2) */
   user-select: none;
   touch-action: none; /* let us handle touch drags ourselves */
 }
+.coords {
+  display: flex;
+  pointer-events: none;
+  user-select: none;
+  /* Page text colours, not square colours: readable on light and dark hosts. */
+  color: var(--color-fg);
+  opacity: 0.8;
+  font-size: 0.8rem;
+  font-weight: 600;
+  line-height: 1;
+}
+/* 2px padding matches the board border, so each label centres on its square. */
+.coords-ranks { grid-area: ranks; flex-direction: column; padding-block: 2px; }
+.coords-files { grid-area: files; flex-direction: row; padding-inline: 2px; }
+.coord-label { flex: 1; display: flex; align-items: center; justify-content: center; }
 .square { position: relative; display: flex; align-items: center; justify-content: center; }
 .square.light { background: #f0d9b5; }
 .square.dark  { background: #b58863; }
@@ -27,14 +55,6 @@
 }
 .piece { width: 92%; height: 92%; pointer-events: none; }
 .square.dragging .piece { opacity: 0.35; }
-.coord {
-  position: absolute; font-size: clamp(8px, 1.6vmin, 12px);
-  font-weight: 600; opacity: 0.7; pointer-events: none; line-height: 1;
-}
-.coord.rank { top: 2px; left: 3px; }
-.coord.file { bottom: 2px; right: 3px; }
-.square.light .coord { color: #b58863; }
-.square.dark .coord { color: #f0d9b5; }
 
 .promotion-backdrop {
   position: fixed; inset: 0; background: rgba(0, 0, 0, 0.45);
