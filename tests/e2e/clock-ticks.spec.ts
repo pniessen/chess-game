@@ -1,4 +1,7 @@
 import { expect, test } from '@playwright/test'
+import { coachOffline } from './helpers'
+
+test.beforeEach(async ({ page }) => coachOffline(page))
 
 test('a running clock visibly counts down between moves', async ({ page }) => {
   await page.goto('/')

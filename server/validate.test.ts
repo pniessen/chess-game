@@ -1,6 +1,8 @@
 // @vitest-environment node
 import { describe, expect, test } from 'vitest'
 import { parseHintRequest, parseReviewRequest } from './validate'
+import { moverScore } from '../src/coach/hints'
+import type { EngineInfo } from '../src/engine/uci'
 
 const START = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'
 const HINT = { fen: START, bestMoveSan: 'e4', line: ['e4', 'e5', 'Nf3'], evaluation: '+0.3' }
@@ -49,5 +51,27 @@ describe('parseReviewRequest', () => {
     ['a bad side', { ...REVIEW, humanSide: 'x' }],
   ])('rejects %s', (_name, body) => {
     expect(parseReviewRequest(body).ok).toBe(false)
+  })
+})
+
+// The browser (src/coach/hints.ts, moverScore) and the server (this file's
+// EVAL_RE) must agree byte-for-byte on the evaluation string's shape, or
+// every hint request the browser sends gets rejected with 400. Importing
+// the browser's formatter here (server/ has no chess.js in its import
+// graph — moverScore only touches engine/uci types) round-trips its output
+// through the server's own validator instead of trusting the two regexes
+// to stay in sync by inspection.
+describe('moverScore output matches the server validator (EVAL_RE)', () => {
+  test.each<[string, EngineInfo]>([
+    ['positive centipawns', { scoreCp: 83, pv: [] }],
+    ['negative centipawns', { scoreCp: -120, pv: [] }],
+    ['zero centipawns', { scoreCp: 0, pv: [] }],
+    ['mate for the side to move', { scoreMate: 3, pv: [] }],
+    ['mate against the side to move', { scoreMate: -2, pv: [] }],
+  ])('%s round-trips through parseHintRequest', (_name, info) => {
+    const evaluation = moverScore(info)
+    expect(evaluation).not.toBeNull()
+    const result = parseHintRequest({ ...HINT, evaluation })
+    expect(result).toEqual({ ok: true, value: { ...HINT, evaluation } })
   })
 })

@@ -1,4 +1,7 @@
 import { expect, test } from '@playwright/test'
+import { coachOffline } from './helpers'
+
+test.beforeEach(async ({ page }) => coachOffline(page))
 
 test('engine vs engine runs, pauses, and steps', async ({ page }) => {
   await page.goto('/')

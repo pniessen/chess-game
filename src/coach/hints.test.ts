@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { nudgeText, suggestionFrom } from './hints'
+import { hintRequestFrom, moverScore, nudgeText, sanLine, suggestionFrom } from './hints'
 import { Position } from '../game-core/position'
 
 describe('suggestionFrom', () => {
@@ -21,4 +21,32 @@ describe('suggestionFrom', () => {
 
 test('nudgeText names the piece', () => {
   expect(nudgeText('q')).toBe('Look at your queen.')
+})
+
+describe('hint request', () => {
+  test('moverScore formats cp and mate from the side to move', () => {
+    expect(moverScore({ scoreCp: 83, pv: [] })).toBe('+0.8')
+    expect(moverScore({ scoreCp: -120, pv: [] })).toBe('-1.2')
+    expect(moverScore({ scoreMate: 3, pv: [] })).toBe('M3')
+    expect(moverScore({ scoreMate: -2, pv: [] })).toBe('-M2')
+    expect(moverScore({ pv: [] })).toBeNull()
+  })
+
+  test('sanLine converts the PV and stops at the first unplayable move', () => {
+    expect(sanLine(new Position(), ['e2e4', 'e7e5', 'g1f3'], 12)).toEqual(['e4', 'e5', 'Nf3'])
+    expect(sanLine(new Position(), ['e2e4', 'a1a8', 'g1f3'], 12)).toEqual(['e4'])
+    expect(sanLine(new Position(), ['e2e4', 'e7e5'], 1)).toEqual(['e4'])
+  })
+
+  test('hintRequestFrom builds a server-valid request', () => {
+    const pos = new Position()
+    const s = suggestionFrom([{ depth: 12, scoreCp: 25, pv: ['e2e4', 'e7e5'] }], pos)
+    if (!s) throw new Error('no suggestion')
+    expect(hintRequestFrom(s, pos)).toEqual({
+      fen: pos.fen(),
+      bestMoveSan: 'e4',
+      line: ['e4', 'e5'],
+      evaluation: '+0.3',
+    })
+  })
 })

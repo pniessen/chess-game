@@ -1,4 +1,7 @@
 import { expect, test, type Locator } from '@playwright/test'
+import { coachOffline } from './helpers'
+
+test.beforeEach(async ({ page }) => coachOffline(page))
 
 async function center(locator: Locator): Promise<{ x: number; y: number }> {
   const b = await locator.boundingBox()

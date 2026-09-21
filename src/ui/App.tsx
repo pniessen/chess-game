@@ -11,7 +11,9 @@ import type { MatchConfig, MatchPhase } from '../match/types'
 import { EngineClient, createWorkerTransport } from '../engine/client'
 import type { WhiteEval } from '../engine/evaluation'
 import { templatedHint } from '../coach/templated'
-import { HINT_BUDGET } from '../coach/hints'
+import { HINT_BUDGET, hintRequestFrom } from '../coach/hints'
+import { CoachClient } from '../coach/client'
+import { useCoach } from './useCoach'
 import { useHints, type HintAnalyze, type HintReasoner } from './hints/useHints'
 import { useEvaluation, type EvalAnalyze } from './useEvaluation'
 import { gameIdOf } from './gameKey'
@@ -239,6 +241,13 @@ function AppInner({
     })
   }, [])
   const [pendingResume] = useState(() => loadInProgress())
+
+  // One coach client per app; it owns the offline badge and the one-time notice.
+  const [coach] = useState(() => new CoachClient())
+  const coachState = useCoach(coach)
+  useEffect(() => {
+    void coach.checkHealth()
+  }, [coach])
 
   const snapshot = useMatch(controller)
 
@@ -477,10 +486,15 @@ function AppInner({
     [controller],
   )
 
-  // Press 3 = reasoning. Templated for now; Task 6 asks Claude first.
+  // Press 3 = reasoning: Claude when the coach server can, templated otherwise.
   const reasonForHint = useCallback<HintReasoner>(
-    async (s, pos) => templatedHint([...s.lines], pos) ?? `${s.san} is the engine's choice.`,
-    [],
+    async (s, pos, signal) => {
+      const fallback = templatedHint([...s.lines], pos) ?? `${s.san} is the engine's choice.`
+      const request = hintRequestFrom(s, pos)
+      if (!request) return fallback
+      return (await coach.hint(request, signal)) ?? fallback
+    },
+    [coach],
   )
 
   const hints = useHints({
@@ -533,7 +547,29 @@ function AppInner({
         <p className="result" data-testid="result">
           {describeResult(snapshot.phase, displayedStatus)}
         </p>
+        {coachState.status === 'offline' || coachState.status === 'no-key' ? (
+          <span
+            className="coach-badge"
+            data-testid="coach-badge"
+            title={
+              coachState.status === 'no-key'
+                ? 'The coach server has no ANTHROPIC_API_KEY; using built-in hints.'
+                : 'The coach server is not reachable; using built-in hints.'
+            }
+          >
+            coaching offline
+          </span>
+        ) : null}
       </div>
+
+      {coachState.notice ? (
+        <p className="coach-notice" role="status" data-testid="coach-notice">
+          {coachState.notice}
+          <button data-testid="coach-notice-dismiss" onClick={() => coach.dismissNotice()}>
+            Dismiss
+          </button>
+        </p>
+      ) : null}
 
       <div className="layout">
         <div className="left-column">

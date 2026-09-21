@@ -341,6 +341,26 @@ body {
 }
 .settings label { display: flex; align-items: center; gap: 4px; font-size: 0.9em; }
 
+.coach-badge {
+  align-self: center;
+  font-size: 0.75em;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--color-panel-border);
+  color: var(--color-muted);
+  background: var(--color-panel-bg);
+}
+.coach-notice {
+  text-align: center;
+  background: var(--color-warning-bg);
+  border: 1px solid var(--color-warning-border);
+  border-radius: 6px;
+  padding: 6px 12px;
+  margin: 0 auto 12px;
+  max-width: 640px;
+}
+.coach-notice button { margin-left: 8px; }
+
 @media (max-width: 768px) {
   .layout {
     grid-template-columns: 1fr;
