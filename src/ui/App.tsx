@@ -275,18 +275,36 @@ function AppInner({
   useEffect(() => {
     if (snapshot.phase.kind !== 'finished') return
     if (scoredRef.current) return
+    // Guards against double-counting: set before anything else runs, so a
+    // re-render with the same finished `phase`, or a redo that lands back
+    // on this same finished position (neither of which calls startMatch,
+    // the only place this ref is reset), can't score the game twice.
     scoredRef.current = true
-    // Only track W/L/D against a single human opponent — the score has no
-    // meaning for a two-player (hotseat) or zero-player (engine-vs-engine)
-    // game, so leave it untouched there.
+
+    // Scoreboard semantics, derived from `phase.winner` (never `status.kind`
+    // — see describeResult above) and the seat kinds, are mode-dependent:
+    //  - one-player (exactly one human seat): win/loss/draw is from that
+    //    human's point of view — a win for the engine is a loss for them.
+    //  - two-player (both seats human, e.g. hotseat): there's no single
+    //    human perspective to score from, so per this feature's ruling any
+    //    decisive result (someone won) counts as a "win" and a draw counts
+    //    as a "draw" — the scoreboard becomes a games-played/draws tally.
+    //  - zero-player (both seats engine): no human played, so the game is
+    //    not scored at all — counting it would make the scoreboard
+    //    meaningless.
     const whiteHuman = snapshot.config.white.kind === 'human'
     const blackHuman = snapshot.config.black.kind === 'human'
-    if (whiteHuman === blackHuman) return
-    const humanSide: Color = whiteHuman ? 'w' : 'b'
+    if (!whiteHuman && !blackHuman) return
     const next = { ...score }
-    if (snapshot.phase.winner === null) next.draws++
-    else if (snapshot.phase.winner === humanSide) next.wins++
-    else next.losses++
+    if (whiteHuman && blackHuman) {
+      if (snapshot.phase.winner === null) next.draws++
+      else next.wins++
+    } else {
+      const humanSide: Color = whiteHuman ? 'w' : 'b'
+      if (snapshot.phase.winner === null) next.draws++
+      else if (snapshot.phase.winner === humanSide) next.wins++
+      else next.losses++
+    }
     setScore(next)
     saveScore(next)
     clearInProgress()
