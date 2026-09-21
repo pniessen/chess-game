@@ -200,6 +200,46 @@ describe('EngineLane', () => {
     expect(f.log).toEqual([])
   })
 
+  test('a move that supersedes a still-running move search stops the engine before reconfiguring', async () => {
+    const f = fakeEngine()
+    const lane = new EngineLane(f.engine)
+    const first = lane.move(MOVE, () => true)
+    // Attach the rejection handler now: the supersede below rejects `first`
+    // synchronously inside `second`'s engine.search() call, before we'd
+    // otherwise get a chance to await it (Node would flag it unhandled).
+    const firstSuperseded = expect(first).rejects.toThrow(/superseded/)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(f.searches).toHaveLength(1)
+
+    const MOVE2 = { profile: profileFor(5), fen: 'MOVE2-FEN', limits: { depth: 5, moveTimeMs: 400, multiPv: 3 } }
+    const second = lane.move(MOVE2, () => true)
+    await vi.advanceTimersByTimeAsync(0)
+
+    // stop is posted BEFORE the second move's configure/position, i.e.
+    // before any UCI option/position command reaches the still-searching engine.
+    const i = f.log.lastIndexOf('stop')
+    expect(i).toBeGreaterThan(-1)
+    expect(f.log.slice(i)).toEqual(['stop', 'configure:5', 'position:MOVE2-FEN', 'go:5'])
+
+    await firstSuperseded
+    f.searches[1]?.resolve('g1f3')
+    await expect(second).resolves.toMatchObject({ best: 'g1f3' })
+  })
+
+  test('newGame stops the engine before ucinewgame when a move search is in flight', async () => {
+    const f = fakeEngine()
+    const lane = new EngineLane(f.engine)
+    const move = lane.move(MOVE, () => true)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(f.searches).toHaveLength(1)
+
+    lane.newGame()
+    expect(f.log.slice(-2)).toEqual(['stop', 'newGame'])
+
+    f.searches[0]?.resolve('e7e5')
+    await expect(move).resolves.toMatchObject({ best: 'e7e5' })
+  })
+
   test('a move requested in the same turn as the previous move settles goes before queued analysis', async () => {
     const f = fakeEngine()
     const lane = new EngineLane(f.engine)

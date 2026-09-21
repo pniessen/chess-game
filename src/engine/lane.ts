@@ -73,6 +73,13 @@ export class EngineLane {
     isCurrent: () => boolean,
   ): Promise<SearchOutcome> {
     this.preemptAnalysis()
+    if (this.movesInFlight > 0) {
+      // A move search is already running (this move supersedes it). Stop it
+      // BEFORE touching configure/position: EngineClient.search() would stop
+      // it too once called, but only after this move's setoption/position
+      // already went out, which is a UCI protocol violation mid-search.
+      this.engine.stop()
+    }
     this.movesInFlight++
     try {
       await this.engine.waitReady()
@@ -112,6 +119,11 @@ export class EngineLane {
 
   newGame(): void {
     this.preemptAnalysis()
+    if (this.movesInFlight > 0) {
+      // A move search is running (e.g. new game / load while the engine is
+      // still thinking). Stop it before ucinewgame, same reasoning as move().
+      this.engine.stop()
+    }
     this.engine.newGame()
   }
 

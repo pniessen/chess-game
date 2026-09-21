@@ -226,6 +226,44 @@ describe('EngineClient', () => {
     f.emit('bestmove e7e5')
   })
 
+  test('an extra stop() before a superseding search() (EngineLane pre-empting a move) does not double-barrier or hang', async () => {
+    const f = fakeTransport()
+    const client = new EngineClient(f.transport)
+    f.emit('readyok') // completes the initial handshake (its own isready)
+    const first = client.search({ depth: 6, moveTimeMs: 200, multiPv: 1 })
+    first.catch(() => {
+      // Expected: superseded below. Prevent an unhandled rejection warning.
+    })
+
+    // This mirrors EngineLane.move()'s fix: an explicit stop() sent before
+    // configure/position/search, ahead of the supersede that search() itself
+    // triggers because `first` is still pending.
+    client.stop()
+    client.configure(profileFor(5))
+    client.setPosition('8/8/8/8/8/8/8/8 w - - 0 1')
+    const second = client.search({ depth: 8, moveTimeMs: 300, multiPv: 1 })
+
+    // Two `stop`s reach the wire (the explicit one, then search()'s own for
+    // the supersede) but only ONE barrier (isready) opens beyond the
+    // handshake's — pending state is not corrupted by the extra stop.
+    expect(f.sent.filter((c) => c === 'stop')).toHaveLength(2)
+    expect(f.sent.filter((c) => c === 'isready')).toHaveLength(2) // handshake + barrier
+    expect(f.sent.filter((c) => c.startsWith('go '))).toEqual(['go depth 6 movetime 200'])
+
+    f.emit('bestmove g1f3') // stale reply for the abandoned first search
+    // The new search's `go` still waits for the barrier's `readyok`.
+    expect(f.sent.filter((c) => c.startsWith('go '))).toEqual(['go depth 6 movetime 200'])
+    f.emit('readyok') // barrier clears
+    expect(f.sent.filter((c) => c.startsWith('go '))).toEqual([
+      'go depth 6 movetime 200',
+      'go depth 8 movetime 300',
+    ])
+    f.emit('bestmove e7e5')
+
+    await expect(first).rejects.toThrow(/supersed/i)
+    await expect(second).resolves.toMatchObject({ best: 'e7e5' })
+  })
+
   test('a CRITICAL ERROR while a barrier is outstanding still marks the client dead and rejects pending work', async () => {
     const f = fakeTransport()
     const client = new EngineClient(f.transport)
