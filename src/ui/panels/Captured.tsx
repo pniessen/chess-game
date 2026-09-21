@@ -2,6 +2,20 @@ import type { Color, PieceSymbol, PlayedMove } from '../../game-core/types'
 import { Piece } from '../Board/Piece'
 import { capturedPieces, materialBalance } from './material'
 
+const PIECE_NAME: Record<PieceSymbol, string> = {
+  p: 'pawn',
+  n: 'knight',
+  b: 'bishop',
+  r: 'rook',
+  q: 'queen',
+  k: 'king',
+}
+
+function getPieceLabel(color: Color, type: PieceSymbol): string {
+  const colorName = color === 'w' ? 'white' : 'black'
+  return `${colorName} ${PIECE_NAME[type]}`
+}
+
 /** `color` is the colour of the CAPTURED pieces shown in this tray (not who captured them). */
 function Tray({
   pieces,
@@ -17,7 +31,12 @@ function Tray({
   return (
     <div className="captured-tray" data-testid={testId}>
       {pieces.map((p, i) => (
-        <span key={i} className="captured-piece">
+        <span
+          key={i}
+          className="captured-piece"
+          aria-label={getPieceLabel(color, p)}
+          role="img"
+        >
           <Piece color={color} type={p} pieceSet={pieceSet} />
         </span>
       ))}
