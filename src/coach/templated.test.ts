@@ -21,9 +21,11 @@ describe('templatedHint', () => {
   })
 
   test('reports a winning capture', () => {
-    const pos = new Position('rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 0 2')
-    const hint = templatedHint([info({ scoreCp: 120, pv: ['b8c6'] })], pos)
+    // After 1.e4 d5, White plays exd5 (e4 pawn captures d5 pawn)
+    const pos = new Position('rnbqkbnr/ppp1pppp/8/3p4/4P3/8/PPPP1PPP/RNBQKBNR w KQkq d6 0 2')
+    const hint = templatedHint([info({ scoreCp: 120, pv: ['e4d5'] })], pos)
     expect(hint).not.toBeNull()
+    expect(hint).toMatch(/wins a pawn/)
   })
 
   test('returns null when there is nothing to say', () => {
@@ -34,5 +36,27 @@ describe('templatedHint', () => {
   test('an unplayable suggestion is rejected rather than shown', () => {
     const hint = templatedHint([info({ scoreCp: 10, pv: ['a1a8'] })], new Position())
     expect(hint).toBeNull()
+  })
+
+  test('MultiPV: selects multipv=1 at greatest depth, not the last-received line', () => {
+    // Simulate a MultiPV search where:
+    // - depth 10, multipv=2 (worse move): Nf3
+    // - depth 10, multipv=1 (best move): e4
+    // The last-received line is multipv=2, but we should pick multipv=1.
+    const lines: EngineInfo[] = [
+      { depth: 10, multipv: 2, scoreCp: 20, pv: ['g1f3'] },
+      { depth: 10, multipv: 1, scoreCp: 50, pv: ['e2e4'] },
+    ]
+    const hint = templatedHint(lines, new Position())
+    expect(hint).toMatch(/e4/)
+    expect(hint).not.toMatch(/Nf3/)
+  })
+
+  test('negative mate: uses plain wording without "holds out longest"', () => {
+    const pos = new Position('rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 1 2')
+    const hint = templatedHint([info({ scoreMate: -3, pv: ['d1h5'] })], pos)
+    expect(hint).not.toBeNull()
+    expect(hint).toMatch(/mate.*against/)
+    expect(hint).not.toMatch(/holds out longest/)
   })
 })

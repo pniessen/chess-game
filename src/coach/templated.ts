@@ -12,7 +12,17 @@ const PIECE_NAME: Record<string, string> = {
  * evaluation, and material won. No invented positional commentary.
  */
 export function templatedHint(lines: EngineInfo[], position: Position): string | null {
-  const best = lines.at(-1) ?? lines[0]
+  // Select the best line explicitly: multipv=1 (or undefined) at greatest depth.
+  let best: EngineInfo | undefined
+  let maxDepth = -1
+  for (const line of lines) {
+    const isMultipvOne = line.multipv === undefined || line.multipv === 1
+    const depth = line.depth ?? 0
+    if (isMultipvOne && depth > maxDepth) {
+      best = line
+      maxDepth = depth
+    }
+  }
   const uci = best?.pv[0]
   if (!best || !uci) return null
 
@@ -29,7 +39,7 @@ export function templatedHint(lines: EngineInfo[], position: Position): string |
     return `There is a forced mate in ${best.scoreMate}, starting with ${san}.`
   }
   if (best.scoreMate !== undefined && best.scoreMate < 0) {
-    return `The position is lost with best play; ${san} holds out longest.`
+    return `Forced mate against the side to move in ${Math.abs(best.scoreMate)} moves; ${san} is the engine's choice.`
   }
   if (captured) {
     return `${san} wins a ${PIECE_NAME[captured] ?? 'piece'}.`
