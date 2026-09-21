@@ -40,9 +40,16 @@ function withTimeout(signal: AbortSignal | undefined, ms: number): AbortSignal {
 export class CoachClient {
   private snap: CoachSnapshot = { status: 'unknown', notice: null }
   private noticeShown = false
+  private badRequestWarned = false
   private readonly listeners = new Set<() => void>()
   private readonly fetchImpl: typeof fetch
   private readonly timeoutMs: number
+  // Monotonic counter assigned when a request STARTS (checkHealth or post), so
+  // that a status update from a request that resolves out of order — e.g. a
+  // slow health check that started before a hint but resolves after it — can
+  // be recognized as stale and dropped instead of clobbering a fresher result.
+  private requestSeq = 0
+  private lastAppliedSeq = 0
 
   constructor(opts: { fetch?: typeof fetch; timeoutMs?: number } = {}) {
     this.fetchImpl = opts.fetch ?? ((input, init) => fetch(input, init))
@@ -64,16 +71,17 @@ export class CoachClient {
   }
 
   async checkHealth(): Promise<void> {
+    const seq = ++this.requestSeq
     try {
       const res = await this.fetchImpl('/api/health', { signal: AbortSignal.timeout(5_000) })
       const body: unknown = res.ok ? await res.json() : null
       if (!isRecord(body) || body['ok'] !== true) {
-        this.update({ status: 'offline' })
+        this.setStatus(seq, 'offline')
         return
       }
-      this.update({ status: body['claude'] === true ? 'online' : 'no-key' })
+      this.setStatus(seq, body['claude'] === true ? 'online' : 'no-key')
     } catch {
-      this.update({ status: 'offline' })
+      this.setStatus(seq, 'offline')
     }
   }
 
@@ -90,9 +98,24 @@ export class CoachClient {
     for (const l of this.listeners) l()
   }
 
+  /**
+   * Apply a status change only if it comes from the newest request seen so
+   * far. A result from an older request that resolves late (e.g. a slow
+   * health check racing a hint) is dropped rather than overwriting whatever
+   * a newer, already-applied request decided — in either direction: an old
+   * failure must not clobber a newer success, and an old success must not
+   * paper over a newer failure.
+   */
+  private setStatus(seq: number, status: CoachStatus, extra?: Partial<CoachSnapshot>): void {
+    if (seq <= this.lastAppliedSeq) return
+    this.lastAppliedSeq = seq
+    this.update({ status, ...extra })
+  }
+
   private async post(path: string, body: unknown, signal?: AbortSignal): Promise<string | null> {
     if (this.snap.status === 'no-key') return null
     if (signal?.aborted) return null
+    const seq = ++this.requestSeq
 
     let res: Response
     try {
@@ -104,7 +127,7 @@ export class CoachClient {
       })
     } catch {
       if (signal?.aborted) return null // the caller moved on; says nothing about the server
-      this.update({ status: 'offline' })
+      this.setStatus(seq, 'offline')
       return null
     }
 
@@ -116,29 +139,38 @@ export class CoachClient {
     }
 
     if (res.ok && isRecord(payload) && typeof payload['text'] === 'string' && payload['text'].trim()) {
-      this.update({ status: 'online' })
+      this.setStatus(seq, 'online')
       return payload['text'].trim()
     }
 
     const kind = errorKindOf(payload)
     if (kind === null) {
-      this.update({ status: 'offline' })
+      this.setStatus(seq, 'offline')
       return null
     }
     if (kind === 'no-key') {
-      this.update({ status: 'no-key' })
+      this.setStatus(seq, 'no-key')
       return null
     }
     if (kind === 'bad-request') {
-      console.warn(`coach server rejected ${path}:`, payload)
+      // Our bug, not a server/Claude outage: never touches status, and is
+      // only worth telling a developer about once per session (mirrors
+      // noticeShown below) — not on every subsequent bad request.
+      if (!this.badRequestWarned) {
+        this.badRequestWarned = true
+        console.warn(`coach server rejected ${path}:`, payload)
+      }
       return null
     }
-    // A Claude-side failure: the server itself is fine.
-    if (!this.noticeShown) {
+    // A Claude-side failure: the server itself is fine. Only flip noticeShown
+    // when this result is actually going to be applied — a stale result that
+    // setStatus would drop anyway must not silently burn the "shown once"
+    // slot for a notice nobody ever saw.
+    if (seq > this.lastAppliedSeq && !this.noticeShown) {
       this.noticeShown = true
-      this.update({ status: 'online', notice: NOTICE[kind] })
+      this.setStatus(seq, 'online', { notice: NOTICE[kind] })
     } else {
-      this.update({ status: 'online' })
+      this.setStatus(seq, 'online')
     }
     return null
   }

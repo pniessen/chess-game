@@ -7,6 +7,15 @@ const HINT: HintRequest = { fen: 'x', bestMoveSan: 'e4', line: ['e4'], evaluatio
 const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
 
+/** A promise this test controls the resolution of, to pin down arrival order. */
+function deferred<T>(): { promise: Promise<T>; resolve: (v: T) => void } {
+  let resolve!: (v: T) => void
+  const promise = new Promise<T>((r) => {
+    resolve = r
+  })
+  return { promise, resolve }
+}
+
 describe('CoachClient', () => {
   test('health: online, no-key, offline', async () => {
     const online = new CoachClient({ fetch: async () => json(200, { ok: true, claude: true }) })
@@ -83,5 +92,64 @@ describe('CoachClient', () => {
     await c.checkHealth()
     expect(cb).toHaveBeenCalled()
     off()
+  })
+
+  test('a bad-request response is warned about once per session, not per request', async () => {
+    const fetch = vi.fn(async () => json(400, { error: { kind: 'bad-request', message: 'malformed fen' } }))
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const c = new CoachClient({ fetch })
+    expect(await c.hint(HINT)).toBeNull()
+    expect(await c.hint(HINT)).toBeNull()
+    expect(warn).toHaveBeenCalledTimes(1)
+    warn.mockRestore()
+  })
+
+  test('the one-time notice stays suppressed across different Claude error kinds', async () => {
+    let kind: 'rate-limited' | 'auth' = 'rate-limited'
+    const fetch = vi.fn(async () => json(503, { error: { kind, message: 'first failure' } }))
+    const c = new CoachClient({ fetch })
+    expect(await c.hint(HINT)).toBeNull()
+    expect(c.getSnapshot().notice).toMatch(/rate-limiting/)
+    c.dismissNotice()
+
+    kind = 'auth'
+    expect(await c.hint(HINT)).toBeNull()
+    expect(c.getSnapshot().notice).toBeNull() // suppressed even though the error kind changed
+  })
+
+  test('a health check started before a hint, but resolving after it succeeds, must not flip status offline', async () => {
+    const health = deferred<Response>()
+    const hint = deferred<Response>()
+    const fetch = vi.fn((input: RequestInfo | URL) => (String(input).includes('/api/health') ? health.promise : hint.promise))
+    const c = new CoachClient({ fetch })
+
+    const healthPromise = c.checkHealth() // older request, started first
+    const hintPromise = c.hint(HINT) // newer request, started second
+
+    hint.resolve(json(200, { text: 'Take the centre.' }))
+    await hintPromise
+    expect(c.getSnapshot().status).toBe('online')
+
+    health.resolve(new Response('Internal Server Error', { status: 500 })) // the stale, older result: a failure
+    await healthPromise
+    expect(c.getSnapshot().status).toBe('online') // must not be clobbered by the older, now-stale failure
+  })
+
+  test('a stale success must not overwrite a fresher failure', async () => {
+    const health = deferred<Response>()
+    const hint = deferred<Response>()
+    const fetch = vi.fn((input: RequestInfo | URL) => (String(input).includes('/api/health') ? health.promise : hint.promise))
+    const c = new CoachClient({ fetch })
+
+    const hintPromise = c.hint(HINT) // older request, started first
+    const healthPromise = c.checkHealth() // newer request, started second
+
+    health.resolve(new Response('Internal Server Error', { status: 500 })) // the newer result: a failure
+    await healthPromise
+    expect(c.getSnapshot().status).toBe('offline')
+
+    hint.resolve(json(200, { text: 'Take the centre.' })) // the stale, older result: a success
+    await hintPromise
+    expect(c.getSnapshot().status).toBe('offline') // must not be clobbered by the older, now-stale success
   })
 })
