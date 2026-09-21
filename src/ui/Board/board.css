@@ -67,11 +67,21 @@
 .annotation-square { fill-opacity: 0.45; stroke: none; }
 .annotation-arrow { stroke-width: 0.18; stroke-linecap: round; opacity: 0.85; fill: none; }
 .arrowhead { stroke: none; }
-.tone-hint { fill: #2f80ed; stroke: #2f80ed; }
-.tone-best { fill: #27ae60; stroke: #27ae60; }
-.tone-inaccuracy { fill: #e2b93b; stroke: #e2b93b; }
-.tone-mistake { fill: #f2994a; stroke: #f2994a; }
-.tone-blunder { fill: #eb5757; stroke: #eb5757; }
+/* Fill (square highlight + arrowhead) applies to any toned annotation element.
+   Stroke is scoped to arrow SHAFTS only (.annotation-arrow.tone-*), never to
+   .annotation-square or .arrowhead — a bare `.tone-*` stroke rule here would
+   tie with `.annotation-square { stroke: none }` on specificity and could
+   win by source order, painting an opaque outline over the whole square. */
+.tone-hint { fill: #2f80ed; }
+.tone-best { fill: #27ae60; }
+.tone-inaccuracy { fill: #e2b93b; }
+.tone-mistake { fill: #f2994a; }
+.tone-blunder { fill: #eb5757; }
+.annotation-arrow.tone-hint { stroke: #2f80ed; }
+.annotation-arrow.tone-best { stroke: #27ae60; }
+.annotation-arrow.tone-inaccuracy { stroke: #e2b93b; }
+.annotation-arrow.tone-mistake { stroke: #f2994a; }
+.annotation-arrow.tone-blunder { stroke: #eb5757; }
 .annotation-arrow.tone-hint, .annotation-arrow.tone-best,
 .annotation-arrow.tone-inaccuracy, .annotation-arrow.tone-mistake,
 .annotation-arrow.tone-blunder { fill: none; }
