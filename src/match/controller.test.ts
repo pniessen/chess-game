@@ -1,7 +1,7 @@
 /// <reference types="node" />
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, onTestFinished, test, vi } from 'vitest'
 import { MatchController, chooseBookMove, chooseEngineMove } from './controller'
 import type { MatchConfig } from './types'
 import type { EngineInfo } from '../engine/uci'
@@ -398,7 +398,36 @@ describe('MatchController', () => {
     expect(c.snapshot().phase.kind).toBe('paused')
   })
 
+  test('an illegal engine move is logged once with its UCI and FEN, then re-requested', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const e = fakeEngine()
+      const c = new MatchController({ engine: e.client })
+      c.start(HUMAN_VS_ENGINE)
+      c.submitHumanMove({ from: 'e2', to: 'e4' })
+      await vi.advanceTimersByTimeAsync(0)
+      const fen = c.snapshot().game.current().fen()
+      e.calls[0]?.resolve('a1a8') // illegal
+      await vi.advanceTimersByTimeAsync(0)
+
+      expect(warn).toHaveBeenCalledTimes(1)
+      const logged = warn.mock.calls[0]?.map(String).join(' ') ?? ''
+      expect(logged).toContain('a1a8')
+      expect(logged).toContain(fen)
+      expect(e.calls).toHaveLength(2) // re-requested once
+
+      e.calls[1]?.resolve('e7e5')
+      await vi.advanceTimersByTimeAsync(0)
+      expect(c.snapshot().game.moves.map((m) => m.san)).toEqual(['e4', 'e5'])
+      expect(warn).toHaveBeenCalledTimes(1)
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
   test('two illegal engine moves finish the game as an engine error', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    onTestFinished(() => warn.mockRestore())
     const e = fakeEngine()
     const c = new MatchController({ engine: e.client })
     c.start(HUMAN_VS_ENGINE)
@@ -414,6 +443,7 @@ describe('MatchController', () => {
     if (phase.kind === 'finished') expect(phase.reason).toBe('engine-error')
     // The position must survive intact for export.
     expect(c.snapshot().game.moves.map((m) => m.san)).toEqual(['e4'])
+    expect(warn).toHaveBeenCalledTimes(2)
   })
 
   test('snapshot() returns the identical object when nothing has changed', () => {

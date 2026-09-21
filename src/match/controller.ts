@@ -377,6 +377,9 @@ export class MatchController {
     this.viewLive()
     const result = intent ? this.game.play(intent) : ({ ok: false } as const)
     if (!result.ok) {
+      // Spec error table: rejected, logged, re-requested once. Only the move
+      // and the position: nothing else (and no key material) is logged.
+      console.warn(`engine returned an illegal move ${uci} for FEN ${this.livePosition().fen()}`)
       this.illegalEngineMoves++
       if (this.illegalEngineMoves >= 2) {
         // Spec: halt with the position preserved rather than corrupt it.
