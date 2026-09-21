@@ -9,13 +9,12 @@ import { reduceSelection, type SelectionState } from './Board/selection'
 import { MatchController, type EngineLike } from '../match/controller'
 import type { MatchConfig, MatchPhase } from '../match/types'
 import { EngineClient, createWorkerTransport } from '../engine/client'
-import type { WhiteEval } from '../engine/evaluation'
 import { templatedHint } from '../coach/templated'
 import { HINT_BUDGET, hintRequestFrom } from '../coach/hints'
 import { CoachClient } from '../coach/client'
 import { useCoach } from './useCoach'
 import { useHints, type HintAnalyze, type HintReasoner } from './hints/useHints'
-import { useEvaluation, type EvalAnalyze } from './useEvaluation'
+import { BoundedEvalCache, useEvaluation, type EvalAnalyze } from './useEvaluation'
 import { useOpeningBook } from './useOpeningBook'
 import type { OpeningEntry } from '../openings/book'
 import { gameIdOf } from './gameKey'
@@ -44,9 +43,14 @@ import { GameIO } from './panels/GameIO'
 import { SettingsPanel } from './panels/SettingsPanel'
 import { Tabs } from './panels/Tabs'
 import { Explorer } from './panels/Explorer'
+import { useReview, type Summarize } from './review/useReview'
+import { ReviewPanel } from './review/ReviewPanel'
+import { currentMoveText, reviewAnnotations, reviewMarks } from './review/reviewView'
+import { reviewRequestFrom, templatedSummary } from '../review/summary'
+import { humanSideOf, resultTagOf } from '../match/result'
 import './app.css'
 
-/** Tasks 12–13 add the 'review' and 'history' tabs. */
+/** Task 13 adds the 'history' tab. */
 type RightTab = 'moves' | 'explorer' | 'review' | 'history'
 
 function timeControlFor(id: string) {
@@ -296,8 +300,9 @@ function AppInner({
   const displayedStatus = position.status()
   const lastMove = game.moves[game.ply - 1]
 
-  // Evaluations by FEN, shared by the eval bar and (Task 12) the review.
-  const [evalCache] = useState(() => new Map<string, WhiteEval>())
+  // Evaluations by FEN, shared by the eval bar and the review. Bounded (LRU):
+  // both fill it, and it lives for the whole session.
+  const [evalCache] = useState(() => new BoundedEvalCache())
   const analyzeForEval = useMemo<EvalAnalyze | null>(
     () => (engineAvailable ? (req, signal) => controller.analyze(req, signal) : null),
     [engineAvailable, controller],
@@ -324,6 +329,18 @@ function AppInner({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [book, game, game.ply, sanKey],
   )
+
+  // The LIVE game's full move list: an undo followed by a different move
+  // keeps the same Game object and length, so the SANs are the key.
+  const liveSanKey = game.moves.map((m) => m.san).join(' ')
+  const finalOpening = useMemo(
+    () => (book ? book.identify(game.epds(Math.min(game.livePly, book.maxPly))) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [book, game, liveSanKey],
+  )
+  const finalOpeningName = finalOpening ? `${finalOpening.eco} ${finalOpening.name}` : null
+  /** A review belongs to one game AND its exact move list (ruling P5); browsing leaves this unchanged. */
+  const reviewKey = `${gameIdOf(game)}|${liveSanKey}`
 
   // ---- persistence --------------------------------------------------------
 
@@ -538,6 +555,41 @@ function AppInner({
   // Hints are always about the LIVE position (the button is disabled while browsing).
   const handleHint = () => hints.advance(game.positionAt(game.livePly))
 
+  // ---- post-game review -----------------------------------------------------
+
+  const summarizeReview = useCallback<Summarize>(
+    async (review, signal) => {
+      const result = resultTagOf(snapshot.phase)
+      const fallback = templatedSummary(review, { opening: finalOpeningName, result })
+      let text: string | null = null
+      try {
+        text = await coach.review(
+          reviewRequestFrom(review, { result, opening: finalOpeningName, humanSide: humanSideOf(snapshot.config) }),
+          signal,
+        )
+      } catch {
+        // CoachClient already falls back silently; this is belt and braces.
+      }
+      return text ? { text, source: 'claude' } : { text: fallback, source: 'templated' }
+    },
+    [snapshot.phase, snapshot.config, finalOpeningName, coach],
+  )
+
+  // Invalidated (and its engine jobs aborted) whenever reviewKey changes:
+  // undo, redo, a new move, load, new game, start-from-opening.
+  const review = useReview({
+    gameKey: reviewKey,
+    analyze: analyzeForEval,
+    summarize: summarizeReview,
+    onEval: (fen, e) => evalCache.set(fen, e),
+    onComplete: () => {},
+  })
+  const reviewed = review.state.kind === 'done' ? review.state.review : null
+  const marks = useMemo(() => (reviewed ? reviewMarks(reviewed) : undefined), [reviewed])
+
+  const handleReview = () =>
+    review.start({ startFen: game.startFen, moves: game.moves, finalStatus: game.status() })
+
   // ---- render -----------------------------------------------------------
 
   const highlights: Highlights = {
@@ -621,7 +673,7 @@ function AppInner({
               orientation={orientation}
               highlights={highlights}
               onSquareClick={onSquareClick}
-              annotations={hints.annotations}
+              annotations={[...hints.annotations, ...reviewAnnotations(reviewed, game.ply)]}
             />
           </div>
           <span className="sr-only" data-testid="ply-count">
@@ -698,6 +750,7 @@ function AppInner({
                     currentPly={game.ply}
                     onJump={handleJump}
                     disabled={snapshot.phase.kind === 'engine-thinking'}
+                    marks={marks}
                   />
                 ),
               },
@@ -706,6 +759,19 @@ function AppInner({
                 label: 'Explorer',
                 content: (
                   <Explorer book={book} unavailable={bookFailed} current={opening} onStart={handleStartOpening} />
+                ),
+              },
+              {
+                id: 'review',
+                label: 'Review',
+                content: (
+                  <ReviewPanel
+                    state={review.state}
+                    canReview={engineAvailable && snapshot.phase.kind === 'finished' && game.moves.length > 0}
+                    currentText={reviewed ? currentMoveText(reviewed, game.ply) : ''}
+                    onStart={handleReview}
+                    onCancel={review.cancel}
+                  />
                 ),
               },
             ]}

@@ -1,4 +1,6 @@
 import type { PlayedMove } from '../../game-core/types'
+import type { MoveClass } from '../../review/analysis'
+import { MARK } from '../../review/summary'
 import { toMovePairs } from './movePairs'
 
 /**
@@ -11,19 +13,25 @@ export function MoveList({
   currentPly,
   onJump,
   disabled,
+  marks,
 }: {
   moves: readonly PlayedMove[]
   currentPly: number
   onJump: (ply: number) => void
   /** True while jumping to history would corrupt an in-flight engine turn. */
   disabled?: boolean
+  /** Post-game review classifications by ply. */
+  marks?: ReadonlyMap<number, MoveClass>
 }) {
   const pairs = toMovePairs(moves)
   const jump = (ply: number) => {
     if (!disabled) onJump(ply)
   }
-  const entry = (e?: { san: string; ply: number }) =>
-    e ? (
+  const entry = (e?: { san: string; ply: number }) => {
+    if (!e) return <span className="move empty">…</span>
+    const mark = marks?.get(e.ply)
+    const symbol = mark ? MARK[mark] : undefined
+    return (
       <button
         className={`move ${e.ply === currentPly ? 'current' : ''}`}
         data-testid={`move-${e.ply}`}
@@ -31,10 +39,14 @@ export function MoveList({
         disabled={disabled}
       >
         {e.san}
+        {symbol ? (
+          <span className={`mark mark-${mark}`} data-testid={`mark-${e.ply}`} title={mark}>
+            {symbol}
+          </span>
+        ) : null}
       </button>
-    ) : (
-      <span className="move empty">…</span>
     )
+  }
 
   return (
     <ol className="move-list" data-testid="move-list">

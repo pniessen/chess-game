@@ -6,6 +6,8 @@ import { MatchController, chooseBookMove, chooseEngineMove } from './controller'
 import type { MatchConfig } from './types'
 import type { EngineInfo } from '../engine/uci'
 import { Game } from '../game-core/game'
+import { gameFromSan } from '../game-core/io'
+import { runReview } from '../review/run'
 
 /**
  * An engine we resolve by hand, so no Stockfish and no waiting.
@@ -1174,5 +1176,63 @@ describe('book moves in the controller', () => {
     await vi.advanceTimersByTimeAsync(0)
     expect(c.snapshot().game.moves.map((m) => m.san)).toEqual(['O-O'])
     expect(e.calls).toHaveLength(0) // played from the book, no search
+  })
+})
+
+describe('a post-game review through the lane (Task 12)', () => {
+  beforeEach(() => vi.useFakeTimers())
+  afterEach(() => vi.useRealTimers())
+
+  const TWO_PLAYER: MatchConfig = { white: { kind: 'human' }, black: { kind: 'human' }, timeControl: { kind: 'untimed' } }
+  const ENGINE_WHITE: MatchConfig = {
+    white: { kind: 'engine', level: 4 },
+    black: { kind: 'human' },
+    timeControl: { kind: 'untimed' },
+    engineDelayMs: 0,
+  }
+  const START = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'
+
+  test('cancelling a review aborts its jobs, and the next game’s engine move is searched at once', async () => {
+    const e = fakeEngine({ rejectOnSupersede: true })
+    const c = new MatchController({ engine: e.client })
+    const built = gameFromSan(['e4', 'e5', 'Bc4', 'Nc6', 'Qh5', 'Nf6', 'Qxf7#'])
+    if (!built.ok) throw new Error(built.error)
+    c.load(TWO_PLAYER, built.game)
+    expect(c.snapshot().phase.kind).toBe('finished')
+
+    const ctrl = new AbortController()
+    const game = c.snapshot().game
+    const review = runReview({
+      startFen: game.startFen,
+      moves: game.moves,
+      finalStatus: game.status(),
+      analyze: (req, signal) => c.analyze(req, signal),
+      signal: ctrl.signal,
+    })
+    const settled = review.then(
+      () => 'resolved',
+      (err: Error) => err.message,
+    )
+    await vi.advanceTimersByTimeAsync(0)
+    expect(e.calls).toHaveLength(1) // position 0 under analysis
+    e.calls[0]?.resolve('e2e4', [{ depth: 12, pv: ['e2e4'], scoreCp: 20 }])
+    await vi.advanceTimersByTimeAsync(0)
+    expect(e.calls).toHaveLength(2) // position 1 under analysis
+
+    ctrl.abort()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(await settled).toMatch(/aborted/)
+    expect(e.client.stop).toHaveBeenCalled()
+    expect(e.calls).toHaveLength(2) // nothing further from the review
+
+    c.start(ENGINE_WHITE)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(e.calls).toHaveLength(3) // the engine's move, straight away
+    expect(lastSearchedFen(e)).toBe(START)
+    e.calls[2]?.resolve('e2e4')
+    await vi.advanceTimersByTimeAsync(0)
+    expect(c.snapshot().game.moves.map((m) => m.san)).toEqual(['e4'])
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(e.calls).toHaveLength(3) // and the cancelled review never resumes
   })
 })

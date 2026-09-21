@@ -39,4 +39,18 @@ describe('MoveList', () => {
     screen.getByTestId('move-1').click()
     expect(onJump).not.toHaveBeenCalled()
   })
+
+  test('review marks are shown next to the moves', () => {
+    render(
+      <MoveList
+        moves={[move('e4', 'w'), move('f6', 'b')]}
+        currentPly={2}
+        onJump={vi.fn()}
+        marks={new Map([[1, 'best'], [2, 'blunder']])}
+      />,
+    )
+    expect(screen.getByTestId('mark-1')).toHaveTextContent('!')
+    expect(screen.getByTestId('mark-2')).toHaveTextContent('??')
+    expect(screen.getByTestId('move-2')).toHaveTextContent('f6??')
+  })
 })

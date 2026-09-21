@@ -394,3 +394,14 @@ body {
       'right';
   }
 }
+
+.review { display: flex; flex-direction: column; gap: 6px; padding: 8px; }
+.review p { margin: 0; }
+.review-summary { white-space: pre-wrap; }
+.review-source, .review-hint { font-size: 0.8em; color: var(--color-muted); }
+.review-error { color: var(--color-error); }
+.mark { margin-left: 2px; font-weight: 700; }
+.mark-best { color: #27ae60; }
+.mark-inaccuracy { color: #b8860b; }
+.mark-mistake { color: #e67e22; }
+.mark-blunder { color: #e74c3c; }
