@@ -1,14 +1,12 @@
 import { useCallback, useState } from 'react'
 import type { Game } from '../game-core/game'
-import type { Square } from '../game-core/types'
-import { Board, type Highlights } from './Board/Board'
+import { Board } from './Board/Board'
 import { EvalBar } from './Board/EvalBar'
 import { Promotion } from './Board/Promotion'
 import type { MatchController } from '../match/controller'
 import type { EngineSupervisor } from '../engine/supervisor'
 import { useEvaluation } from './useEvaluation'
 import { useMatch } from './useMatch'
-import { MoveList } from './panels/MoveList'
 import { Captured } from './panels/Captured'
 import { Clocks } from './panels/Clocks'
 import { Controls } from './panels/Controls'
@@ -16,14 +14,13 @@ import { Scoreboard } from './panels/Scoreboard'
 import { NewGame } from './panels/NewGame'
 import { GameIO } from './panels/GameIO'
 import { SettingsPanel } from './panels/SettingsPanel'
-import { Tabs } from './panels/Tabs'
-import { Explorer } from './panels/Explorer'
-import { ReviewPanel } from './review/ReviewPanel'
 import { currentMoveText, reviewAnnotations } from './review/reviewView'
-import { HistoryPanel } from './history/HistoryPanel'
 import { PuzzleScreen } from './puzzles/PuzzleScreen'
 import { usePuzzleMode } from './puzzles/usePuzzleMode'
 import { describeResult, resignableSide } from './app/matchText'
+import { highlightsFor } from './app/highlights'
+import { StatusHeader } from './app/StatusHeader'
+import { RightTabs, type RightTab } from './app/RightTabs'
 import { useControllerBundle } from './app/useControllerBundle'
 import { useSettings } from './app/useSettings'
 import { useMoveSounds, useSoundPlayer } from './app/useSound'
@@ -37,9 +34,6 @@ import { useMatchLifecycle } from './app/useMatchLifecycle'
 import { useCoachHints } from './app/useCoachHints'
 import { useReviewFlow } from './app/useReviewFlow'
 import './app.css'
-
-/** Task 13 adds the 'history' tab. */
-type RightTab = 'moves' | 'explorer' | 'review' | 'history'
 
 /**
  * The one MatchController (and its one Stockfish worker) is owned by
@@ -60,6 +54,11 @@ export function App() {
   )
 }
 
+/**
+ * Composition only: each concern lives in a hook under ./app/. The call
+ * order below is the effect order, and every hook runs before the puzzle
+ * screen's early return, so hook order never changes between renders.
+ */
 function AppInner({
   controller,
   engine,
@@ -105,31 +104,19 @@ function AppInner({
   })
 
   const { book, bookFailed, opening, finalOpeningName } = useOpenings(controller, game)
-  const {
-    pendingResume,
-    resumeChoice,
-    setResumeChoice,
-    score,
-    history,
-    setHistory,
-    historyState,
-    handleHistoryReset,
-    scoredRef,
-    recordedRef,
-    historyRef,
-  } = useMatchRecords(snapshot, finalOpeningName)
+  const records = useMatchRecords(snapshot, finalOpeningName)
   const input = useMoveInput(controller, snapshot)
-  const { selection, canRedo, onSquareClick, handleUndo, handleRedo, handleJump, handleResign } = input
+  const { selection } = input
   const lifecycle = useMatchLifecycle({
     controller,
     settings,
     updateSettings,
     engineAvailable,
-    records: { pendingResume, setResumeChoice, scoredRef, recordedRef, historyRef },
+    records,
     resetInput: input.resetInput,
     onShowMoves: () => setTab('moves'),
   })
-  const { choices, orientation, handleFlip } = lifecycle
+  const { choices, orientation } = lifecycle
 
   const { hints, handleHint } = useCoachHints({ controller, coach, game, phaseKind: snapshot.phase.kind })
   const { review, reviewed, marks, handleReview } = useReviewFlow({
@@ -138,8 +125,8 @@ function AppInner({
     coach,
     analyze: analyzeForEval,
     evalCache,
-    historyRef,
-    setHistory,
+    historyRef: records.historyRef,
+    setHistory: records.setHistory,
   })
 
   // Rendered INSTEAD of the game UI, after every hook above, so hook order
@@ -150,82 +137,30 @@ function AppInner({
 
   // ---- render -----------------------------------------------------------
 
-  const highlights: Highlights = {
-    ...(selection.kind === 'selected' ? { selected: selection.square } : {}),
-    legal:
-      selection.kind === 'selected'
-        ? position.legalMovesFrom(selection.square).map((m) => m.to)
-        : [],
-    ...(lastMove ? { lastMove: [lastMove.from, lastMove.to] as [Square, Square] } : {}),
-    ...(displayedStatus.kind === 'in-progress' && displayedStatus.inCheck
-      ? { check: position.kingSquare(position.turn()) ?? undefined }
-      : {}),
-  }
+  const highlights = highlightsFor({ selection, position, lastMove, displayedStatus })
 
   return (
     <main className="app">
       <h1>Chess</h1>
 
-      {!engineAvailable ? (
-        <p className="engine-warning">
-          The chess engine is unavailable — playing in two-player mode only.
-        </p>
-      ) : null}
-
-      {resumeChoice === 'pending' ? (
-        <p className="resume-banner" data-testid="resume-banner">
-          Resume your previous game?
-          <button data-testid="resume-accept" onClick={lifecycle.handleResumeAccept}>
-            Resume
-          </button>
-          <button data-testid="resume-decline" onClick={lifecycle.handleResumeDecline}>
-            Discard
-          </button>
-        </p>
-      ) : null}
-
-      <div className="status-row">
-        <p data-testid="turn">{position.turn() === 'w' ? 'White to move' : 'Black to move'}</p>
-        <p className="result" data-testid="result">
-          {describeResult(snapshot.phase, displayedStatus)}
-        </p>
-        {engineHealth.kind === 'restarting' ? (
-          <p className="engine-status" role="status" data-testid="engine-status">
-            Engine restarting…
-          </p>
-        ) : null}
-        <p className="opening" data-testid="opening" title={opening ? `${opening.eco} ${opening.name}` : undefined}>
-          {opening ? `${opening.eco} ${opening.name}` : ''}
-        </p>
-        {coachState.status === 'offline' || coachState.status === 'no-key' ? (
-          <span
-            className="coach-badge"
-            data-testid="coach-badge"
-            title={
-              coachState.status === 'no-key'
-                ? 'The coach server has no ANTHROPIC_API_KEY; using built-in hints.'
-                : 'The coach server is not reachable; using built-in hints.'
-            }
-          >
-            coaching offline
-          </span>
-        ) : null}
-      </div>
-
-      {coachState.notice ? (
-        <p className="coach-notice" role="status" data-testid="coach-notice">
-          {coachState.notice}
-          <button data-testid="coach-notice-dismiss" onClick={() => coach.dismissNotice()}>
-            Dismiss
-          </button>
-        </p>
-      ) : null}
+      <StatusHeader
+        engineAvailable={engineAvailable}
+        resumePending={records.resumeChoice === 'pending'}
+        onResumeAccept={lifecycle.handleResumeAccept}
+        onResumeDecline={lifecycle.handleResumeDecline}
+        turn={position.turn()}
+        result={describeResult(snapshot.phase, displayedStatus)}
+        engineRestarting={engineHealth.kind === 'restarting'}
+        opening={opening}
+        coachState={coachState}
+        onDismissNotice={() => coach.dismissNotice()}
+      />
 
       <div className="layout">
         <div className="left-column">
           <Clocks clock={snapshot.clock} readClock={readClock} orientation={orientation} />
           <Captured moves={game.moves.slice(0, game.ply)} pieceSet={settings.pieceSetId} />
-          <Scoreboard score={score} />
+          <Scoreboard score={records.score} />
         </div>
 
         <div className="board-column">
@@ -235,7 +170,7 @@ function AppInner({
               position={position}
               orientation={orientation}
               highlights={highlights}
-              onSquareClick={onSquareClick}
+              onSquareClick={input.onSquareClick}
               annotations={[...hints.annotations, ...reviewAnnotations(reviewed, game.ply)]}
               theme={settings.themeId}
               pieceSet={settings.pieceSetId}
@@ -256,7 +191,7 @@ function AppInner({
             phase={snapshot.phase}
             config={snapshot.config}
             canUndo={game.moves.length > 0 && snapshot.phase.kind !== 'idle'}
-            canRedo={canRedo}
+            canRedo={input.canRedo}
             canResign={resignableSide(snapshot.config, snapshot.phase) !== null}
             speed={snapshot.config.engineDelayMs ?? 500}
             hint={{
@@ -269,10 +204,10 @@ function AppInner({
                 hints.pending ||
                 hints.exhausted,
             }}
-            onUndo={handleUndo}
-            onRedo={handleRedo}
-            onFlip={handleFlip}
-            onResign={handleResign}
+            onUndo={input.handleUndo}
+            onRedo={input.handleRedo}
+            onFlip={lifecycle.handleFlip}
+            onResign={input.handleResign}
             onHint={handleHint}
             onPause={() => controller.pause()}
             onResume={() => controller.resume()}
@@ -297,56 +232,30 @@ function AppInner({
         </div>
 
         <div className="right-column">
-          <Tabs
+          <RightTabs
             active={tab}
-            onChange={(id) => setTab(id as RightTab)}
-            tabs={[
-              {
-                id: 'moves',
-                label: 'Moves',
-                content: (
-                  <MoveList
-                    moves={game.moves}
-                    currentPly={game.ply}
-                    onJump={handleJump}
-                    disabled={snapshot.phase.kind === 'engine-thinking'}
-                    marks={marks}
-                  />
-                ),
-              },
-              {
-                id: 'explorer',
-                label: 'Explorer',
-                content: (
-                  <Explorer book={book} unavailable={bookFailed} current={opening} onStart={lifecycle.handleStartOpening} />
-                ),
-              },
-              {
-                id: 'review',
-                label: 'Review',
-                content: (
-                  <ReviewPanel
-                    state={review.state}
-                    canReview={engineAvailable && snapshot.phase.kind === 'finished' && game.moves.length > 0}
-                    currentText={reviewed ? currentMoveText(reviewed, game.ply) : ''}
-                    onStart={handleReview}
-                    onCancel={review.cancel}
-                  />
-                ),
-              },
-              {
-                id: 'history',
-                label: 'History',
-                content: (
-                  <HistoryPanel
-                    entries={history}
-                    status={historyState}
-                    onReplay={lifecycle.handleReplay}
-                    onReset={handleHistoryReset}
-                  />
-                ),
-              },
-            ]}
+            onChange={setTab}
+            moves={{
+              moves: game.moves,
+              currentPly: game.ply,
+              onJump: input.handleJump,
+              disabled: snapshot.phase.kind === 'engine-thinking',
+              marks,
+            }}
+            explorer={{ book, unavailable: bookFailed, current: opening, onStart: lifecycle.handleStartOpening }}
+            review={{
+              state: review.state,
+              canReview: engineAvailable && snapshot.phase.kind === 'finished' && game.moves.length > 0,
+              currentText: reviewed ? currentMoveText(reviewed, game.ply) : '',
+              onStart: handleReview,
+              onCancel: review.cancel,
+            }}
+            history={{
+              entries: records.history,
+              status: records.historyState,
+              onReplay: lifecycle.handleReplay,
+              onReset: records.handleHistoryReset,
+            }}
           />
         </div>
       </div>
