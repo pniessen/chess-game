@@ -34,9 +34,14 @@ const KEYS = {
   score: 'chess-game:score',
   inProgress: 'chess-game:in-progress',
   history: 'chess-game:history',
+  puzzles: 'chess-game:puzzles',
+  blunderPuzzles: 'chess-game:blunder-puzzles',
 } as const
 
-function readJson(key: string): unknown {
+/** Every localStorage key the app uses. Other modules (src/puzzles/store.ts) read their keys from here. */
+export const STORAGE_KEYS = KEYS
+
+export function readJson(key: string): unknown {
   try {
     const raw = localStorage.getItem(key)
     return raw === null ? null : JSON.parse(raw)
@@ -45,7 +50,7 @@ function readJson(key: string): unknown {
   }
 }
 
-function writeJson(key: string, value: unknown): void {
+export function writeJson(key: string, value: unknown): void {
   try {
     localStorage.setItem(key, JSON.stringify(value))
   } catch {
@@ -54,7 +59,7 @@ function writeJson(key: string, value: unknown): void {
   }
 }
 
-function isRecord(v: unknown): v is Record<string, unknown> {
+export function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v)
 }
 

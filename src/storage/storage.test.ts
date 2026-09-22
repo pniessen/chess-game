@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import {
-  DEFAULT_SETTINGS, addHistoryEntry, loadHistory, loadInProgress, loadScore, loadSettings, saveInProgress,
-  saveScore, saveSettings, updateHistoryAccuracy, HISTORY_LIMIT, type HistoryEntry,
+  DEFAULT_SETTINGS, STORAGE_KEYS, addHistoryEntry, loadHistory, loadInProgress, loadScore, loadSettings,
+  saveInProgress, saveScore, saveSettings, updateHistoryAccuracy, HISTORY_LIMIT, type HistoryEntry,
 } from './storage'
 
 beforeEach(() => localStorage.clear())
@@ -60,6 +60,14 @@ describe('storage', () => {
     expect(loadSettings().pieceSetId).toBe('rhosgfx')
     saveSettings({ ...DEFAULT_SETTINGS, pieceSetId: 'cburnett' })
     expect(loadSettings().pieceSetId).toBe('cburnett')
+  })
+
+  test('every storage key is namespaced and unique', () => {
+    const keys = Object.values(STORAGE_KEYS)
+    for (const k of keys) expect(k.startsWith('chess-game:')).toBe(true)
+    expect(new Set(keys).size).toBe(keys.length)
+    expect(STORAGE_KEYS.puzzles).toBe('chess-game:puzzles')
+    expect(STORAGE_KEYS.blunderPuzzles).toBe('chess-game:blunder-puzzles')
   })
 })
 
