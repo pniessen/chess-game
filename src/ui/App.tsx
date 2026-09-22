@@ -12,10 +12,9 @@ import type { EngineSupervisor } from '../engine/supervisor'
 import { templatedHint } from '../coach/templated'
 import { HINT_BUDGET, hintRequestFrom } from '../coach/hints'
 import { useHints, type HintAnalyze, type HintReasoner } from './hints/useHints'
-import { BoundedEvalCache, useEvaluation, type EvalAnalyze } from './useEvaluation'
-import { useOpeningBook } from './useOpeningBook'
+import { useEvaluation } from './useEvaluation'
 import type { OpeningEntry } from '../openings/book'
-import { displayedSanKeyOf, hintKeyOf, liveKeyOf, reviewKeyOf } from './gameKey'
+import { hintKeyOf, reviewKeyOf } from './gameKey'
 import {
   addHistoryEntry,
   clearInProgress,
@@ -62,6 +61,8 @@ import { useSettings } from './app/useSettings'
 import { useMoveSounds, useSoundPlayer } from './app/useSound'
 import { useCoachClient } from './app/useCoachClient'
 import { useEngineHealth } from './app/useEngineHealth'
+import { useEngineAnalysis } from './app/useEngineAnalysis'
+import { useOpenings } from './app/useOpenings'
 import './app.css'
 
 /** Task 13 adds the 'history' tab. */
@@ -173,13 +174,7 @@ function AppInner({
 
   useMoveSounds(sound, game, snapshot.phase.kind)
 
-  // Evaluations by FEN, shared by the eval bar and the review. Bounded (LRU):
-  // both fill it, and it lives for the whole session.
-  const [evalCache] = useState(() => new BoundedEvalCache())
-  const analyzeForEval = useMemo<EvalAnalyze | null>(
-    () => (engineAvailable ? (req, signal) => controller.analyze(req, signal) : null),
-    [engineAvailable, controller],
-  )
+  const { evalCache, analyzeForEval } = useEngineAnalysis(controller, engineAvailable)
   const evaluation = useEvaluation({
     analyze: analyzeForEval,
     fen: position.fen(),
@@ -188,30 +183,7 @@ function AppInner({
     cache: evalCache,
   })
 
-  const { book, failed: bookFailed } = useOpeningBook()
-  // The engine's opening book is the same dataset. Until it loads (or if it
-  // failed), the controller has none and engines simply search.
-  useEffect(() => {
-    controller.setBook(book)
-  }, [controller, book])
-  // The SANs up to the displayed ply: an undo followed by a different move
-  // leaves ply/livePly unchanged, so the moves themselves are the memo key.
-  const sanKey = displayedSanKeyOf(game)
-  const opening = useMemo(
-    () => (book ? book.identify(game.epds(Math.min(game.ply, book.maxPly))) : null),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [book, game, game.ply, sanKey],
-  )
-
-  // The LIVE game's full move list: an undo followed by a different move
-  // keeps the same Game object and length, so the SANs are the key.
-  const liveSanKey = liveKeyOf(game)
-  const finalOpening = useMemo(
-    () => (book ? book.identify(game.epds(Math.min(game.livePly, book.maxPly))) : null),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [book, game, liveSanKey],
-  )
-  const finalOpeningName = finalOpening ? `${finalOpening.eco} ${finalOpening.name}` : null
+  const { book, bookFailed, opening, finalOpeningName } = useOpenings(controller, game)
   /** A review belongs to one game AND its exact move list (ruling P5); browsing leaves this unchanged. */
   const reviewKey = reviewKeyOf(game)
 
