@@ -119,10 +119,10 @@ test('a solved mistake is marked solved, the rating is untouched, and it stays s
   await page.locator('[data-square="a8"]').click() // Ra8# also mates
   await expect(page.getByTestId('puzzle-status')).toHaveText('Solved!')
   await expect(page.getByTestId('mistake-solved')).toHaveCount(1)
-  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('chess-game:puzzles') ?? 'null'))).toMatchObject({
-    rating: 1200,
-    games: 0,
-  })
+  // No stats record at all is also "untouched": it exists only if the rated
+  // source drew a puzzle (marking it seen) before we switched to My mistakes.
+  const stats = await page.evaluate(() => JSON.parse(localStorage.getItem('chess-game:puzzles') ?? 'null'))
+  expect({ rating: stats?.rating ?? 1200, games: stats?.games ?? 0 }).toEqual({ rating: 1200, games: 0 })
 
   await page.reload()
   await openPuzzles(page)
