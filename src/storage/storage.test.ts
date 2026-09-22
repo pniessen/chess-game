@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import {
-  DEFAULT_SETTINGS, STORAGE_KEYS, addHistoryEntry, loadHistory, loadInProgress, loadScore, loadSettings,
-  saveInProgress, saveScore, saveSettings, updateHistoryAccuracy, HISTORY_LIMIT, type HistoryEntry,
+  DEFAULT_SETTINGS, STORAGE_KEYS, addHistoryEntry, historyStatus, loadHistory, loadInProgress, loadScore,
+  loadSettings, resetHistory, saveInProgress, saveScore, saveSettings,
+  updateHistoryAccuracy, HISTORY_LIMIT, type HistoryEntry,
 } from './storage'
 
 beforeEach(() => localStorage.clear())
@@ -194,6 +195,63 @@ describe('history', () => {
       } finally {
         warn.mockRestore()
       }
+    })
+  })
+
+  describe('historyStatus', () => {
+    test('is "empty" when the key is absent', () => {
+      expect(historyStatus()).toBe('empty')
+    })
+
+    test('is "ok" for a valid v1 record, including an empty one', () => {
+      localStorage.setItem('chess-game:history', JSON.stringify({ v: 1, games: [] }))
+      expect(historyStatus()).toBe('ok')
+      addHistoryEntry(entry('a'))
+      expect(historyStatus()).toBe('ok')
+    })
+
+    test('is "unreadable" for corrupt JSON', () => {
+      localStorage.setItem('chess-game:history', '{broken')
+      expect(historyStatus()).toBe('unreadable')
+    })
+
+    test('is "unreadable" for a v1 record of the wrong shape', () => {
+      localStorage.setItem('chess-game:history', JSON.stringify({ v: 1, games: 'nope' }))
+      expect(historyStatus()).toBe('unreadable')
+    })
+
+    test('is "unreadable" for a record with no recognisable version', () => {
+      localStorage.setItem('chess-game:history', JSON.stringify({ games: [] }))
+      expect(historyStatus()).toBe('unreadable')
+    })
+
+    test('is "newer-version" for a numeric v greater than this build understands', () => {
+      localStorage.setItem('chess-game:history', JSON.stringify({ v: 2, games: [{ id: 'future' }] }))
+      expect(historyStatus()).toBe('newer-version')
+    })
+  })
+
+  describe('resetHistory', () => {
+    test('removes the history key so a fresh history starts, leaving other keys untouched', () => {
+      localStorage.setItem('chess-game:history', '{broken')
+      saveSettings({ ...DEFAULT_SETTINGS, level: 6 })
+      saveScore({ wins: 1, losses: 0, draws: 0 })
+      expect(historyStatus()).toBe('unreadable')
+
+      resetHistory()
+
+      expect(historyStatus()).toBe('empty')
+      expect(loadHistory()).toEqual([])
+      expect(localStorage.getItem('chess-game:history')).toBeNull()
+      expect(loadSettings().level).toBe(6)
+      expect(loadScore()).toEqual({ wins: 1, losses: 0, draws: 0 })
+    })
+
+    test('the next finished game is recorded after a reset', () => {
+      localStorage.setItem('chess-game:history', JSON.stringify({ v: 2, games: [{ id: 'future' }] }))
+      resetHistory()
+      addHistoryEntry(entry('a'))
+      expect(loadHistory().map((e) => e.id)).toEqual(['a'])
     })
   })
 })

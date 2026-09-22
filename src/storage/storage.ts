@@ -266,6 +266,39 @@ export function loadHistory(): HistoryEntry[] {
 
 let warnedUnwritableHistory = false
 
+export type HistoryStatus = 'ok' | 'empty' | 'unreadable' | 'newer-version'
+
+/**
+ * A pure read of what shape `chess-game:history` is in, for UI that wants to
+ * explain to the user why their games aren't being saved (see
+ * `historyWritable`, which this backs):
+ * - 'empty': the key is absent (or storage is unreadable outright) — a
+ *   fresh history will be started on the next write, silently.
+ * - 'ok': a v1 record this build understands.
+ * - 'newer-version': parses as JSON with a numeric `v` greater than 1 — most
+ *   likely written by a newer build of this app.
+ * - 'unreadable': anything else (corrupt JSON, or a record of the wrong
+ *   shape with no informative version).
+ */
+export function historyStatus(): HistoryStatus {
+  let raw: string | null
+  try {
+    raw = localStorage.getItem(KEYS.history)
+  } catch {
+    return 'empty' // storage disabled: reads as empty, consistent with readJson
+  }
+  if (raw === null) return 'empty'
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    return 'unreadable'
+  }
+  if (isRecord(parsed) && parsed['v'] === 1 && Array.isArray(parsed['games'])) return 'ok'
+  if (isRecord(parsed) && typeof parsed['v'] === 'number' && parsed['v'] > 1) return 'newer-version'
+  return 'unreadable'
+}
+
 /**
  * True when the history key is absent or holds a v1 record this build
  * understands. Anything else (a newer version, unparseable JSON, a v1
@@ -274,25 +307,28 @@ let warnedUnwritableHistory = false
  * game in it. Warns once per session when it refuses.
  */
 function historyWritable(): boolean {
-  let raw: string | null
-  try {
-    raw = localStorage.getItem(KEYS.history)
-  } catch {
-    return true // storage disabled: the write is a no-op anyway
-  }
-  if (raw === null) return true
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(raw)
-  } catch {
-    parsed = undefined
-  }
-  if (isRecord(parsed) && parsed['v'] === 1 && Array.isArray(parsed['games'])) return true
+  const status = historyStatus()
+  if (status === 'ok' || status === 'empty') return true
   if (!warnedUnwritableHistory) {
     warnedUnwritableHistory = true
     console.warn('game history is in an unrecognised format; leaving it untouched and not recording new games')
   }
   return false
+}
+
+/**
+ * Explicit user reset for an unreadable/newer-version history: deletes the
+ * key outright (there is nothing this build can safely merge it with), so
+ * the next finished game starts a fresh history. Only ever called from a
+ * user-initiated "Reset history" confirmation — never automatically.
+ */
+export function resetHistory(): void {
+  try {
+    localStorage.removeItem(KEYS.history)
+  } catch {
+    // ignore
+  }
+  warnedUnwritableHistory = false
 }
 
 function saveHistory(games: HistoryEntry[]): HistoryEntry[] {

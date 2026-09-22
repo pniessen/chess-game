@@ -21,15 +21,18 @@ import { displayedSanKeyOf, hintKeyOf, liveKeyOf, reviewKeyOf } from './gameKey'
 import {
   addHistoryEntry,
   clearInProgress,
+  historyStatus,
   loadHistory,
   loadInProgress,
   loadScore,
   loadSettings,
+  resetHistory,
   saveInProgress,
   saveScore,
   saveSettings,
   updateHistoryAccuracy,
   type HistoryEntry,
+  type HistoryStatus,
   type Level,
   type MatchScore,
   type Settings,
@@ -320,6 +323,13 @@ function AppInner({
 
   const scoredRef = useRef(false)
   const [history, setHistory] = useState<HistoryEntry[]>(() => loadHistory())
+  /** Whether `chess-game:history` is currently readable; drives the History tab's notice. */
+  const [historyState, setHistoryState] = useState<HistoryStatus>(() => historyStatus())
+  const handleHistoryReset = useCallback(() => {
+    resetHistory()
+    setHistory(loadHistory())
+    setHistoryState(historyStatus())
+  }, [])
   /** True once the current match's finish has been written to history. */
   const recordedRef = useRef(false)
   /**
@@ -972,7 +982,18 @@ function AppInner({
                   />
                 ),
               },
-              { id: 'history', label: 'History', content: <HistoryPanel entries={history} onReplay={handleReplay} /> },
+              {
+                id: 'history',
+                label: 'History',
+                content: (
+                  <HistoryPanel
+                    entries={history}
+                    status={historyState}
+                    onReplay={handleReplay}
+                    onReset={handleHistoryReset}
+                  />
+                ),
+              },
             ]}
           />
         </div>

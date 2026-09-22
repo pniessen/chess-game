@@ -841,6 +841,21 @@ body {
 .history-result { font-family: var(--font-display); font-weight: 700; font-variant-numeric: tabular-nums; }
 .history-empty { margin: 0; padding: 4px 12px 14px; color: var(--color-muted); }
 
+.history-notice {
+  display: flex; flex-direction: column; gap: 8px; align-items: flex-start;
+  margin: 4px 12px 12px; padding: 10px 12px; border-radius: var(--radius);
+  background: var(--color-warning-bg); border: 1px solid var(--color-warning-border);
+}
+.history-notice p { margin: 0; color: var(--color-fg); }
+.history-notice-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.app .history-reset-confirm {
+  background: var(--danger-soft); border-color: var(--danger); color: var(--danger);
+}
+.app .history-reset-confirm:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger-soft) 80%, var(--danger));
+  border-color: var(--danger);
+}
+
 /* ------------------------------------------------------------------
    Narrow screens: one column, board first, clocks right under it.
    `display: contents` lifts the under-board panels into the layout grid
