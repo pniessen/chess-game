@@ -4,6 +4,9 @@ import type { ClockState } from '../../clock/types'
 /** How often the display re-reads the clock while a side is running. */
 export const CLOCK_POLL_MS = 100
 
+/** Under this much time left a clock is styled as low on time. */
+const LOW_TIME_MS = 20_000
+
 /** `m:ss`, or `m:ss.t` (tenths) once a side has under ten seconds left. */
 export function formatClock(ms: number): string {
   const clamped = Math.max(0, ms)
@@ -31,7 +34,14 @@ function Side({
   flagged: boolean
   testId: string
 }) {
-  const classes = ['clock', running ? 'running' : '', flagged ? 'flagged' : ''].filter(Boolean)
+  const classes = [
+    'clock',
+    running ? 'running' : '',
+    flagged ? 'flagged' : '',
+    // Display-only: under LOW_TIME_MS the clock turns red (and pulses while
+    // running). Exactly 0 without a flag is an untimed game, not low time.
+    !flagged && ms > 0 && ms < LOW_TIME_MS ? 'low' : '',
+  ].filter(Boolean)
   return (
     <div className={classes.join(' ')}>
       <span className="clock-label">{label}</span>
