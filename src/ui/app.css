@@ -1,4 +1,27 @@
 /* ------------------------------------------------------------------
+   Fonts (self-hosted; see public/fonts and NOTICE.md)
+
+   Variable woff2 files, latin subset only, served from this origin — no
+   network request leaves the browser. Weight ranges and the opsz axis
+   match what the app actually uses (see --font-ui / --font-display).
+   ------------------------------------------------------------------ */
+@font-face {
+  font-family: 'Figtree';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('/fonts/figtree-latin-var.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Bricolage Grotesque';
+  font-style: normal;
+  font-weight: 500 800;
+  font-display: swap;
+  font-optical-sizing: auto;
+  src: url('/fonts/bricolage-grotesque-latin-var.woff2') format('woff2');
+}
+
+/* ------------------------------------------------------------------
    Design tokens
 
    Porcelain and ink, with one brass accent reserved for "this is live":
@@ -285,8 +308,7 @@ body {
 .tabs,
 .controls,
 .new-game,
-.game-io,
-.settings {
+.game-io {
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius);
@@ -297,8 +319,7 @@ body {
 /* ------------------------------------------------------------------
    Controls: buttons, selects, inputs
    ------------------------------------------------------------------ */
-.app button,
-.app input[type='file']::file-selector-button {
+.app button {
   font: inherit;
   font-weight: 600;
   font-size: 0.93em;
@@ -391,7 +412,21 @@ body {
   color: var(--muted);
   max-width: 100%;
 }
-.app input[type='file']::file-selector-button { margin-right: 10px; }
+.app input[type='file']::file-selector-button {
+  font: inherit;
+  font-weight: 600;
+  font-size: 0.93em;
+  line-height: 1.2;
+  padding: 8px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line-strong);
+  background: var(--surface-2);
+  color: var(--ink);
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease, transform 0.08s ease,
+    box-shadow 0.15s ease;
+  margin-right: 10px;
+}
 
 .app input[type='checkbox'],
 .app input[type='range'] { accent-color: var(--brass); }
@@ -730,6 +765,11 @@ body {
 }
 
 .settings {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-card);
+  box-sizing: border-box;
   display: flex;
   flex-wrap: wrap;
   gap: 12px 18px;

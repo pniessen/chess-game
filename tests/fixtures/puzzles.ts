@@ -34,6 +34,20 @@ export const BACK_RANK: RatedPuzzle = {
   themes: ['mate', 'mateIn1', 'backRankMate'],
 }
 
+/**
+ * SYNTHETIC and deliberately broken: same as DEFENCE, but the last move
+ * (a1a8) is illegal in the resulting position (the rook's path is blocked).
+ * `validateSpec` must reject it; used to test that PuzzleScreen skips over
+ * a corrupt puzzle instead of showing it.
+ */
+export const ILLEGAL_MOVE: RatedPuzzle = {
+  id: 'BAD01',
+  fen: DEFENCE.fen,
+  moves: ['d3d6', 'f8d8', 'd6d8', 'a1a8'],
+  rating: 1468,
+  themes: ['advantage', 'endgame', 'short'],
+}
+
 /** A two-puzzle stand-in for public/puzzles/puzzles.json (unit tests and e2e). */
 export const PUZZLE_FIXTURE: PuzzleData = {
   v: 1,

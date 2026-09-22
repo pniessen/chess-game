@@ -61,6 +61,23 @@ Source: https://github.com/lichess-org/chess-openings at commit
 
 CC0 requires no attribution; this credit is given voluntarily.
 
+Typefaces: **Figtree** by the Figtree Project Authors, and **Bricolage
+Grotesque** by the Bricolage Grotesque Project Authors, both released under
+the [SIL Open Font License, Version 1.1](https://scripts.sil.org/OFL).
+Variable woff2 files (latin subset) are vendored unmodified in
+`public/fonts/` as `figtree-latin-var.woff2` and
+`bricolage-grotesque-latin-var.woff2`, fetched from the Google Fonts CDN
+(`fonts.googleapis.com` / `fonts.gstatic.com`) on 2026-09-21 and self-hosted
+so the app makes no font requests over the network. Each font's licence
+text, with its copyright line, is vendored unmodified from the
+`google/fonts` GitHub repository as `public/fonts/OFL-Figtree.txt` and
+`public/fonts/OFL-BricolageGrotesque.txt`.
+Sources: https://github.com/google/fonts/blob/main/ofl/figtree/OFL.txt and
+https://github.com/google/fonts/blob/main/ofl/bricolagegrotesque/OFL.txt
+
+The OFL permits this redistribution and requires the licence to accompany
+the fonts, which the vendored `OFL-*.txt` files satisfy.
+
 Tactics puzzles: a curated subset of about 3,000 puzzles from the **Lichess
 puzzle database**, released under
 [CC0 1.0 Universal](https://creativecommons.org/publicdomain/zero/1.0/).

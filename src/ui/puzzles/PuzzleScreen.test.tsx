@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { PuzzleScreen } from './PuzzleScreen'
 import { loadBlunderPuzzles, loadPuzzleStats } from '../../puzzles/store'
 import type { RatedPuzzle } from '../../puzzles/types'
-import { BACK_RANK, DEFENCE } from '../../../tests/fixtures/puzzles'
+import { BACK_RANK, DEFENCE, ILLEGAL_MOVE } from '../../../tests/fixtures/puzzles'
 
 beforeEach(() => {
   localStorage.clear()
@@ -83,6 +83,14 @@ describe('PuzzleScreen (rated)', () => {
     expect(screen.getByTestId('puzzle-empty')).toBeInTheDocument()
     fireEvent.change(screen.getByTestId('puzzle-theme'), { target: { value: 'mateIn1' } })
     expect(screen.getByTestId('puzzle-id')).toHaveTextContent('T0001')
+  })
+
+  // Breaks if a corrupt puzzle (fails validateSpec) is shown instead of skipped.
+  test('a set whose first-selected puzzle has an illegal move shows the next valid one instead', async () => {
+    await mount(async () => [ILLEGAL_MOVE, DEFENCE])
+    expect(screen.getByTestId('puzzle-id')).toHaveTextContent('0000D')
+    // The invalid puzzle is marked seen so it is not retried forever.
+    expect(loadPuzzleStats().seen).toContain('BAD01')
   })
 })
 

@@ -6,7 +6,7 @@ import type { Square } from '../../game-core/types'
 import { loadPuzzleSet } from '../../puzzles/data'
 import { selectPuzzle } from '../../puzzles/select'
 import { lastMoveOf, positionOf, solverColorOf } from '../../puzzles/session'
-import { specOfBlunder, specOfRated } from '../../puzzles/spec'
+import { specOfBlunder, specOfRated, validateSpec } from '../../puzzles/spec'
 import {
   loadBlunderPuzzles,
   loadPuzzleStats,
@@ -32,6 +32,9 @@ import {
 import './puzzles.css'
 
 type Source = 'rated' | 'mistakes'
+
+/** Guards against an unbounded loop if many picks in a row fail validateSpec. */
+const MAX_INVALID_PICKS = 20
 
 type PuzzleSet = { kind: 'loading' } | { kind: 'ready'; puzzles: RatedPuzzle[] } | { kind: 'failed' }
 
@@ -90,14 +93,26 @@ export function PuzzleScreen({
 
   const showRated = useCallback(
     (puzzles: readonly RatedPuzzle[], filter: string, excludeId: string | null) => {
-      const s = loadPuzzleStats()
-      const pick = selectPuzzle(puzzles, {
-        rating: s.rating,
-        seen: new Set(s.seen),
-        theme: filter || null,
-        excludeId,
-        random: randomRef.current,
-      })
+      // A puzzle that fails validateSpec (a bad FEN, an illegal move in the
+      // line, ...) is never shown — it is marked seen and skipped instead,
+      // bounded so a run of bad data can't loop forever.
+      let s = loadPuzzleStats()
+      let pick: RatedPuzzle | null = null
+      for (let attempt = 0; attempt < MAX_INVALID_PICKS; attempt++) {
+        const candidate = selectPuzzle(puzzles, {
+          rating: s.rating,
+          seen: new Set(s.seen),
+          theme: filter || null,
+          excludeId,
+          random: randomRef.current,
+        })
+        if (!candidate) break
+        if (validateSpec(specOfRated(candidate)) === null) {
+          pick = candidate
+          break
+        }
+        s = markPuzzleSeen(candidate.id)
+      }
       setDelta(null)
       setSelection({ kind: 'idle' })
       if (!pick) {
