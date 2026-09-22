@@ -60,3 +60,15 @@ Source: https://github.com/lichess-org/chess-openings at commit
 `public/openings/openings.json` is generated from it by `npm run openings`.
 
 CC0 requires no attribution; this credit is given voluntarily.
+
+Tactics puzzles: a curated subset of about 3,000 puzzles from the **Lichess
+puzzle database**, released under
+[CC0 1.0 Universal](https://creativecommons.org/publicdomain/zero/1.0/).
+Source: https://database.lichess.org/#puzzles (`lichess_db_puzzle.csv.zst`,
+downloaded 2026-09-21). `data/puzzles/puzzles.csv` keeps the columns
+PuzzleId, FEN, Moves, Rating and Themes of the selected rows, unmodified; it
+was selected by `scripts/curate-puzzles.ts` (quality filter, rating buckets,
+theme diversity). `public/puzzles/puzzles.json` is generated from it by
+`npm run puzzles`.
+
+CC0 requires no attribution; this credit is given voluntarily.
