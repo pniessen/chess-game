@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Game } from '../game-core/game'
-import type { Color, DrawReason, GameStatus, PieceSymbol, Square } from '../game-core/types'
+import type { Color, DrawReason, GameStatus, PieceSymbol, PlayedMove, Square } from '../game-core/types'
 import { exportPgn, gameFromSan, importPgn } from '../game-core/io'
 import { Board, type Highlights } from './Board/Board'
 import { EvalBar } from './Board/EvalBar'
@@ -53,7 +53,9 @@ import { currentMoveText, reviewAnnotations, reviewMarks } from './review/review
 import { reviewRequestFrom, templatedSummary } from '../review/summary'
 import { humanSideOf, resultTagOf } from '../match/result'
 import { HistoryPanel } from './history/HistoryPanel'
-import { historyEntryFor, newHistoryId } from './history/record'
+import { historyEntryFor, humanSidesOf, newHistoryId } from './history/record'
+import { blunderPuzzlesFrom } from '../puzzles/blunders'
+import { addBlunderPuzzles } from '../puzzles/store'
 import { SoundPlayer, soundForTransition, type SoundFrame } from '../sound/sounds'
 import './app.css'
 
@@ -336,6 +338,13 @@ function AppInner({
    * this is a second, independent check at the write site.
    */
   const historyRef = useRef<{ id: string; key: string } | null>(null)
+  /**
+   * The exact input of the review that is running or done, keyed like
+   * historyRef. Phase 3: its blunders become puzzles, and the positions
+   * must come from the moves that were REVIEWED, never from whatever the
+   * live Game holds by the time the review completes.
+   */
+  const reviewInputRef = useRef<{ key: string; startFen: string; moves: PlayedMove[] } | null>(null)
 
   // Stable, so the clock display's polling effect isn't torn down and
   // rebuilt on every App render.
@@ -722,7 +731,25 @@ function AppInner({
     // second, independent check at the write site.
     onComplete: (r) => {
       const rec = historyRef.current
-      if (rec && rec.key === reviewKey) setHistory(updateHistoryAccuracy(rec.id, r.accuracy))
+      if (!rec || rec.key !== reviewKey) return
+      const games = updateHistoryAccuracy(rec.id, r.accuracy)
+      setHistory(games)
+      // Phase 3: the human side's blunders become "My mistakes" puzzles —
+      // only for a game in history, whose entry says which sides were human
+      // (a replay runs as two-player, so snapshot.config cannot tell).
+      const input = reviewInputRef.current
+      const entry = games.find((e) => e.id === rec.id)
+      if (!input || input.key !== rec.key || !entry) return
+      addBlunderPuzzles(
+        blunderPuzzlesFrom({
+          review: r,
+          startFen: input.startFen,
+          moves: input.moves,
+          humanSides: humanSidesOf(entry),
+          source: { gameId: entry.id, gameDate: entry.date, opening: entry.opening },
+          now: new Date(),
+        }),
+      )
     },
   })
   const reviewed = review.state.kind === 'done' ? review.state.review : null
@@ -742,6 +769,7 @@ function AppInner({
   const handleReview = () => {
     const moves = [...game.moves]
     const finalStatus = game.status()
+    reviewInputRef.current = { key: reviewKey, startFen: game.startFen, moves }
     review.start({ startFen: game.startFen, moves, finalStatus })
   }
 

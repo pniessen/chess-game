@@ -1,5 +1,6 @@
 import type { Game } from '../../game-core/game'
 import { exportPgn } from '../../game-core/io'
+import type { Color } from '../../game-core/types'
 import { resultTagOf } from '../../match/result'
 import type { MatchConfig, MatchPhase, Seat } from '../../match/types'
 import type { HistoryEntry } from '../../storage/storage'
@@ -40,4 +41,10 @@ export function historyEntryFor(opts: {
     white,
     black,
   }
+}
+
+/** Which sides a human played, from the entry's own labels (a replay runs as two-player, so its config cannot tell). */
+export function humanSidesOf(entry: Pick<HistoryEntry, 'white' | 'black'>): Color[] {
+  const human = seatLabel({ kind: 'human' })
+  return (['w', 'b'] as const).filter((c) => (c === 'w' ? entry.white : entry.black) === human)
 }

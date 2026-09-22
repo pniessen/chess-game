@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest'
-import { historyEntryFor, seatLabel } from './record'
+import { historyEntryFor, humanSidesOf, seatLabel } from './record'
 import { gameFromSan } from '../../game-core/io'
 import type { MatchConfig } from '../../match/types'
 
@@ -71,4 +71,11 @@ test('a zero-player (engine-vs-engine) game is still recorded — it is a game',
     id: 'zp-1',
   })
   expect(e).toMatchObject({ white: 'Stockfish (level 1)', black: 'Stockfish (level 4)', result: '1-0' })
+})
+
+test('humanSidesOf reads the stored seat labels', () => {
+  expect(humanSidesOf({ white: 'Human', black: 'Stockfish (level 3)' })).toEqual(['w'])
+  expect(humanSidesOf({ white: 'Stockfish (level 3)', black: 'Human' })).toEqual(['b'])
+  expect(humanSidesOf({ white: 'Human', black: 'Human' })).toEqual(['w', 'b'])
+  expect(humanSidesOf({ white: 'Stockfish (level 1)', black: 'Stockfish (level 1)' })).toEqual([])
 })
