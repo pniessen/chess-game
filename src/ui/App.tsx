@@ -8,11 +8,9 @@ import { Promotion } from './Board/Promotion'
 import { reduceSelection, type SelectionState } from './Board/selection'
 import type { MatchController } from '../match/controller'
 import type { MatchConfig } from '../match/types'
-import type { EngineHealth, EngineSupervisor } from '../engine/supervisor'
+import type { EngineSupervisor } from '../engine/supervisor'
 import { templatedHint } from '../coach/templated'
 import { HINT_BUDGET, hintRequestFrom } from '../coach/hints'
-import { CoachClient } from '../coach/client'
-import { useCoach } from './useCoach'
 import { useHints, type HintAnalyze, type HintReasoner } from './hints/useHints'
 import { BoundedEvalCache, useEvaluation, type EvalAnalyze } from './useEvaluation'
 import { useOpeningBook } from './useOpeningBook'
@@ -25,17 +23,14 @@ import {
   loadHistory,
   loadInProgress,
   loadScore,
-  loadSettings,
   resetHistory,
   saveInProgress,
   saveScore,
-  saveSettings,
   updateHistoryAccuracy,
   type HistoryEntry,
   type HistoryStatus,
   type Level,
   type MatchScore,
-  type Settings,
 } from '../storage/storage'
 import { useMatch } from './useMatch'
 import { planResume, setupOf } from './resume'
@@ -60,10 +55,13 @@ import { PuzzleScreen } from './puzzles/PuzzleScreen'
 import { usePuzzleMode } from './puzzles/usePuzzleMode'
 import { blunderPuzzlesFrom } from '../puzzles/blunders'
 import { addBlunderPuzzles } from '../puzzles/store'
-import { SoundPlayer, soundForTransition, type SoundFrame } from '../sound/sounds'
 import { buildConfig, timeControlFor } from './app/matchConfig'
 import { describeResult, resignableSide } from './app/matchText'
 import { useControllerBundle } from './app/useControllerBundle'
+import { useSettings } from './app/useSettings'
+import { useMoveSounds, useSoundPlayer } from './app/useSound'
+import { useCoachClient } from './app/useCoachClient'
+import { useEngineHealth } from './app/useEngineHealth'
 import './app.css'
 
 /** Task 13 adds the 'history' tab. */
@@ -98,40 +96,11 @@ function AppInner({
   /** Whether the engine was built successfully at construction time (a *synchronous* outcome). */
   engineConstructed: boolean
 }) {
-  const [settings, setSettings] = useState(() => loadSettings())
-  // Every settings change is persisted immediately. (Phase 1 kept a frozen
-  // copy and re-saved it on New game, which would silently undo any other
-  // setting changed since the page loaded.)
-  const updateSettings = useCallback((patch: Partial<Settings>) => {
-    setSettings((s) => {
-      const next = { ...s, ...patch }
-      saveSettings(next)
-      return next
-    })
-  }, [])
+  const { settings, updateSettings } = useSettings()
   const [pendingResume] = useState(() => loadInProgress())
 
-  const [sound] = useState(() => new SoundPlayer({ enabled: settings.soundEnabled }))
-  useEffect(() => {
-    sound.setEnabled(settings.soundEnabled)
-  }, [sound, settings.soundEnabled])
-  useEffect(() => {
-    // Browsers only start audio inside a user gesture: create it on the first one.
-    const unlock = () => sound.unlock()
-    window.addEventListener('pointerdown', unlock)
-    window.addEventListener('keydown', unlock)
-    return () => {
-      window.removeEventListener('pointerdown', unlock)
-      window.removeEventListener('keydown', unlock)
-    }
-  }, [sound])
-
-  // One coach client per app; it owns the offline badge and the one-time notice.
-  const [coach] = useState(() => new CoachClient())
-  const coachState = useCoach(coach)
-  useEffect(() => {
-    void coach.checkHealth()
-  }, [coach])
+  const sound = useSoundPlayer(settings.soundEnabled)
+  const { coach, coachState } = useCoachClient()
 
   const snapshot = useMatch(controller)
   // Phase 3: game <-> puzzles. Entering pauses a live match through the
@@ -151,20 +120,7 @@ function AppInner({
   )
   const [tab, setTab] = useState<RightTab>('moves')
 
-  // The engine can also fail *after* construction: a 404 on the asset, a
-  // network failure, a hung handshake, or a lost bestmove all arrive
-  // asynchronously and can't be caught by buildController()'s try/catch.
-  // The supervisor restarts the worker (status "Engine restarting…", the
-  // game carries on); only once its restart budget is spent does it report
-  // 'dead', which we fold into the same "engine unavailable" degradation a
-  // synchronous failure produces (warning banner, engine modes disabled).
-  const [engineHealth, setEngineHealth] = useState<EngineHealth>(() => engine?.health() ?? { kind: 'ok' })
-  useEffect(() => {
-    if (!engine) return
-    setEngineHealth(engine.health())
-    return engine.onHealth(setEngineHealth)
-  }, [engine])
-  const engineAvailable = engineConstructed && engineHealth.kind !== 'dead'
+  const { engineHealth, engineAvailable } = useEngineHealth(engine, engineConstructed)
 
   const scoredRef = useRef(false)
   const [history, setHistory] = useState<HistoryEntry[]>(() => loadHistory())
@@ -215,20 +171,7 @@ function AppInner({
   const displayedStatus = position.status()
   const lastMove = game.moves[game.ply - 1]
 
-  const lastSoundFrame = useRef<SoundFrame | null>(null)
-  useEffect(() => {
-    const finished = snapshot.phase.kind === 'finished'
-    const prev = lastSoundFrame.current
-    lastSoundFrame.current = { game, livePly: game.livePly, finished }
-    const name = soundForTransition(prev, {
-      game,
-      livePly: game.livePly,
-      finished,
-      lastMove: game.moves[game.livePly - 1],
-      status: game.status(),
-    })
-    if (name) sound.play(name)
-  }, [sound, game, game.livePly, snapshot.phase.kind])
+  useMoveSounds(sound, game, snapshot.phase.kind)
 
   // Evaluations by FEN, shared by the eval bar and the review. Bounded (LRU):
   // both fill it, and it lives for the whole session.
