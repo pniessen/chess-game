@@ -536,6 +536,21 @@ describe('EngineClient', () => {
     })
   })
 
+  test('onDead listeners run after pending work was rejected with the crash reason, so a listener may dispose()', async () => {
+    const f = fakeTransport()
+    const client = new EngineClient(f.transport)
+    f.emit('readyok')
+    const pending = client.search({ depth: 4, moveTimeMs: 100, multiPv: 1 })
+    const ready = client.waitReady()
+    client.onDead(() => client.dispose())
+    f.emitError({ message: 'worker crashed' })
+    // The crash reason, not "engine disposed": an engine owner that
+    // terminates the dead worker from onDead must not rewrite the cause.
+    await expect(pending).rejects.toThrow(/worker failed: worker error: worker crashed/)
+    await expect(ready).resolves.toBeUndefined()
+    expect(f.transport.terminate).toHaveBeenCalledTimes(1)
+  })
+
   test('a handshake that answers before the timeout does not later mark the client dead', async () => {
     vi.useFakeTimers()
     try {

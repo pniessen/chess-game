@@ -334,3 +334,76 @@ describe('EngineLane over EngineClient', () => {
     await expect(second).resolves.toMatchObject({ best: 'g8f6' })
   })
 })
+
+describe('EngineLane across an engine replacement (generation)', () => {
+  beforeEach(() => vi.useFakeTimers())
+  afterEach(() => vi.useRealTimers())
+
+  /** fakeEngine() plus a generation() the test bumps to simulate a swapped-in worker. */
+  function replaceableEngine() {
+    const f = fakeEngine()
+    let gen = 0
+    let readyCalls = 0
+    const engine = {
+      ...f.engine,
+      waitReady: () => {
+        readyCalls++
+        return Promise.resolve()
+      },
+      generation: () => gen,
+    }
+    return { ...f, engine, replace: () => void gen++, readyCalls: () => readyCalls }
+  }
+
+  test('a move whose engine was replaced mid-search is re-run on the new engine once it is ready', async () => {
+    const f = replaceableEngine()
+    const lane = new EngineLane(f.engine)
+    const move = lane.move(MOVE, () => true)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(f.searches).toHaveLength(1)
+
+    f.replace()
+    f.searches[0]?.reject(new Error('engine worker failed: worker error: boom'))
+    await vi.advanceTimersByTimeAsync(0)
+    expect(f.readyCalls()).toBe(2)
+    expect(f.searches).toHaveLength(2)
+    expect(f.log.slice(-3)).toEqual(['configure:3', 'position:MOVE-FEN', 'go:3'])
+    f.searches[1]?.resolve('e7e5')
+    await expect(move).resolves.toMatchObject({ best: 'e7e5' })
+  })
+
+  test('no re-run when the move went stale meanwhile', async () => {
+    const f = replaceableEngine()
+    const lane = new EngineLane(f.engine)
+    let current = true
+    const move = lane.move(MOVE, () => current)
+    await vi.advanceTimersByTimeAsync(0)
+    current = false
+    f.replace()
+    f.searches[0]?.reject(new Error('engine worker failed'))
+    await expect(move).rejects.toThrow(/worker failed/)
+    expect(f.searches).toHaveLength(1)
+  })
+
+  test('a failure without a replacement is not retried', async () => {
+    const f = replaceableEngine()
+    const lane = new EngineLane(f.engine)
+    const move = lane.move(MOVE, () => true)
+    await vi.advanceTimersByTimeAsync(0)
+    f.searches[0]?.reject(new Error('engine is dead'))
+    await expect(move).rejects.toThrow(/dead/)
+    expect(f.searches).toHaveLength(1)
+  })
+
+  test('running analysis fails on a replacement and is not re-run', async () => {
+    const f = replaceableEngine()
+    const lane = new EngineLane(f.engine)
+    const analysis = lane.analyze(REQ)
+    await vi.advanceTimersByTimeAsync(0)
+    f.replace()
+    f.searches[0]?.reject(new Error('engine worker failed'))
+    await expect(analysis).rejects.toThrow(/worker failed/)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(f.searches).toHaveLength(1)
+  })
+})

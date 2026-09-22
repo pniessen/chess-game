@@ -241,6 +241,15 @@ body {
   background: var(--surface);
 }
 
+.engine-status {
+  font-size: 0.8em;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--color-warning-border);
+  background: var(--color-warning-bg);
+  color: var(--color-fg);
+}
+
 .engine-warning,
 .resume-banner,
 .coach-notice {

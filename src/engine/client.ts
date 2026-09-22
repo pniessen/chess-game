@@ -164,8 +164,8 @@ export class EngineClient {
     this.readyPromise.catch(() => {})
     this.transport.onMessage((line) => this.handle(line))
     this.transport.onError((err) => {
-      this.markDead(`worker error: ${describeTransportError(err)}`)
-      this.failPendingWork(`engine worker failed: ${this.deadReason}`)
+      const reason = `worker error: ${describeTransportError(err)}`
+      this.markDead(reason, `engine worker failed: ${reason}`)
     })
     this.transport.post('uci')
     this.transport.post('isready')
@@ -174,8 +174,8 @@ export class EngineClient {
     this.handshakeTimer = setTimeout(() => {
       this.handshakeTimer = null
       if (this.deadReason !== null) return
-      this.markDead('handshake timed out waiting for readyok')
-      this.failPendingWork(`engine handshake timed out: ${this.deadReason}`)
+      const reason = 'handshake timed out waiting for readyok'
+      this.markDead(reason, `engine handshake timed out: ${reason}`)
     }, HANDSHAKE_TIMEOUT_MS)
   }
 
@@ -183,9 +183,12 @@ export class EngineClient {
    * Record the fatal reason (once — later calls are no-ops so an error event
    * racing a CRITICAL ERROR line can't clobber the original cause) and tear
    * down everything that assumed the engine was still alive: no `readyok`
-   * or further replies will ever arrive again.
+   * or further replies will ever arrive again. Pending work is rejected
+   * with `pendingMessage` BEFORE the `onDead` listeners run, so a listener
+   * that disposes this client (an engine owner replacing the worker) can't
+   * rewrite the rejection into a generic "engine disposed".
    */
-  private markDead(reason: string): void {
+  private markDead(reason: string, pendingMessage: string): void {
     if (this.deadReason !== null) return
     this.deadReason = reason
     this.goOutstanding = false
@@ -195,7 +198,8 @@ export class EngineClient {
       clearTimeout(this.handshakeTimer)
       this.handshakeTimer = null
     }
-    for (const l of this.deadListeners) l(reason)
+    this.failPendingWork(pendingMessage)
+    for (const l of [...this.deadListeners]) l(reason)
   }
 
   /** Reject whatever `search()`/`waitReady()` callers are currently waiting on. */
@@ -231,8 +235,7 @@ export class EngineClient {
       // clearly different "engine died" message instead of hanging. No
       // `bestmove` will ever arrive again, so a search whose `go` is held
       // back behind a stopped search must not keep anyone waiting on it.
-      this.markDead(line)
-      this.failPendingWork(`Stockfish crashed: ${line}`)
+      this.markDead(line, `Stockfish crashed: ${line}`)
       return
     }
 
@@ -297,8 +300,8 @@ export class EngineClient {
     this.bestmoveTimer = setTimeout(() => {
       this.bestmoveTimer = null
       if (this.deadReason !== null || !this.goOutstanding) return
-      this.markDead(`bestmove never arrived within ${ms} ms`)
-      this.failPendingWork(`engine stopped responding: ${this.deadReason}`)
+      const reason = `bestmove never arrived within ${ms} ms`
+      this.markDead(reason, `engine stopped responding: ${reason}`)
     }, ms)
   }
 

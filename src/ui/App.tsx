@@ -9,6 +9,7 @@ import { reduceSelection, type SelectionState } from './Board/selection'
 import { MatchController, type EngineLike } from '../match/controller'
 import type { MatchConfig, MatchPhase } from '../match/types'
 import { EngineClient, createWorkerTransport } from '../engine/client'
+import { EngineSupervisor, type EngineHealth } from '../engine/supervisor'
 import { templatedHint } from '../coach/templated'
 import { HINT_BUDGET, hintRequestFrom } from '../coach/hints'
 import { CoachClient } from '../coach/client'
@@ -108,17 +109,17 @@ function buildConfig(opts: {
  * This only catches SYNCHRONOUS construction failures (e.g. no `Worker`
  * global at all, as in Vitest/jsdom). A worker that loads but then fails
  * asynchronously (a 404 on the engine asset, a bad deploy base path, a
- * network failure, or a hung handshake) is a separate case, handled by
- * `EngineClient` marking itself dead and notifying subscribers via
- * `onDead()` — see `AppInner`'s `engineDied` state below.
+ * network failure, or a hung handshake) is a separate case: the
+ * `EngineSupervisor` replaces a dead worker (within its restart cap) and
+ * reports its health — see `AppInner`'s `engineHealth` state below.
  */
 function buildController(): {
   controller: MatchController
-  engine: EngineClient | null
+  engine: EngineSupervisor | null
   engineAvailable: boolean
 } {
   try {
-    const engine = new EngineClient(createWorkerTransport())
+    const engine = new EngineSupervisor({ createClient: () => new EngineClient(createWorkerTransport()) })
     return { controller: new MatchController({ engine }), engine, engineAvailable: true }
   } catch {
     const stub: EngineLike = {
@@ -197,7 +198,8 @@ function resignableSide(config: MatchConfig, phase: MatchPhase): Color | null {
 
 /**
  * Owns the lifecycle of the one `MatchController` (and the real Stockfish
- * `Worker` its `EngineClient` spawns) for the whole app.
+ * `Worker` its `EngineSupervisor` keeps alive — replacing it after a crash,
+ * never running two at once) for the whole app.
  *
  * This can't be `useState(() => createControllerBundle())`: React Strict
  * Mode's development-only double-render calls a `useState` lazy initializer
@@ -250,7 +252,7 @@ function AppInner({
   engineConstructed,
 }: {
   controller: MatchController
-  engine: EngineClient | null
+  engine: EngineSupervisor | null
   /** Whether the engine was built successfully at construction time (a *synchronous* outcome). */
   engineConstructed: boolean
 }) {
@@ -308,18 +310,19 @@ function AppInner({
   const [tab, setTab] = useState<RightTab>('moves')
 
   // The engine can also fail *after* construction: a 404 on the asset, a
-  // network failure, or a hung handshake all arrive asynchronously and
-  // can't be caught by buildController()'s try/catch. EngineClient detects
-  // all three and notifies via onDead(); we fold that into the same
-  // "engine unavailable" degradation that a synchronous failure produces
-  // (warning banner, engine modes disabled) rather than letting the game
-  // sit in engine-thinking with no way out.
-  const [engineDied, setEngineDied] = useState(false)
+  // network failure, a hung handshake, or a lost bestmove all arrive
+  // asynchronously and can't be caught by buildController()'s try/catch.
+  // The supervisor restarts the worker (status "Engine restarting…", the
+  // game carries on); only once its restart budget is spent does it report
+  // 'dead', which we fold into the same "engine unavailable" degradation a
+  // synchronous failure produces (warning banner, engine modes disabled).
+  const [engineHealth, setEngineHealth] = useState<EngineHealth>(() => engine?.health() ?? { kind: 'ok' })
   useEffect(() => {
     if (!engine) return
-    return engine.onDead(() => setEngineDied(true))
+    setEngineHealth(engine.health())
+    return engine.onHealth(setEngineHealth)
   }, [engine])
-  const engineAvailable = engineConstructed && !engineDied
+  const engineAvailable = engineConstructed && engineHealth.kind !== 'dead'
 
   const scoredRef = useRef(false)
   const [history, setHistory] = useState<HistoryEntry[]>(() => loadHistory())
@@ -835,6 +838,11 @@ function AppInner({
         <p className="result" data-testid="result">
           {describeResult(snapshot.phase, displayedStatus)}
         </p>
+        {engineHealth.kind === 'restarting' ? (
+          <p className="engine-status" role="status" data-testid="engine-status">
+            Engine restarting…
+          </p>
+        ) : null}
         <p className="opening" data-testid="opening" title={opening ? `${opening.eco} ${opening.name}` : undefined}>
           {opening ? `${opening.eco} ${opening.name}` : ''}
         </p>

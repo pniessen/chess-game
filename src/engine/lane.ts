@@ -12,6 +12,12 @@ export interface LaneEngine {
     lines: readonly EngineInfo[]
   }>
   stop(): void
+  /**
+   * Optional: bumped every time the worker behind this engine is replaced
+   * after dying (EngineSupervisor). A move whose search failed across a
+   * bump is re-run on the replacement instead of failing the game.
+   */
+  generation?(): number
 }
 
 export interface AnalysisRequest {
@@ -82,11 +88,27 @@ export class EngineLane {
     }
     this.movesInFlight++
     try {
-      await this.engine.waitReady()
-      if (!isCurrent()) throw new StaleRequest()
-      this.engine.configure(req.profile)
-      this.engine.setPosition(req.fen, [])
-      return await this.engine.search(req.limits)
+      for (;;) {
+        const generation = this.engine.generation?.()
+        try {
+          await this.engine.waitReady()
+          if (!isCurrent()) throw new StaleRequest()
+          this.engine.configure(req.profile)
+          this.engine.setPosition(req.fen, [])
+          return await this.engine.search(req.limits)
+        } catch (err) {
+          // The worker died and its owner swapped a fresh one in (see
+          // EngineSupervisor): the game still owes this move, so ask the new
+          // engine — its waitReady() holds the go until its handshake is done.
+          // Never for a request that went stale meanwhile, and only when a
+          // replacement actually happened, so this is bounded by the
+          // supervisor's restart cap. Analysis is deliberately NOT retried
+          // here: its owners already handle a failed request.
+          const replaced =
+            generation !== undefined && this.engine.generation?.() !== generation
+          if (!replaced || this.disposed || err instanceof StaleRequest || !isCurrent()) throw err
+        }
+      }
     } finally {
       this.movesInFlight--
       this.schedulePump()
