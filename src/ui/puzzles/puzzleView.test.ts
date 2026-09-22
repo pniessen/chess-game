@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'vitest'
 import {
   hintSuggestionOf,
+  mistakeOriginText,
+  nextMistake,
   puzzleAnnotations,
   puzzleHintButtonLabel,
   puzzleHintText,
@@ -11,6 +13,7 @@ import {
 import { playReply, playSetup, playSolutionStep, revealSolution, startSession, submitMove } from '../../puzzles/session'
 import { specOfRated } from '../../puzzles/spec'
 import { DEFENCE } from '../../../tests/fixtures/puzzles'
+import type { BlunderPuzzle } from '../../puzzles/types'
 
 const DEF = specOfRated(DEFENCE)
 const ready = playSetup(startSession(DEF))
@@ -67,4 +70,43 @@ test('rating change text', () => {
   expect(ratingDeltaText(33)).toBe('+33')
   expect(ratingDeltaText(-7)).toBe('-7')
   expect(ratingDeltaText(0)).toBe('+0')
+})
+
+const mistake = (id: string, over: Partial<BlunderPuzzle> = {}): BlunderPuzzle => ({
+  id,
+  fen: '6k1/5ppp/1p6/8/8/8/5PPP/R2Q2K1 w - - 0 2',
+  solution: 'd1d8',
+  bestSan: 'Qd8#',
+  blunderLabel: '25. h3',
+  solver: 'w',
+  gameId: 'g1',
+  gameDate: '2026-09-20T10:00:00.000Z',
+  opening: 'C50 Italian Game',
+  createdAt: '2026-09-20T10:05:00.000Z',
+  solved: false,
+  ...over,
+})
+
+test('mistakeOriginText says which game and which move', () => {
+  expect(mistakeOriginText(mistake('a'))).toBe(
+    'From your game on 2026-09-20 (C50 Italian Game): you played 25. h3?? — find the better move.',
+  )
+  expect(mistakeOriginText(mistake('a', { opening: null }))).toBe(
+    'From your game on 2026-09-20: you played 25. h3?? — find the better move.',
+  )
+})
+
+describe('nextMistake', () => {
+  const list = [mistake('a'), mistake('b', { solved: true }), mistake('c'), mistake('d', { solved: true })]
+  test('first unsolved, then the next unsolved after the current one, wrapping', () => {
+    expect(nextMistake(list, null)?.id).toBe('a')
+    expect(nextMistake(list, 'a')?.id).toBe('c')
+    expect(nextMistake(list, 'c')?.id).toBe('a')
+  })
+  test('when all are solved, simply the next one; empty list gives null', () => {
+    const solved = list.map((p) => ({ ...p, solved: true }))
+    expect(nextMistake(solved, 'b')?.id).toBe('c')
+    expect(nextMistake(solved, 'd')?.id).toBe('a')
+    expect(nextMistake([], null)).toBeNull()
+  })
 })

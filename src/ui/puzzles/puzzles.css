@@ -4,8 +4,10 @@
    All colours come from the design tokens in app.css.
    ------------------------------------------------------------------ */
 
-/* Header: sits where the game's status row does, right of the brand. */
-.puzzle-toolbar {
+/* Header: sits where the game's status row does, right of the brand.
+   Scoped under .app so its specificity beats app.css's `.app > * { grid-column: 1 / -1 }`
+   regardless of CSS injection order (both are otherwise a single class selector). */
+.app > .puzzle-toolbar {
   grid-column: 2;
   grid-row: 1;
   display: flex;
@@ -17,7 +19,8 @@
   min-width: 0;
 }
 
-.puzzle-theme-filter {
+.puzzle-theme-filter,
+.puzzle-source-switch {
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -200,9 +203,74 @@
   color: #5fd08f;
 }
 
+/* "My mistakes": practice card, origin text, and the list in the right column. */
+.puzzle-unrated {
+  color: var(--muted);
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.puzzle-origin {
+  margin-top: 4px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 0.92em;
+  line-height: 1.45;
+}
+
+.mistakes-empty {
+  color: var(--muted);
+  font-size: 0.92em;
+  line-height: 1.5;
+}
+
+.mistake-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 420px;
+  overflow-y: auto;
+}
+
+.mistake-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+}
+
+.mistake-item button {
+  font-size: 0.88em;
+  padding: 6px 10px;
+}
+
+.mistake-item.current button {
+  background: var(--brass-soft);
+  border-color: var(--brass);
+  color: var(--brass-ink);
+}
+
+.mistake-meta {
+  font-size: 0.8em;
+  color: var(--muted);
+}
+
+.mistake-solved {
+  font-size: 0.78em;
+  font-weight: 700;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: var(--brass-soft);
+  color: var(--brass-ink);
+}
+
 /* Narrow screens: header stacks; who-to-move and status sit above the board. */
 @media (max-width: 768px) {
-  .puzzle-toolbar {
+  .app > .puzzle-toolbar {
     grid-column: 1;
     grid-row: 2;
     justify-content: space-between;
@@ -220,6 +288,15 @@
     display: grid;
     grid-template-columns: auto minmax(0, 1fr);
     gap: 8px;
+  }
+  /* The practice card's sentence is far longer than the rated rating number
+     the compact two-column layout was sized for; stack full-width instead
+     of letting the "auto" track blow out to the unwrapped text width. */
+  .puzzle-screen .left-column.mistakes-mode {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .puzzle-screen .right-column {
+    order: 3;
   }
   .puzzle-screen .right-column:empty {
     display: none;

@@ -2,6 +2,7 @@ import type { HintSuggestion } from '../../coach/hints'
 import { uciToIntent } from '../../engine/uci'
 import type { Color } from '../../game-core/types'
 import { expectedMove, lastMoveOf, positionOf, type PuzzleSession } from '../../puzzles/session'
+import type { BlunderPuzzle } from '../../puzzles/types'
 import type { Annotation } from '../Board/annotations'
 import { hintAnnotations, hintText } from '../hints/hintView'
 
@@ -70,4 +71,17 @@ export function puzzleHintButtonLabel(stage: PuzzleHintStage): string {
 
 export function ratingDeltaText(delta: number): string {
   return `${delta >= 0 ? '+' : '-'}${Math.abs(delta)}`
+}
+
+export function mistakeOriginText(p: BlunderPuzzle): string {
+  const opening = p.opening ? ` (${p.opening})` : ''
+  return `From your game on ${p.gameDate.slice(0, 10)}${opening}: you played ${p.blunderLabel}?? — find the better move.`
+}
+
+/** The first unsolved mistake after `currentId` (wrapping); if all are solved, simply the next one. */
+export function nextMistake(list: readonly BlunderPuzzle[], currentId: string | null): BlunderPuzzle | null {
+  if (list.length === 0) return null
+  const at = currentId === null ? -1 : list.findIndex((p) => p.id === currentId)
+  const ordered = [...list.slice(at + 1), ...list.slice(0, at + 1)]
+  return ordered.find((p) => !p.solved && p.id !== currentId) ?? ordered[0] ?? null
 }

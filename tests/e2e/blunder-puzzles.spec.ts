@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { coachOffline } from './helpers'
+import { coachOffline, openPuzzles, servePuzzles } from './helpers'
 
 const KEY = 'chess-game:blunder-puzzles'
 const BEFORE_NF6 = 'r1bqkbnr/pppp1ppp/2n5/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR b KQkq - 3 3'
@@ -58,4 +58,74 @@ test('an imported game that is not in history adds no puzzles', async ({ page })
   await page.getByTestId('review-start').click()
   await expect(page.getByTestId('accuracy-w')).toBeVisible({ timeout: 60_000 })
   expect(await stored(page)).toBeNull()
+})
+
+// Breaks if saved blunders never reach the puzzle screen, or show the wrong side/origin.
+test('the saved blunder appears in My mistakes with its origin; Show solution plays it; rating untouched', async ({ page }) => {
+  await servePuzzles(page)
+  await playScholarsMateAndReview(page)
+  await openPuzzles(page)
+  await page.getByTestId('puzzle-source').selectOption('mistakes')
+  const item = page.getByTestId('mistake-item').filter({ hasText: '3... Nf6' })
+  await expect(item).toHaveCount(1)
+  await item.getByRole('button').click()
+  await expect(page.getByTestId('puzzle-origin')).toContainText('you played 3... Nf6??')
+  await expect(page.getByTestId('puzzle-side-to-move')).toHaveText('Black to move')
+  await expect(page.locator('[data-square]').first()).toHaveAttribute('data-square', 'h1')
+  await expect(page.getByTestId('puzzle-unrated')).toContainText('(1200)')
+  await page.getByTestId('puzzle-solution').click()
+  await expect(page.getByTestId('puzzle-status')).toHaveText('Solution shown.')
+  await expect(page.getByTestId('puzzle-unrated')).toContainText('(1200)')
+})
+
+const SEEDED = {
+  v: 1,
+  puzzles: [
+    {
+      id: 'b:6k1/5ppp/1p6/8/8/8/5PPP/R2Q2K1 w - -',
+      fen: '6k1/5ppp/1p6/8/8/8/5PPP/R2Q2K1 w - - 0 2',
+      solution: 'd1d8',
+      bestSan: 'Qd8#',
+      blunderLabel: '25. h3',
+      solver: 'w',
+      gameId: 'g1',
+      gameDate: '2026-09-20T10:00:00.000Z',
+      opening: null,
+      createdAt: '2026-09-20T10:05:00.000Z',
+      solved: false,
+    },
+  ],
+}
+
+/**
+ * Seeded rather than driven: solving needs the engine's exact best move,
+ * which a real review may pick differently between Stockfish builds; the
+ * driven path to the store is covered by the tests above.
+ */
+test('a solved mistake is marked solved, the rating is untouched, and it stays solved after a reload', async ({ page }) => {
+  await page.addInitScript(
+    ({ k, v }) => {
+      if (!localStorage.getItem(k)) localStorage.setItem(k, v)
+    },
+    { k: KEY, v: JSON.stringify(SEEDED) },
+  )
+  await servePuzzles(page)
+  await page.reload()
+  await openPuzzles(page)
+  await page.getByTestId('puzzle-source').selectOption('mistakes')
+  await expect(page.getByTestId('puzzle-origin')).toContainText('you played 25. h3??')
+  await expect(page.getByTestId('puzzle-side-to-move')).toHaveText('White to move')
+  await page.locator('[data-square="a1"]').click()
+  await page.locator('[data-square="a8"]').click() // Ra8# also mates
+  await expect(page.getByTestId('puzzle-status')).toHaveText('Solved!')
+  await expect(page.getByTestId('mistake-solved')).toHaveCount(1)
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('chess-game:puzzles') ?? 'null'))).toMatchObject({
+    rating: 1200,
+    games: 0,
+  })
+
+  await page.reload()
+  await openPuzzles(page)
+  await page.getByTestId('puzzle-source').selectOption('mistakes')
+  await expect(page.getByTestId('mistake-solved')).toHaveCount(1)
 })

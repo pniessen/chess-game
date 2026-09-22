@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { PuzzleScreen } from './PuzzleScreen'
-import { loadPuzzleStats } from '../../puzzles/store'
+import { loadBlunderPuzzles, loadPuzzleStats } from '../../puzzles/store'
 import type { RatedPuzzle } from '../../puzzles/types'
 import { BACK_RANK, DEFENCE } from '../../../tests/fixtures/puzzles'
 
@@ -83,5 +83,64 @@ describe('PuzzleScreen (rated)', () => {
     expect(screen.getByTestId('puzzle-empty')).toBeInTheDocument()
     fireEvent.change(screen.getByTestId('puzzle-theme'), { target: { value: 'mateIn1' } })
     expect(screen.getByTestId('puzzle-id')).toHaveTextContent('T0001')
+  })
+})
+
+describe('PuzzleScreen (My mistakes)', () => {
+  const SEEDED = {
+    v: 1,
+    puzzles: [
+      {
+        id: 'b:6k1/5ppp/1p6/8/8/8/5PPP/R2Q2K1 w - -',
+        fen: '6k1/5ppp/1p6/8/8/8/5PPP/R2Q2K1 w - - 0 2',
+        solution: 'd1d8',
+        bestSan: 'Qd8#',
+        blunderLabel: '25. h3',
+        solver: 'w',
+        gameId: 'g1',
+        gameDate: '2026-09-20T10:00:00.000Z',
+        opening: 'C50 Italian Game',
+        createdAt: '2026-09-20T10:05:00.000Z',
+        solved: false,
+      },
+    ],
+  }
+
+  // Breaks if mistakes change the rating or are not marked solved.
+  test('lists saved mistakes with their origin; solving one marks it solved and leaves the rating alone', async () => {
+    localStorage.setItem('chess-game:blunder-puzzles', JSON.stringify(SEEDED))
+    await mount()
+    fireEvent.change(screen.getByTestId('puzzle-source'), { target: { value: 'mistakes' } })
+    expect(screen.getAllByTestId('mistake-item')).toHaveLength(1)
+    expect(screen.getByTestId('puzzle-origin')).toHaveTextContent(
+      'From your game on 2026-09-20 (C50 Italian Game): you played 25. h3??',
+    )
+    expect(screen.getByTestId('puzzle-side-to-move')).toHaveTextContent('White to move')
+    expect(screen.getByTestId('puzzle-unrated')).toHaveTextContent('1200')
+    expect(screen.getByTestId('puzzle-theme')).toBeDisabled()
+    click('d1')
+    click('d8')
+    expect(screen.getByTestId('puzzle-status')).toHaveTextContent('Solved!')
+    expect(screen.getByTestId('mistake-solved')).toBeInTheDocument()
+    expect(loadBlunderPuzzles()[0]?.solved).toBe(true)
+    expect(loadPuzzleStats()).toMatchObject({ rating: 1200, games: 0 })
+  })
+
+  test('a wrong move on a mistake is not rated either', async () => {
+    localStorage.setItem('chess-game:blunder-puzzles', JSON.stringify(SEEDED))
+    await mount()
+    fireEvent.change(screen.getByTestId('puzzle-source'), { target: { value: 'mistakes' } })
+    click('d1')
+    click('d7')
+    expect(screen.getByTestId('puzzle-status')).toHaveTextContent("That's not it.")
+    expect(loadPuzzleStats()).toMatchObject({ rating: 1200, games: 0 })
+  })
+
+  test('with no mistakes saved it says where they come from; switching back draws a rated puzzle', async () => {
+    await mount()
+    fireEvent.change(screen.getByTestId('puzzle-source'), { target: { value: 'mistakes' } })
+    expect(screen.getByTestId('mistakes-empty')).toHaveTextContent('Review a finished game')
+    fireEvent.change(screen.getByTestId('puzzle-source'), { target: { value: 'rated' } })
+    expect(screen.getByTestId('puzzle-rating')).toBeInTheDocument()
   })
 })

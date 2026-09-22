@@ -6,12 +6,22 @@ import type { Square } from '../../game-core/types'
 import { loadPuzzleSet } from '../../puzzles/data'
 import { selectPuzzle } from '../../puzzles/select'
 import { lastMoveOf, positionOf, solverColorOf } from '../../puzzles/session'
-import { specOfRated } from '../../puzzles/spec'
-import { loadPuzzleStats, markPuzzleSeen, recordPuzzleResult, type PuzzleStats } from '../../puzzles/store'
+import { specOfBlunder, specOfRated } from '../../puzzles/spec'
+import {
+  loadBlunderPuzzles,
+  loadPuzzleStats,
+  markBlunderPuzzleSolved,
+  markPuzzleSeen,
+  recordPuzzleResult,
+  type PuzzleStats,
+} from '../../puzzles/store'
 import { PUZZLE_THEMES, themeLabel } from '../../puzzles/themes'
-import type { RatedPuzzle } from '../../puzzles/types'
+import type { BlunderPuzzle, RatedPuzzle } from '../../puzzles/types'
+import { MistakesList } from './MistakesList'
 import { usePuzzleSession } from './usePuzzleSession'
 import {
+  mistakeOriginText,
+  nextMistake,
   puzzleAnnotations,
   puzzleHintButtonLabel,
   puzzleHintText,
@@ -21,13 +31,14 @@ import {
 } from './puzzleView'
 import './puzzles.css'
 
+type Source = 'rated' | 'mistakes'
+
 type PuzzleSet = { kind: 'loading' } | { kind: 'ready'; puzzles: RatedPuzzle[] } | { kind: 'failed' }
 
-interface Current {
-  /** A fresh key per showing, so showing the same puzzle again restarts it. */
-  key: string
-  puzzle: RatedPuzzle
-}
+/** A fresh key per showing, so showing the same puzzle again restarts it. */
+type Current =
+  | { source: 'rated'; key: string; puzzle: RatedPuzzle }
+  | { source: 'mistakes'; key: string; puzzle: BlunderPuzzle }
 
 export interface PuzzleScreenProps {
   onExit: () => void
@@ -46,14 +57,16 @@ export function PuzzleScreen({
   loadPuzzles = loadPuzzleSet,
   random = Math.random,
 }: PuzzleScreenProps) {
+  const [source, setSource] = useState<Source>('rated')
   const [set, setSet] = useState<PuzzleSet>({ kind: 'loading' })
   const [stats, setStats] = useState<PuzzleStats>(() => loadPuzzleStats())
+  const [mistakes, setMistakes] = useState<BlunderPuzzle[]>(() => loadBlunderPuzzles())
   const [theme, setTheme] = useState('')
   const [current, setCurrent] = useState<Current | null>(null)
   const [delta, setDelta] = useState<number | null>(null)
   const [selection, setSelection] = useState<SelectionState>({ kind: 'idle' })
   const seqRef = useRef(0)
-  /** The key of the puzzle whose rating result has been recorded. */
+  /** The key of the rated showing whose result has been recorded. */
   const recordedRef = useRef<string | null>(null)
   const loadRef = useRef(loadPuzzles)
   const randomRef = useRef(random)
@@ -70,41 +83,62 @@ export function PuzzleScreen({
     }
   }, [])
 
-  const showRated = useCallback((puzzles: readonly RatedPuzzle[], filter: string, excludeId: string | null) => {
-    const s = loadPuzzleStats()
-    const pick = selectPuzzle(puzzles, {
-      rating: s.rating,
-      seen: new Set(s.seen),
-      theme: filter || null,
-      excludeId,
-      random: randomRef.current,
-    })
-    setDelta(null)
-    setSelection({ kind: 'idle' })
-    if (!pick) {
-      setStats(s)
-      setCurrent(null)
-      return
-    }
-    setStats(markPuzzleSeen(pick.id))
+  const nextKey = useCallback(() => {
     seqRef.current += 1
-    setCurrent({ key: `p${seqRef.current}`, puzzle: pick })
+    return `p${seqRef.current}`
   }, [])
 
-  // The first puzzle, once the set arrives. Theme changes and Next draw explicitly.
+  const showRated = useCallback(
+    (puzzles: readonly RatedPuzzle[], filter: string, excludeId: string | null) => {
+      const s = loadPuzzleStats()
+      const pick = selectPuzzle(puzzles, {
+        rating: s.rating,
+        seen: new Set(s.seen),
+        theme: filter || null,
+        excludeId,
+        random: randomRef.current,
+      })
+      setDelta(null)
+      setSelection({ kind: 'idle' })
+      if (!pick) {
+        setStats(s)
+        setCurrent(null)
+        return
+      }
+      setStats(markPuzzleSeen(pick.id))
+      setCurrent({ source: 'rated', key: nextKey(), puzzle: pick })
+    },
+    [nextKey],
+  )
+
+  const showMistake = useCallback(
+    (p: BlunderPuzzle | null) => {
+      setDelta(null)
+      setSelection({ kind: 'idle' })
+      setCurrent(p ? { source: 'mistakes', key: nextKey(), puzzle: p } : null)
+    },
+    [nextKey],
+  )
+
+  // The first rated puzzle, once the set arrives (if the user is still on Rated).
   useEffect(() => {
-    if (set.kind === 'ready') showRated(set.puzzles, theme, null)
+    if (set.kind === 'ready' && source === 'rated') showRated(set.puzzles, theme, null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [set])
 
-  const spec = useMemo(() => (current ? specOfRated(current.puzzle) : null), [current])
+  const spec = useMemo(
+    () =>
+      current === null ? null : current.source === 'rated' ? specOfRated(current.puzzle) : specOfBlunder(current.puzzle),
+    [current],
+  )
   const puzzle = usePuzzleSession(spec, current?.key ?? null)
   const session = puzzle.session
   const outcome = session?.outcome ?? null
+  const phase = session?.phase ?? null
 
-  // Rated: the first decisive event of each showing changes the rating, once.
+  // Rated only: the first decisive event of each showing changes the rating, once.
   useEffect(() => {
-    if (!current || outcome === null || recordedRef.current === current.key) return
+    if (current?.source !== 'rated' || outcome === null || recordedRef.current === current.key) return
     recordedRef.current = current.key
     const before = loadPuzzleStats().rating
     const after = recordPuzzleResult(current.puzzle.rating, outcome)
@@ -112,11 +146,18 @@ export function PuzzleScreen({
     setDelta(after.rating - before)
   }, [current, outcome])
 
+  // My mistakes: solving one marks it solved (hint or retry allowed — it is practice).
+  useEffect(() => {
+    if (current?.source !== 'mistakes' || phase !== 'solved') return
+    setMistakes(markBlunderPuzzleSolved(current.puzzle.id))
+  }, [current, phase])
+
   const position = useMemo(() => (session ? positionOf(session) : null), [session])
   const solver = spec ? solverColorOf(spec) : 'w'
-  const phase = session?.phase ?? null
   const last = session ? lastMoveOf(session) : null
   const status = position?.status()
+  const rated = current?.source === 'rated' ? current.puzzle : null
+  const mistake = current?.source === 'mistakes' ? current.puzzle : null
 
   const onSquareClick = (square: Square) => {
     if (!position || phase !== 'solver') {
@@ -128,13 +169,28 @@ export function PuzzleScreen({
     if (out.move) puzzle.submit(out.move)
   }
 
+  const changeSource = (next: Source) => {
+    if (next === source) return
+    setSource(next)
+    if (next === 'mistakes') {
+      const list = loadBlunderPuzzles()
+      setMistakes(list)
+      showMistake(nextMistake(list, null))
+    } else if (set.kind === 'ready') {
+      showRated(set.puzzles, theme, null)
+    } else {
+      showMistake(null)
+    }
+  }
+
   const handleNext = () => {
-    if (set.kind === 'ready') showRated(set.puzzles, theme, current?.puzzle.id ?? null)
+    if (source === 'mistakes') showMistake(nextMistake(mistakes, current?.puzzle.id ?? null))
+    else if (set.kind === 'ready') showRated(set.puzzles, theme, current?.puzzle.id ?? null)
   }
 
   const handleTheme = (next: string) => {
     setTheme(next)
-    if (set.kind === 'ready') showRated(set.puzzles, next, null)
+    if (source === 'rated' && set.kind === 'ready') showRated(set.puzzles, next, null)
   }
 
   const highlights: Highlights = position
@@ -153,9 +209,21 @@ export function PuzzleScreen({
       <h1>Puzzles</h1>
 
       <div className="puzzle-toolbar">
+        <label className="puzzle-source-switch">
+          Puzzles{' '}
+          <select data-testid="puzzle-source" value={source} onChange={(e) => changeSource(e.target.value as Source)}>
+            <option value="rated">Rated (Lichess)</option>
+            <option value="mistakes">My mistakes</option>
+          </select>
+        </label>
         <label className="puzzle-theme-filter">
           Theme{' '}
-          <select data-testid="puzzle-theme" value={theme} onChange={(e) => handleTheme(e.target.value)}>
+          <select
+            data-testid="puzzle-theme"
+            value={theme}
+            disabled={source !== 'rated'}
+            onChange={(e) => handleTheme(e.target.value)}
+          >
             <option value="">All themes</option>
             {PUZZLE_THEMES.map((t) => (
               <option key={t} value={t}>
@@ -170,21 +238,30 @@ export function PuzzleScreen({
       </div>
 
       <div className="layout">
-        <div className="left-column puzzle-info">
-          <div className="puzzle-card puzzle-you">
-            <p className="puzzle-label">Your puzzle rating</p>
-            <p className="puzzle-rating-line">
-              <span className="puzzle-big" data-testid="user-puzzle-rating">
-                {stats.rating}
-              </span>
-              {delta !== null ? (
-                <span data-testid="puzzle-rating-delta" className={delta >= 0 ? 'rating-up' : 'rating-down'}>
-                  {' '}
-                  ({ratingDeltaText(delta)})
+        <div className={`left-column puzzle-info${source === 'mistakes' ? ' mistakes-mode' : ''}`}>
+          {source === 'rated' ? (
+            <div className="puzzle-card puzzle-you">
+              <p className="puzzle-label">Your puzzle rating</p>
+              <p className="puzzle-rating-line">
+                <span className="puzzle-big" data-testid="user-puzzle-rating">
+                  {stats.rating}
                 </span>
-              ) : null}
-            </p>
-          </div>
+                {delta !== null ? (
+                  <span data-testid="puzzle-rating-delta" className={delta >= 0 ? 'rating-up' : 'rating-down'}>
+                    {' '}
+                    ({ratingDeltaText(delta)})
+                  </span>
+                ) : null}
+              </p>
+            </div>
+          ) : (
+            <div className="puzzle-card puzzle-you puzzle-practice">
+              <p className="puzzle-label">Practice</p>
+              <p className="puzzle-unrated" data-testid="puzzle-unrated">
+                Practice — your puzzle rating ({stats.rating}) is not affected.
+              </p>
+            </div>
+          )}
           {current && session ? (
             <div className="puzzle-card puzzle-now">
               <p className={`puzzle-side ${solver === 'w' ? 'white' : 'black'}`} data-testid="puzzle-side-to-move">
@@ -193,35 +270,44 @@ export function PuzzleScreen({
               <p className={`puzzle-status phase-${phase}`} data-testid="puzzle-status" aria-live="polite">
                 {puzzleStatusText(session, solver)}
               </p>
-              <dl className="puzzle-facts">
-                <div>
-                  <dt>Puzzle rating</dt>
-                  <dd data-testid="puzzle-rating">{current.puzzle.rating}</dd>
-                </div>
-                <div>
-                  <dt>Themes</dt>
-                  <dd data-testid="puzzle-themes">{current.puzzle.themes.map(themeLabel).join(', ')}</dd>
-                </div>
-              </dl>
-              <span className="sr-only" data-testid="puzzle-id">
-                {current.puzzle.id}
-              </span>
+              {rated ? (
+                <>
+                  <dl className="puzzle-facts">
+                    <div>
+                      <dt>Puzzle rating</dt>
+                      <dd data-testid="puzzle-rating">{rated.rating}</dd>
+                    </div>
+                    <div>
+                      <dt>Themes</dt>
+                      <dd data-testid="puzzle-themes">{rated.themes.map(themeLabel).join(', ')}</dd>
+                    </div>
+                  </dl>
+                  <span className="sr-only" data-testid="puzzle-id">
+                    {rated.id}
+                  </span>
+                </>
+              ) : null}
+              {mistake ? (
+                <p className="puzzle-origin" data-testid="puzzle-origin">
+                  {mistakeOriginText(mistake)}
+                </p>
+              ) : null}
             </div>
           ) : null}
         </div>
 
         <div className="board-column">
-          {set.kind === 'loading' ? (
+          {source === 'rated' && set.kind === 'loading' ? (
             <p className="puzzle-message" data-testid="puzzle-loading">
               Loading puzzles…
             </p>
           ) : null}
-          {set.kind === 'failed' ? (
+          {source === 'rated' && set.kind === 'failed' ? (
             <p className="puzzle-message puzzle-error" role="alert" data-testid="puzzle-load-error">
               The puzzles could not be loaded. Your game is unaffected — go back to it and try again later.
             </p>
           ) : null}
-          {set.kind === 'ready' && !current ? (
+          {source === 'rated' && set.kind === 'ready' && !current ? (
             <p className="puzzle-message" data-testid="puzzle-empty">
               No puzzles match this theme.
             </p>
@@ -289,7 +375,14 @@ export function PuzzleScreen({
           ) : null}
         </div>
 
-        <div className="right-column" />
+        <div className="right-column">
+          {source === 'mistakes' ? (
+            <div className="puzzle-card mistakes-panel">
+              <p className="puzzle-label">My mistakes</p>
+              <MistakesList puzzles={mistakes} currentId={mistake?.id ?? null} onPick={showMistake} />
+            </div>
+          ) : null}
+        </div>
       </div>
     </main>
   )
