@@ -1,5 +1,8 @@
 .board-frame {
   --coord-gutter: 1.25rem;
+  --board-radius: 10px;
+  --board-inner-radius: 8px; /* radius minus the 2px border */
+  --board-edge: #2b2118;
   display: grid;
   grid-template-columns: var(--coord-gutter) minmax(0, 1fr);
   grid-template-rows: auto var(--coord-gutter);
@@ -19,7 +22,9 @@
      the 8x8 grid inside stays exactly square. */
   box-sizing: border-box;
   aspect-ratio: 1;
-  border: 2px solid #3a3226;
+  border: 2px solid var(--board-edge);
+  border-radius: var(--board-radius);
+  box-shadow: var(--shadow-board, 0 12px 30px rgba(0, 0, 0, 0.25));
   position: relative; /* anchors the annotation overlay (Task 2) */
   user-select: none;
   touch-action: none; /* let us handle touch drags ourselves */
@@ -29,10 +34,10 @@
   pointer-events: none;
   user-select: none;
   /* Page text colours, not square colours: readable on light and dark hosts. */
-  color: var(--color-fg);
-  opacity: 0.8;
-  font-size: 0.8rem;
-  font-weight: 600;
+  color: var(--color-muted);
+  font-family: var(--font-ui, system-ui, sans-serif);
+  font-size: 0.72rem;
+  font-weight: 700;
   line-height: 1;
 }
 /* 2px padding matches the board border, so each label centres on its square. */
@@ -40,20 +45,41 @@
 .coords-files { grid-area: files; flex-direction: row; padding-inline: 2px; }
 .coord-label { flex: 1; display: flex; align-items: center; justify-content: center; }
 .square { position: relative; display: flex; align-items: center; justify-content: center; }
-.square.light { background: var(--sq-light, #f0d9b5); }
-.square.dark  { background: var(--sq-dark, #b58863); }
-.square.last-move { box-shadow: inset 0 0 0 100vmax rgba(255, 238, 88, 0.35); }
-.square.selected  { box-shadow: inset 0 0 0 100vmax rgba(90, 160, 255, 0.40); }
-.square.check     { box-shadow: inset 0 0 0 100vmax rgba(220, 60, 60, 0.45); }
+.square.light { background-color: var(--sq-light, #f0d9b5); }
+.square.dark  { background-color: var(--sq-dark, #b58863); }
+/* Round the four corner squares to follow the board's radius (squares are
+   the first 64 children in every orientation; the overlay comes last). */
+.board > .square:nth-child(1) { border-top-left-radius: var(--board-inner-radius); }
+.board > .square:nth-child(8) { border-top-right-radius: var(--board-inner-radius); }
+.board > .square:nth-child(57) { border-bottom-left-radius: var(--board-inner-radius); }
+.board > .square:nth-child(64) { border-bottom-right-radius: var(--board-inner-radius); }
+
+/* Highlights tint the square (the square's own background colour is left
+   alone, so themes stay exact). */
+.square.last-move { box-shadow: inset 0 0 0 100vmax rgba(255, 214, 64, 0.42); }
+.square.selected  {
+  box-shadow: inset 0 0 0 100vmax rgba(255, 186, 30, 0.5), inset 0 0 0 3px rgba(150, 96, 0, 0.55);
+}
+.square.check {
+  background-image: radial-gradient(circle at center, rgba(255, 40, 40, 0.95) 0%,
+    rgba(230, 30, 30, 0.6) 35%, rgba(200, 0, 0, 0) 72%);
+}
 .square.legal::after {
-  content: ''; position: absolute; width: 28%; aspect-ratio: 1;
-  border-radius: 50%; background: rgba(0, 0, 0, 0.25);
+  content: ''; position: absolute; width: 27%; aspect-ratio: 1;
+  border-radius: 50%; background: rgba(23, 32, 48, 0.24);
+  transition: transform 0.12s ease, background-color 0.12s ease;
 }
+.square.legal:hover::after { transform: scale(1.25); background: rgba(23, 32, 48, 0.34); }
 .square.capture::after {
-  content: ''; position: absolute; inset: 6%;
-  border-radius: 50%; border: 6px solid rgba(0, 0, 0, 0.25);
+  content: ''; position: absolute; inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(circle at center, transparent 0 56%, rgba(23, 32, 48, 0.28) 58% 100%);
 }
-.piece { width: 92%; height: 92%; pointer-events: none; }
+.square.legal, .square.capture { cursor: pointer; }
+.piece {
+  width: 92%; height: 92%; pointer-events: none;
+  filter: drop-shadow(0 2px 1.5px rgba(0, 0, 0, 0.22));
+}
 .square.dragging .piece { opacity: 0.35; }
 
 .board-overlay {
@@ -63,6 +89,8 @@
   height: 100%;
   pointer-events: none; /* clicks and drags pass through to the squares */
   z-index: 2;
+  border-radius: var(--board-inner-radius);
+  clip-path: inset(0 round var(--board-inner-radius));
 }
 .annotation-square { fill-opacity: 0.45; stroke: none; }
 .annotation-arrow { stroke-width: 0.18; stroke-linecap: round; opacity: 0.85; fill: none; }
@@ -96,29 +124,46 @@
 .board-row .board-frame { flex: 1 1 auto; min-width: 0; }
 .eval-bar {
   position: relative;
-  flex: 0 0 22px;
+  flex: 0 0 24px;
   display: flex;
   flex-direction: column-reverse; /* White fills from the bottom */
   margin-bottom: 1.25rem; /* = --coord-gutter: stop level with the board, not the file labels */
-  background: #403d39;
-  border-radius: 3px;
+  background: #2a2f38;
+  border-radius: 8px;
   overflow: hidden;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.2), var(--shadow-card, none);
 }
 .eval-bar.black { flex-direction: column; } /* flipped board: White fills from the top */
-.eval-bar-white { background: #f4f4f4; transition: height 0.3s ease; }
+.eval-bar-white { background: #f3f2ee; transition: height 0.45s cubic-bezier(0.2, 0.8, 0.2, 1); }
 .eval-label {
   position: absolute; left: 0; right: 0;
   text-align: center; font-size: 0.6rem; font-weight: 700; line-height: 1.4;
 }
 .eval-label.bottom { bottom: 2px; }
 .eval-label.top { top: 2px; }
-.eval-label.on-white { color: #403d39; }
-.eval-label.on-black { color: #f4f4f4; }
+.eval-label.on-white { color: #2a2f38; }
+.eval-label.on-black { color: #f3f2ee; }
 
 .promotion-backdrop {
-  position: fixed; inset: 0; background: rgba(0, 0, 0, 0.45);
+  position: fixed; inset: 0; background: rgba(12, 16, 24, 0.55);
+  backdrop-filter: blur(2px);
   display: flex; align-items: center; justify-content: center; z-index: 10;
 }
-.promotion { display: flex; gap: 0.5rem; padding: 1rem; background: #fff; border-radius: 8px; }
-.promotion button { width: 72px; height: 72px; cursor: pointer; background: #f0d9b5; border: 2px solid #b58863; border-radius: 6px; }
+.promotion {
+  display: flex; gap: 0.6rem; padding: 1rem;
+  background: var(--surface, #fff); border: 1px solid var(--line, #ccc);
+  border-radius: 16px; box-shadow: var(--shadow-board, 0 20px 50px rgba(0, 0, 0, 0.4));
+}
+.promotion button {
+  width: 76px; height: 76px; padding: 6px; cursor: pointer;
+  background: #f0d9b5; border: 2px solid #b58863; border-radius: 12px;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+.promotion button:hover { transform: translateY(-2px); box-shadow: 0 6px 14px rgba(0, 0, 0, 0.25); }
+.promotion button:focus-visible { outline: 3px solid var(--brass, #d9a441); outline-offset: 2px; }
 .promotion img { width: 100%; height: 100%; }
+
+@media (prefers-reduced-motion: reduce) {
+  .square.legal::after, .eval-bar-white, .promotion button { transition: none; }
+  .square.legal:hover::after, .promotion button:hover { transform: none; }
+}
