@@ -20,6 +20,13 @@ export interface EngineLike {
   }>
   stop(): void
   dispose(): void
+  /**
+   * Optional: bumped every time the worker behind this engine is replaced
+   * (EngineSupervisor). EngineLane reads it to re-run a move whose search
+   * failed across a replacement; declared here so an adapter that wraps an
+   * engine can't silently drop it and disable that retry.
+   */
+  generation?(): number
 }
 
 /** Where book moves come from (OpeningBook satisfies this structurally). */
