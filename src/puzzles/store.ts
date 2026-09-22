@@ -50,7 +50,8 @@ export function loadPuzzleStats(): PuzzleStats {
 }
 
 function saveStats(s: PuzzleStats): PuzzleStats {
-  if (writable(STORAGE_KEYS.puzzles)) writeJson(STORAGE_KEYS.puzzles, { v: VERSION, ...s })
+  if (!writable(STORAGE_KEYS.puzzles)) return loadPuzzleStats()
+  writeJson(STORAGE_KEYS.puzzles, { v: VERSION, ...s })
   return s
 }
 

@@ -59,6 +59,18 @@ describe('puzzle stats', () => {
     markPuzzleSeen('z')
     expect(localStorage.getItem(STATS)).toBe(future)
   })
+
+  // Breaks if a mutator hands back its locally computed (unpersisted) result
+  // instead of what is now actually stored (the brief's "every mutator
+  // re-reads storage first and returns what is now stored" rule).
+  test('mutators return the stored defaults, not the locally computed result, when a newer version blocks the write', () => {
+    const future = JSON.stringify({ v: 2, rating: 2000, extra: true })
+    localStorage.setItem(STATS, future)
+    const defaults = loadPuzzleStats()
+    expect(recordPuzzleResult(1500, 'win')).toEqual(defaults)
+    expect(markPuzzleSeen('z')).toEqual(defaults)
+    expect(localStorage.getItem(STATS)).toBe(future)
+  })
 })
 
 describe('blunder puzzles', () => {
