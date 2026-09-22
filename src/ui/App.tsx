@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Game } from '../game-core/game'
-import type { Color, DrawReason, GameStatus, PieceSymbol, PlayedMove, Square } from '../game-core/types'
+import type { Color, PieceSymbol, PlayedMove, Square } from '../game-core/types'
 import { exportPgn, gameFromSan, importPgn } from '../game-core/io'
 import { Board, type Highlights } from './Board/Board'
 import { EvalBar } from './Board/EvalBar'
 import { Promotion } from './Board/Promotion'
 import { reduceSelection, type SelectionState } from './Board/selection'
 import { MatchController, type EngineLike } from '../match/controller'
-import type { MatchConfig, MatchPhase } from '../match/types'
+import type { MatchConfig } from '../match/types'
 import { EngineClient, createWorkerTransport } from '../engine/client'
 import { EngineSupervisor, type EngineHealth } from '../engine/supervisor'
 import { templatedHint } from '../coach/templated'
@@ -38,7 +38,6 @@ import {
   type MatchScore,
   type Settings,
 } from '../storage/storage'
-import { TIME_CONTROLS } from '../clock/types'
 import { useMatch } from './useMatch'
 import { planResume, setupOf } from './resume'
 import { MoveList } from './panels/MoveList'
@@ -63,41 +62,12 @@ import { usePuzzleMode } from './puzzles/usePuzzleMode'
 import { blunderPuzzlesFrom } from '../puzzles/blunders'
 import { addBlunderPuzzles } from '../puzzles/store'
 import { SoundPlayer, soundForTransition, type SoundFrame } from '../sound/sounds'
+import { buildConfig, timeControlFor } from './app/matchConfig'
+import { describeResult, resignableSide } from './app/matchText'
 import './app.css'
 
 /** Task 13 adds the 'history' tab. */
 type RightTab = 'moves' | 'explorer' | 'review' | 'history'
-
-function timeControlFor(id: string) {
-  return TIME_CONTROLS.find((t) => t.id === id)?.control ?? { kind: 'untimed' as const }
-}
-
-function buildConfig(opts: {
-  mode: Mode
-  level: Level
-  timeControlId: string
-  color: 'white' | 'black'
-  engineAvailable: boolean
-}): MatchConfig {
-  const timeControl = timeControlFor(opts.timeControlId)
-  if (opts.mode === 'two-player' || !opts.engineAvailable) {
-    return { white: { kind: 'human' }, black: { kind: 'human' }, timeControl }
-  }
-  if (opts.mode === 'zero-player') {
-    return {
-      white: { kind: 'engine', level: opts.level },
-      black: { kind: 'engine', level: opts.level },
-      timeControl,
-      engineDelayMs: 500,
-    }
-  }
-  const humanIsWhite = opts.color === 'white'
-  return {
-    white: humanIsWhite ? { kind: 'human' } : { kind: 'engine', level: opts.level },
-    black: humanIsWhite ? { kind: 'engine', level: opts.level } : { kind: 'human' },
-    timeControl,
-  }
-}
 
 /**
  * Build the real MatchController, wired to a real Stockfish worker — but
@@ -145,55 +115,6 @@ function createControllerBundle(): ControllerBundle {
     timeControl: timeControlFor(loadSettings().timeControlId),
   })
   return bundle
-}
-
-const DRAW_TEXT: Record<DrawReason, string> = {
-  stalemate: 'Draw — stalemate',
-  'insufficient-material': 'Draw — insufficient material',
-  'threefold-repetition': 'Draw — threefold repetition',
-  'fifty-move-rule': 'Draw — fifty-move rule',
-}
-
-/**
- * The result banner. Decision: derive it from `phase.reason` / `phase.winner`
- * — never from `status.kind` alone — because a resignation or a flag leaves
- * `status.kind` at 'in-progress' (the rules didn't end the game). `status`
- * here is only ever `phase.status`, the status captured at the moment the
- * match finished, so browsing history afterwards can never change the banner.
- */
-function describeResult(phase: MatchPhase, displayed: GameStatus): string {
-  const name = (c: Color) => (c === 'w' ? 'White' : 'Black')
-  if (phase.kind === 'finished') {
-    const { status, reason, winner } = phase
-    switch (reason) {
-      case 'normal':
-        if (status.kind === 'checkmate') return `Checkmate — ${name(status.winner)} wins`
-        if (status.kind === 'draw') return DRAW_TEXT[status.reason]
-        return winner ? `${name(winner)} wins` : 'Game over'
-      case 'flag':
-        return winner ? `${name(winner)} wins on time` : 'Draw on time'
-      case 'resign': {
-        if (!winner) return 'Resignation'
-        const loser = winner === 'w' ? 'b' : 'w'
-        return `${name(loser)} resigns — ${name(winner)} wins`
-      }
-      case 'engine-error':
-        return 'Game halted — engine error'
-    }
-  }
-  return displayed.kind === 'in-progress' && displayed.inCheck ? 'Check' : ''
-}
-
-/** Which side, if any, is a human who can actually click "Resign" right now. */
-function resignableSide(config: MatchConfig, phase: MatchPhase): Color | null {
-  const whiteHuman = config.white.kind === 'human'
-  const blackHuman = config.black.kind === 'human'
-  if (whiteHuman && blackHuman) {
-    return phase.kind === 'awaiting-human' ? phase.side : null
-  }
-  if (whiteHuman) return 'w'
-  if (blackHuman) return 'b'
-  return null
 }
 
 /**
