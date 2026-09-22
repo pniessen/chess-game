@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import type { Game } from '../game-core/game'
-import type { Color, PieceSymbol, PlayedMove, Square } from '../game-core/types'
-import { exportPgn, gameFromSan, importPgn } from '../game-core/io'
+import type { PieceSymbol, PlayedMove, Square } from '../game-core/types'
+import { gameFromSan, importPgn } from '../game-core/io'
 import { Board, type Highlights } from './Board/Board'
 import { EvalBar } from './Board/EvalBar'
 import { Promotion } from './Board/Promotion'
@@ -15,24 +15,9 @@ import { useHints, type HintAnalyze, type HintReasoner } from './hints/useHints'
 import { useEvaluation } from './useEvaluation'
 import type { OpeningEntry } from '../openings/book'
 import { hintKeyOf, reviewKeyOf } from './gameKey'
-import {
-  addHistoryEntry,
-  clearInProgress,
-  historyStatus,
-  loadHistory,
-  loadInProgress,
-  loadScore,
-  resetHistory,
-  saveInProgress,
-  saveScore,
-  updateHistoryAccuracy,
-  type HistoryEntry,
-  type HistoryStatus,
-  type Level,
-  type MatchScore,
-} from '../storage/storage'
+import { clearInProgress, updateHistoryAccuracy, type HistoryEntry, type Level } from '../storage/storage'
 import { useMatch } from './useMatch'
-import { planResume, setupOf } from './resume'
+import { planResume } from './resume'
 import { MoveList } from './panels/MoveList'
 import { Captured } from './panels/Captured'
 import { Clocks } from './panels/Clocks'
@@ -49,7 +34,7 @@ import { currentMoveText, reviewAnnotations, reviewMarks } from './review/review
 import { reviewRequestFrom, templatedSummary } from '../review/summary'
 import { humanSideOf, resultTagOf } from '../match/result'
 import { HistoryPanel } from './history/HistoryPanel'
-import { historyEntryFor, humanSidesOf, newHistoryId } from './history/record'
+import { humanSidesOf } from './history/record'
 import { PuzzleScreen } from './puzzles/PuzzleScreen'
 import { usePuzzleMode } from './puzzles/usePuzzleMode'
 import { blunderPuzzlesFrom } from '../puzzles/blunders'
@@ -63,6 +48,7 @@ import { useCoachClient } from './app/useCoachClient'
 import { useEngineHealth } from './app/useEngineHealth'
 import { useEngineAnalysis } from './app/useEngineAnalysis'
 import { useOpenings } from './app/useOpenings'
+import { useMatchRecords } from './app/useMatchRecords'
 import './app.css'
 
 /** Task 13 adds the 'history' tab. */
@@ -98,7 +84,6 @@ function AppInner({
   engineConstructed: boolean
 }) {
   const { settings, updateSettings } = useSettings()
-  const [pendingResume] = useState(() => loadInProgress())
 
   const sound = useSoundPlayer(settings.soundEnabled)
   const { coach, coachState } = useCoachClient()
@@ -115,46 +100,10 @@ function AppInner({
   const [timeControlId, setTimeControlId] = useState(settings.timeControlId)
   const [color, setColor] = useState<'white' | 'black'>(settings.orientation)
   const [canRedo, setCanRedo] = useState(false)
-  const [score, setScore] = useState<MatchScore>(loadScore)
-  const [resumeChoice, setResumeChoice] = useState<'pending' | 'resolved'>(
-    pendingResume ? 'pending' : 'resolved',
-  )
   const [tab, setTab] = useState<RightTab>('moves')
 
   const { engineHealth, engineAvailable } = useEngineHealth(engine, engineConstructed)
 
-  const scoredRef = useRef(false)
-  const [history, setHistory] = useState<HistoryEntry[]>(() => loadHistory())
-  /** Whether `chess-game:history` is currently readable; drives the History tab's notice. */
-  const [historyState, setHistoryState] = useState<HistoryStatus>(() => historyStatus())
-  const handleHistoryReset = useCallback(() => {
-    resetHistory()
-    setHistory(loadHistory())
-    setHistoryState(historyStatus())
-  }, [])
-  /** True once the current match's finish has been written to history. */
-  const recordedRef = useRef(false)
-  /**
-   * The history entry the current match corresponds to, paired with the
-   * `reviewKeyOf` of the exact move list it was recorded/reattached for.
-   *
-   * Required fix (Task 13 review, round 1, Finding 1): pairing the id with
-   * the `Game` OBJECT (identity) is not enough, because `MatchController`
-   * mutates ONE `Game` in place across undo/redo/new moves (see
-   * controller.ts) — the object reference stays the same across an entirely
-   * different line of play. Concretely: finish game A (recorded) -> undo ->
-   * play a different line -> finish game B live, but `recordedRef` was
-   * (wrongly) already true so B is never recorded -> review B. With a
-   * `rec.game === game` check, that review's accuracy would land on A's
-   * entry even though A's PGN is a different game, because `game` is still
-   * the same object. Keying on `reviewKeyOf` (gameId + the move list, the
-   * same identity `useReview`'s own `gameKey` uses) instead of raw object
-   * identity distinguishes A's moves from B's even on the same `Game`
-   * instance. `useReview` already refuses to invoke `onComplete` at all once
-   * its `gameKey` has changed (see useReview.ts's `activeKeyRef`/cancel), so
-   * this is a second, independent check at the write site.
-   */
-  const historyRef = useRef<{ id: string; key: string } | null>(null)
   /**
    * The exact input of the review that is running or done, keyed like
    * historyRef. Phase 3: its blunders become puzzles, and the positions
@@ -184,95 +133,21 @@ function AppInner({
   })
 
   const { book, bookFailed, opening, finalOpeningName } = useOpenings(controller, game)
+  const {
+    pendingResume,
+    resumeChoice,
+    setResumeChoice,
+    score,
+    history,
+    setHistory,
+    historyState,
+    handleHistoryReset,
+    scoredRef,
+    recordedRef,
+    historyRef,
+  } = useMatchRecords(snapshot, finalOpeningName)
   /** A review belongs to one game AND its exact move list (ruling P5); browsing leaves this unchanged. */
   const reviewKey = reviewKeyOf(game)
-
-  // ---- persistence --------------------------------------------------------
-
-  useEffect(() => {
-    if (resumeChoice !== 'resolved') return
-    if (snapshot.phase.kind === 'idle') return
-    // A finished game is never "in progress". Without this, Undo -> Redo
-    // back onto a checkmate re-saved the finished PGN (the scoring effect's
-    // clearInProgress() is skipped once the game is scored), and resuming it
-    // on reload scored the same game a second time.
-    if (snapshot.phase.kind === 'finished' || game.moves.length === 0) {
-      clearInProgress()
-      return
-    }
-    // The seats and time control go with the PGN, so a resume restores the
-    // ORIGINAL mode; `scored` stops a game that was finished, scored, then
-    // taken back and continued from being counted again after a reload, and
-    // `recorded` does the same for its history entry.
-    saveInProgress({
-      pgn: exportPgn(game),
-      setup: setupOf(snapshot.config),
-      scored: scoredRef.current,
-      recorded: recordedRef.current,
-    })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [game, game.moves.length, snapshot.phase.kind, resumeChoice])
-
-  useEffect(() => {
-    if (snapshot.phase.kind !== 'finished') return
-    if (scoredRef.current) return
-    // Guards against double-counting: set before anything else runs, so a
-    // re-render with the same finished `phase`, or a redo that lands back
-    // on this same finished position (neither of which calls startMatch,
-    // the only place this ref is reset), can't score the game twice.
-    scoredRef.current = true
-
-    // Scoreboard semantics, derived from `phase.winner` (never `status.kind`
-    // — see describeResult above) and the seat kinds, are mode-dependent:
-    //  - one-player (exactly one human seat): win/loss/draw is from that
-    //    human's point of view — a win for the engine is a loss for them.
-    //  - two-player (both seats human, e.g. hotseat): there's no single
-    //    human perspective to score from, so per this feature's ruling any
-    //    decisive result (someone won) counts as a "win" and a draw counts
-    //    as a "draw" — the scoreboard becomes a games-played/draws tally.
-    //  - zero-player (both seats engine): no human played, so the game is
-    //    not scored at all — counting it would make the scoreboard
-    //    meaningless.
-    const whiteHuman = snapshot.config.white.kind === 'human'
-    const blackHuman = snapshot.config.black.kind === 'human'
-    if (!whiteHuman && !blackHuman) return
-    const next = { ...score }
-    if (whiteHuman && blackHuman) {
-      if (snapshot.phase.winner === null) next.draws++
-      else next.wins++
-    } else {
-      const humanSide: Color = whiteHuman ? 'w' : 'b'
-      if (snapshot.phase.winner === null) next.draws++
-      else if (snapshot.phase.winner === humanSide) next.wins++
-      else next.losses++
-    }
-    setScore(next)
-    saveScore(next)
-    clearInProgress()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [snapshot.phase])
-
-  // A game is recorded once, the moment its finish is OBSERVED LIVE — never
-  // for an already-finished game that was imported, resumed or replayed
-  // (loadMatch sets recordedRef accordingly), and never twice for the same
-  // finish (recordedRef, like scoredRef above, guards a re-render or a
-  // redo landing back on the same finished `phase`).
-  useEffect(() => {
-    if (snapshot.phase.kind !== 'finished' || recordedRef.current) return
-    recordedRef.current = true
-    const entry = historyEntryFor({
-      phase: snapshot.phase,
-      game,
-      config: snapshot.config,
-      opening: finalOpeningName,
-      now: new Date(),
-      id: newHistoryId(),
-    })
-    if (!entry) return
-    setHistory(addHistoryEntry(entry))
-    historyRef.current = { id: entry.id, key: reviewKeyOf(game) }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [snapshot.phase])
 
   // ---- match lifecycle ------------------------------------------------------
 
