@@ -1,0 +1,243 @@
+/* ------------------------------------------------------------------
+   Puzzle screen. Reuses the app's shell (.app header, .layout grid,
+   .controls card, buttons, selects) and only adds what puzzles need.
+   All colours come from the design tokens in app.css.
+   ------------------------------------------------------------------ */
+
+/* Header: sits where the game's status row does, right of the brand. */
+.puzzle-toolbar {
+  grid-column: 2;
+  grid-row: 1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: flex-end;
+  margin: 0 0 20px;
+  min-width: 0;
+}
+
+.puzzle-theme-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9em;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.puzzle-screen .puzzle-toolbar button[data-testid='puzzle-exit'] {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--bg);
+}
+.puzzle-screen .puzzle-toolbar button[data-testid='puzzle-exit']:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--ink) 85%, var(--brass));
+  border-color: color-mix(in srgb, var(--ink) 85%, var(--brass));
+}
+
+/* Info cards (left column) */
+.puzzle-info p {
+  margin: 0;
+}
+
+.puzzle-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-card);
+  box-sizing: border-box;
+  min-width: 0;
+}
+
+.puzzle-label,
+.puzzle-facts dt {
+  font-size: 0.8em;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.puzzle-rating-line {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.puzzle-big {
+  font-family: var(--font-display);
+  font-size: 1.9rem;
+  font-weight: 700;
+  font-variation-settings: 'opsz' 48;
+  letter-spacing: -0.02em;
+  line-height: 1;
+  color: var(--ink);
+}
+
+/* The side to move: the same brass pill as the game header's turn. */
+.puzzle-side {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px 6px 10px;
+  border-radius: 999px;
+  background: var(--brass-soft);
+  color: var(--brass-ink);
+  font-weight: 700;
+}
+.puzzle-side::before {
+  content: '';
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 1px solid var(--line-strong);
+  background: #f7f7f5;
+}
+.puzzle-side.black::before {
+  background: #20242b;
+}
+
+.puzzle-status {
+  font-weight: 600;
+  min-height: 1.45em;
+}
+.puzzle-status.phase-solved {
+  color: var(--brass-ink);
+}
+.puzzle-status.phase-failed {
+  color: var(--danger);
+}
+
+.puzzle-facts {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+.puzzle-facts div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.puzzle-facts dd {
+  margin: 0;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Loading / empty / error notices in the board column */
+.puzzle-message {
+  width: 100%;
+  max-width: 640px;
+  margin: 0;
+  padding: 16px 18px;
+  box-sizing: border-box;
+  text-align: center;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-card);
+  color: var(--muted);
+}
+
+.puzzle-error {
+  color: var(--danger);
+  background: var(--danger-soft);
+  border-color: color-mix(in srgb, var(--danger) 45%, transparent);
+}
+
+/* Buttons under the board */
+.puzzle-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+}
+.puzzle-controls button {
+  flex: 1 1 110px;
+}
+
+.puzzle-panel .hint-text {
+  padding-top: 0;
+  text-align: center;
+}
+.puzzle-panel .hint-text:empty {
+  display: none;
+}
+
+.app button[data-testid='puzzle-hint']:not(:disabled) {
+  background: var(--brass);
+  border-color: var(--brass);
+  color: var(--on-brass);
+}
+.app button[data-testid='puzzle-hint']:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--brass) 88%, #fff);
+  border-color: color-mix(in srgb, var(--brass) 88%, #fff);
+}
+
+.rating-up {
+  color: #1e874b;
+}
+
+.rating-down {
+  color: var(--danger);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .rating-up {
+    color: #5fd08f;
+  }
+}
+:root[data-theme='dark'] .rating-up {
+  color: #5fd08f;
+}
+
+/* Narrow screens: header stacks; who-to-move and status sit above the board. */
+@media (max-width: 768px) {
+  .puzzle-toolbar {
+    grid-column: 1;
+    grid-row: 2;
+    justify-content: space-between;
+    margin-bottom: 12px;
+  }
+  /* Unlike the game, keep the board column a real column (not
+     `display: contents`), and out of the desktop's named grid areas. */
+  .puzzle-screen .board-column {
+    display: flex;
+    grid-area: auto;
+    order: 2;
+  }
+  .puzzle-screen .left-column {
+    order: 1;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 8px;
+  }
+  .puzzle-screen .right-column:empty {
+    display: none;
+  }
+  .puzzle-screen .puzzle-card {
+    padding: 10px 12px;
+    gap: 6px;
+  }
+  .puzzle-you {
+    justify-content: center;
+  }
+  .puzzle-big {
+    font-size: 1.5rem;
+  }
+  .puzzle-facts {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 4px 16px;
+    padding-top: 6px;
+  }
+}

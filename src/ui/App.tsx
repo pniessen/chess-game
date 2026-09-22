@@ -54,6 +54,8 @@ import { reviewRequestFrom, templatedSummary } from '../review/summary'
 import { humanSideOf, resultTagOf } from '../match/result'
 import { HistoryPanel } from './history/HistoryPanel'
 import { historyEntryFor, humanSidesOf, newHistoryId } from './history/record'
+import { PuzzleScreen } from './puzzles/PuzzleScreen'
+import { usePuzzleMode } from './puzzles/usePuzzleMode'
 import { blunderPuzzlesFrom } from '../puzzles/blunders'
 import { addBlunderPuzzles } from '../puzzles/store'
 import { SoundPlayer, soundForTransition, type SoundFrame } from '../sound/sounds'
@@ -285,6 +287,9 @@ function AppInner({
   }, [coach])
 
   const snapshot = useMatch(controller)
+  // Phase 3: game <-> puzzles. Entering pauses a live match through the
+  // controller (no engine moves, no clocks); leaving resumes it.
+  const puzzleMode = usePuzzleMode(controller)
 
   const [selection, setSelection] = useState<SelectionState>({ kind: 'idle' })
   const [orientation, setOrientation] = useState<'white' | 'black'>(settings.orientation)
@@ -773,6 +778,12 @@ function AppInner({
     review.start({ startFen: game.startFen, moves, finalStatus })
   }
 
+  // Rendered INSTEAD of the game UI, after every hook above, so hook order
+  // never changes. The match stays in the controller (paused) meanwhile.
+  if (puzzleMode.screen === 'puzzles') {
+    return <PuzzleScreen onExit={puzzleMode.exit} themeId={settings.themeId} pieceSetId={settings.pieceSetId} />
+  }
+
   // ---- render -----------------------------------------------------------
 
   const highlights: Highlights = {
@@ -917,6 +928,7 @@ function AppInner({
             onTimeControlChange={setTimeControlId}
             onColorChange={setColor}
             onStart={handleNewGame}
+            onPuzzles={puzzleMode.enter}
           />
           <GameIO game={game} onImport={handleImport} />
           <SettingsPanel settings={settings} onChange={updateSettings} />

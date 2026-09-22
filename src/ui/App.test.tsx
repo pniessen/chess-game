@@ -257,3 +257,22 @@ describe('history (Task 13)', () => {
     expect(loadHistory()).toHaveLength(2)
   })
 })
+
+describe('puzzle mode (Phase 3)', () => {
+  beforeEach(() => localStorage.clear())
+
+  // Breaks if the switch loses the game or crashes when the set cannot load (jsdom cannot fetch it).
+  test('Puzzles swaps in the puzzle screen; Back to game returns to the same position', async () => {
+    const { container } = render(<App />)
+    clickSquare(container, 'e2')
+    clickSquare(container, 'e4')
+    fireEvent.click(screen.getByTestId('open-puzzles'))
+    expect(screen.getByTestId('puzzle-screen')).toBeInTheDocument()
+    expect(await screen.findByTestId('puzzle-load-error')).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('puzzle-exit'))
+    expect(screen.queryByTestId('puzzle-screen')).toBeNull()
+    expect(container.querySelector('[data-square="e4"] [data-piece]')).not.toBeNull()
+    expect(screen.getByTestId('turn')).toHaveTextContent(/black/i)
+    expect(screen.getByTestId('ply-count')).toHaveTextContent('1')
+  })
+})

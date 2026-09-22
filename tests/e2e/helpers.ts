@@ -1,4 +1,5 @@
-import type { Page, Route } from '@playwright/test'
+import { expect, type Page, type Route } from '@playwright/test'
+import { PUZZLE_FIXTURE } from '../fixtures/puzzles'
 
 /** One-player game, human White, at the given level. */
 export async function startOnePlayer(page: Page, level = '1'): Promise<void> {
@@ -48,4 +49,14 @@ export async function pinRandom(page: Page, value = 0): Promise<void> {
   await page.addInitScript((v) => {
     Math.random = () => v
   }, value)
+}
+
+/** Serve a known puzzle set instead of the bundled 3,000 (deterministic puzzle specs). */
+export async function servePuzzles(page: Page, data: unknown = PUZZLE_FIXTURE): Promise<void> {
+  await page.route('**/puzzles/puzzles.json', (r) => r.fulfill({ json: data }))
+}
+
+export async function openPuzzles(page: Page): Promise<void> {
+  await page.getByTestId('open-puzzles').click()
+  await expect(page.getByTestId('puzzle-screen')).toBeVisible()
 }

@@ -15,6 +15,7 @@ export function NewGame({
   onTimeControlChange,
   onColorChange,
   onStart,
+  onPuzzles,
 }: {
   mode: Mode
   level: Level
@@ -26,6 +27,7 @@ export function NewGame({
   onTimeControlChange: (id: string) => void
   onColorChange: (color: 'white' | 'black') => void
   onStart: () => void
+  onPuzzles?: () => void
 }) {
   return (
     <div className="new-game">
@@ -89,6 +91,11 @@ export function NewGame({
       <button data-testid="new-game" onClick={onStart}>
         New game
       </button>
+      {onPuzzles ? (
+        <button data-testid="open-puzzles" onClick={onPuzzles}>
+          Puzzles
+        </button>
+      ) : null}
     </div>
   )
 }
