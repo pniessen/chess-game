@@ -1,0 +1,23 @@
+# Netlify hosts the full experience: the same static game as GitHub Pages,
+# plus serverless functions that let Claude write the hints and the review.
+#
+# The functions answer at /api/health, /api/hint and /api/review — the exact
+# paths the browser's CoachClient already calls — so nothing in the app
+# changes. Each function declares its own route (see the `config` export in
+# netlify/functions/*.ts); there are deliberately no redirect rules here,
+# so nothing can shadow them.
+#
+# BASE_PATH is left unset: a Netlify site is served from /, unlike the
+# GitHub Pages project page at /chess-game/. VITE_COACH is left unset too,
+# which means coaching is ON for this build.
+
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "22"
+
+[functions]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"
