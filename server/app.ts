@@ -1,8 +1,7 @@
 import express, { type NextFunction, type Request, type Response } from 'express'
 import { LIMITS, type CoachErrorResponse, type HealthResponse } from '../src/coach/protocol'
-import type { Claude, ClaudeRequest } from './claude'
-import { hintPrompt, reviewPrompt } from './prompts'
-import { parseHintRequest, parseReviewRequest, type Parsed } from './validate'
+import type { Claude } from './claude'
+import { runCoach, type CoachEndpoint } from './coach'
 
 function sendError(res: Response, status: number, error: CoachErrorResponse['error']): void {
   res.status(status).json({ error } satisfies CoachErrorResponse)
@@ -48,28 +47,18 @@ export function createApp(deps: { claude: Claude | null; staticDir?: string | nu
     res.json({ ok: true, claude: deps.claude !== null } satisfies HealthResponse)
   })
 
+  // The pipeline itself lives in ./coach, shared with the Netlify Functions
+  // that serve the public site; this is only its Express adapter. No token
+  // cap here: on a developer's own machine the prompts' own budget applies.
   const relay =
-    <T>(parse: (body: unknown) => Parsed<T>, prompt: (value: T) => ClaudeRequest) =>
+    (endpoint: CoachEndpoint) =>
     async (req: Request, res: Response): Promise<void> => {
-      const parsed = parse(req.body)
-      if (!parsed.ok) {
-        sendError(res, 400, { kind: 'bad-request', message: parsed.error })
-        return
-      }
-      if (!deps.claude) {
-        sendError(res, 503, { kind: 'no-key', message: 'The coach server has no ANTHROPIC_API_KEY.' })
-        return
-      }
-      const result = await deps.claude.complete(prompt(parsed.value))
-      if (!result.ok) {
-        sendError(res, 503, { kind: result.kind, message: result.message })
-        return
-      }
-      res.json({ text: result.text })
+      const outcome = await runCoach(endpoint, req.body, deps.claude)
+      res.status(outcome.status).json(outcome.body)
     }
 
-  app.post('/api/hint', relay(parseHintRequest, hintPrompt))
-  app.post('/api/review', relay(parseReviewRequest, reviewPrompt))
+  app.post('/api/hint', relay('hint'))
+  app.post('/api/review', relay('review'))
 
   app.use('/api', (_req, res) => {
     sendError(res, 404, { kind: 'bad-request', message: 'No such endpoint.' })
