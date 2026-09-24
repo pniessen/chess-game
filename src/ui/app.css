@@ -577,6 +577,17 @@ body {
   position: fixed;
   z-index: 9; /* above panel content, below the promotion picker (10) */
   pointer-events: none;
+  /* Without this, `width: MOVE_PREVIEW_SIZE` (set inline, content-box by
+     default) would only cover the content box — the 6px padding and 1px
+     border on top of it would push the REAL rendered footprint past what
+     clampToViewport (MovePreview.tsx) clamped against, up to 14px per axis
+     (2*(6+1)), silently breaking "never leaves the viewport" right at the
+     edge cases the clamp exists for. border-box makes the inline width the
+     true rendered size, so the shared MOVE_PREVIEW_SIZE constant and this
+     element's actual footprint can't drift apart — the invariant holds by
+     construction, not by convention (there is no global border-box reset
+     in this codebase to lean on). */
+  box-sizing: border-box;
   padding: 6px;
   background: var(--surface);
   border: 1px solid var(--line);

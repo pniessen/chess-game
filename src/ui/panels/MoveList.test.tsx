@@ -129,6 +129,22 @@ describe('MoveList position preview', () => {
     expect(preview).toHaveTextContent('Position after e4')
   })
 
+  test('the triggering move is aria-describedby the preview, so a screen reader announces it on focus', () => {
+    render(<MoveList moves={twoMoves} currentPly={2} onJump={vi.fn()} />)
+    const button = screen.getByTestId('move-1')
+    expect(button).not.toHaveAttribute('aria-describedby')
+
+    fireEvent.mouseEnter(button)
+    const preview = screen.getByTestId('move-preview')
+    expect(button).toHaveAttribute('aria-describedby', preview.id)
+    expect(preview.id).toBeTruthy()
+
+    // A move NOT showing its own preview never points at someone else's.
+    fireEvent.mouseEnter(screen.getByTestId('move-2'))
+    expect(button).not.toHaveAttribute('aria-describedby')
+    expect(screen.getByTestId('move-2')).toHaveAttribute('aria-describedby', preview.id)
+  })
+
   test('moving the mouse off the move hides the preview', () => {
     render(<MoveList moves={twoMoves} currentPly={2} onJump={vi.fn()} />)
     const button = screen.getByTestId('move-1')

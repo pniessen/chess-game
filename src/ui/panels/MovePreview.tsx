@@ -9,12 +9,23 @@ import { boardTheme } from '../themes'
 import '../Board/board.css'
 
 /**
- * Fixed popover size, in px. Shared between the inline style (below) and the
- * viewport-clamping math in MovePreviewPopover, so the two can never drift
- * out of sync with each other.
+ * Fixed popover size, in px — the FULL rendered footprint (border box), not
+ * just the content box. It's used two places that both have to agree on
+ * what it means: the inline `width` below, and clampToViewport's "does this
+ * fit" math. `.move-preview` (app.css) is deliberately `box-sizing:
+ * border-box` (this codebase has no global border-box reset to lean on) so
+ * that inline width really is the element's whole footprint, padding and
+ * border included — without that, the clamp would be checking a number
+ * smaller than what's actually on screen, and the real box could sit past
+ * the viewport edge by exactly the padding+border it forgot to account for.
  */
 export const MOVE_PREVIEW_SIZE = 168
 const MARGIN = 8
+
+/** Referenced by both the popover (as its `id`) and the triggering move
+ * button (as `aria-describedby`), so a screen reader announces the preview
+ * on focus instead of silently doing nothing with an unreferenced tooltip. */
+export const MOVE_PREVIEW_ID = 'move-preview-popover'
 
 /**
  * A small, non-interactive board for one FEN. Reuses `.board`/`.square`
@@ -119,6 +130,7 @@ export function MovePreviewPopover({
 
   return (
     <div
+      id={MOVE_PREVIEW_ID}
       className="move-preview"
       data-testid="move-preview"
       role="tooltip"

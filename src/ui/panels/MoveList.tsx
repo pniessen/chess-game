@@ -3,7 +3,7 @@ import type { PlayedMove } from '../../game-core/types'
 import { moveQualityTitle, type MoveQuality } from '../review/reviewView'
 import { MARK } from '../../review/summary'
 import { toMovePairs } from './movePairs'
-import { MovePreviewPopover } from './MovePreview'
+import { MOVE_PREVIEW_ID, MovePreviewPopover } from './MovePreview'
 
 /**
  * `ply-count` is deliberately NOT rendered here (see App.tsx): a <span> is
@@ -64,6 +64,13 @@ export function MoveList({
         data-testid={`move-${e.ply}`}
         onClick={() => jump(e.ply)}
         disabled={disabled}
+        // Only set while THIS move's own preview is showing — an
+        // aria-describedby pointing at an id that isn't in the document
+        // (every other move, the rest of the time) would be worse than
+        // none, and is what lets a screen reader actually announce the
+        // preview on focus instead of silently ignoring an unreferenced
+        // role="tooltip".
+        aria-describedby={previewPly === e.ply ? MOVE_PREVIEW_ID : undefined}
         onMouseEnter={() => showPreview(e.ply)}
         onMouseLeave={() => hidePreview(e.ply)}
         onFocus={() => showPreview(e.ply)}
