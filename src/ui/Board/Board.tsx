@@ -2,13 +2,15 @@ import type { CSSProperties } from 'react'
 import { useRef } from 'react'
 import { flushSync } from 'react-dom'
 import type { Position } from '../../game-core/position'
-import type { Color, PieceSymbol, Square as SquareName } from '../../game-core/types'
+import type { Color, PieceSymbol, PlayedMove, Square as SquareName } from '../../game-core/types'
 import type { Annotation } from './annotations'
 import { BoardOverlay } from './BoardOverlay'
+import { FlightLayer } from './FlightLayer'
 import { Piece } from './Piece'
 import { Square } from './Square'
 import { filesInOrder, ranksInOrder, squaresInOrder } from './squares'
 import { useDragMove } from './useDragMove'
+import { useMoveFlight } from './useMoveFlight'
 import { boardTheme } from '../themes'
 import './board.css'
 
@@ -30,6 +32,8 @@ export function Board({
   annotations = [],
   theme = 'classic',
   pieceSet = 'rhosgfx',
+  lastPlayed = null,
+  cutKey = 0,
 }: {
   position: Position
   orientation: 'white' | 'black'
@@ -45,6 +49,19 @@ export function Board({
   theme?: string
   /** Piece set id (see pieceSets.ts); unknown ids fall back to Rhosgfx. */
   pieceSet?: string
+  /**
+   * The move that produced `position`. When the previously rendered
+   * position is exactly the one before it, the board slides the pieces into
+   * place; anything else is drawn instantly. Purely cosmetic — the position
+   * prop alone decides what is on the board.
+   */
+  lastPlayed?: PlayedMove | null
+  /**
+   * Bump this to make the next position change cut rather than animate:
+   * history browsing, undo and redo all land on a position that can look
+   * exactly like "one move later" (see useMoveFlight).
+   */
+  cutKey?: unknown
 }) {
   // A real two-click sequence works because each click is its own React
   // event: App's onSquareClick closure re-created with fresh `selection`
@@ -99,6 +116,9 @@ export function Board({
   const legal = new Set(highlights.legal ?? [])
   const captures = new Set(highlights.captures ?? [])
 
+  const flight = useMoveFlight({ fen: position.fen(), pieces, orientation, lastPlayed, cutKey })
+  const arriving = new Set(flight?.arriving ?? [])
+
   return (
     <div
       className={`board-frame ${orientation}`}
@@ -130,14 +150,26 @@ export function Board({
           if (highlights.lastMove?.includes(name)) classes.push('last-move')
           if (highlights.check === name) classes.push('check')
           if (draggingSquare === name) classes.push('dragging')
+          if (arriving.has(name)) classes.push('arriving')
           const piece = pieces.get(name)
           return (
             <Square key={name} name={name} classes={classes} onClick={handleSquareClick}>
-              {piece ? <Piece color={piece.color} type={piece.type} pieceSet={pieceSet} /> : null}
+              {/* Keyed by piece so a square whose occupant changes (a
+                  capture) gets a fresh <img>, and so restarts the
+                  "wait, then appear" animation of an arrival. */}
+              {piece ? (
+                <Piece
+                  key={`${piece.color}${piece.type}`}
+                  color={piece.color}
+                  type={piece.type}
+                  pieceSet={pieceSet}
+                />
+              ) : null}
             </Square>
           )
         })}
         <BoardOverlay annotations={annotations} orientation={orientation} />
+        {flight ? <FlightLayer flight={flight} orientation={orientation} pieceSet={pieceSet} /> : null}
       </div>
       <div className="coords coords-files" aria-hidden="true">
         {filesInOrder(orientation).map((f) => (

@@ -174,6 +174,8 @@ function AppInner({
               annotations={[...hints.annotations, ...reviewAnnotations(reviewed, game.ply)]}
               theme={settings.themeId}
               pieceSet={settings.pieceSetId}
+              lastPlayed={lastMove ?? null}
+              cutKey={input.cutKey}
             />
           </div>
           <span className="sr-only" data-testid="ply-count">
@@ -210,8 +212,17 @@ function AppInner({
             onResign={input.handleResign}
             onHint={handleHint}
             onPause={() => controller.pause()}
-            onResume={() => controller.resume()}
-            onStep={() => controller.step()}
+            onResume={() => {
+              // Both snap the display back to the live ply, which can be
+              // exactly one move on from the browsed position: a jump, not
+              // a move, so the board cuts to it.
+              input.cut()
+              controller.resume()
+            }}
+            onStep={() => {
+              input.cut()
+              controller.step()
+            }}
             onSpeedChange={(ms) => controller.setSpeed(ms)}
           />
           <NewGame

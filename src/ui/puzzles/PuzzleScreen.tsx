@@ -20,6 +20,7 @@ import type { BlunderPuzzle, RatedPuzzle } from '../../puzzles/types'
 import { MistakesList } from './MistakesList'
 import { usePuzzleSession } from './usePuzzleSession'
 import {
+  lastPlayedMoveOf,
   mistakeOriginText,
   nextMistake,
   puzzleAnnotations,
@@ -168,6 +169,9 @@ export function PuzzleScreen({
   }, [current, phase])
 
   const position = useMemo(() => (session ? positionOf(session) : null), [session])
+  // Memoised on the session so the board sees one stable move record per
+  // step, not a fresh one on every render.
+  const played = useMemo(() => (session ? lastPlayedMoveOf(session) : null), [session])
   const solver = spec ? solverColorOf(spec) : 'w'
   const last = session ? lastMoveOf(session) : null
   const status = position?.status()
@@ -337,6 +341,7 @@ export function PuzzleScreen({
                 annotations={puzzleAnnotations(session, puzzle.hintStage)}
                 theme={themeId}
                 pieceSet={pieceSetId}
+                lastPlayed={played}
               />
             </div>
           ) : null}

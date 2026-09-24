@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest'
 import {
   hintSuggestionOf,
+  lastPlayedMoveOf,
   mistakeOriginText,
   nextMistake,
   puzzleAnnotations,
@@ -108,5 +109,28 @@ describe('nextMistake', () => {
     expect(nextMistake(solved, 'b')?.id).toBe('c')
     expect(nextMistake(solved, 'd')?.id).toBe('a')
     expect(nextMistake([], null)).toBeNull()
+  })
+})
+
+// The board animates a puzzle move the same way it animates a game move,
+// so it needs the whole move record, not just the two squares lastMoveOf
+// reports.
+describe('lastPlayedMoveOf', () => {
+  test('is null before anything has been played', () => {
+    expect(lastPlayedMoveOf(startSession(DEF))).toBeNull()
+  })
+
+  test('reports the setup move the opponent just made', () => {
+    const move = lastPlayedMoveOf(ready)
+    expect(move?.from).toBe(DEF.setup?.slice(0, 2))
+    expect(move?.to).toBe(DEF.setup?.slice(2, 4))
+    expect(move?.san).toBeTruthy()
+  })
+
+  test("reports the solver's own move, with its capture detail", () => {
+    const move = lastPlayedMoveOf(solved)
+    expect([move?.from, move?.to]).toEqual(['f6', 'd8'])
+    expect(move?.isCapture).toBe(true)
+    expect(move?.captured).toBe('q')
   })
 })

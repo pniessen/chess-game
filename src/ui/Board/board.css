@@ -28,6 +28,10 @@
   position: relative; /* anchors the annotation overlay (Task 2) */
   user-select: none;
   touch-action: none; /* let us handle touch drags ourselves */
+  /* One move in the air. Kept in step with FLIGHT_MS in useMoveFlight.ts,
+     which is what clears the state once the piece has landed. */
+  --flight-ms: 200ms;
+  --flight-ease: cubic-bezier(0.22, 0.68, 0.32, 1);
 }
 .coords {
   display: flex;
@@ -81,6 +85,54 @@
   filter: drop-shadow(0 2px 1.5px rgba(0, 0, 0, 0.22));
 }
 .square.dragging .piece { opacity: 0.35; }
+
+/* ------------------------------------------------------------------
+   Moving pieces (Task 1)
+
+   The board under this layer is ALWAYS the true position. A move adds
+   stand-in pieces on top, starting a square (or several) away and sliding
+   home, while the real arriving piece waits invisible underneath. Every
+   animation here ends on the element's natural, correct state — and none
+   of them fill forwards onto the real pieces — so dropping the layer at
+   any instant (a second move, an undo, a flip, a new game, an unmount)
+   leaves the board correct and can never strand a piece.
+   ------------------------------------------------------------------ */
+.flight-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 3; /* above the squares and the annotation overlay */
+  pointer-events: none; /* clicks and drags pass through to the squares */
+}
+.flight-piece {
+  position: absolute;
+  width: 12.5%;
+  height: 12.5%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  will-change: transform;
+}
+/* Laid out on its destination square; --fx/--fy (set inline, in squares)
+   offset it back to where it started. */
+.flight-piece.flight-mover { animation: flight-slide var(--flight-ms) var(--flight-ease) forwards; }
+.flight-piece.flight-captured { animation: flight-capture var(--flight-ms) ease-out forwards; }
+
+@keyframes flight-slide {
+  from { transform: translate(calc(var(--fx) * 100%), calc(var(--fy) * 100%)); opacity: 1; }
+  99% { transform: none; opacity: 1; }
+  /* Hands over to the real piece underneath on the very last frame, so a
+     promotion swaps to its new piece exactly as the pawn lands. */
+  to { transform: none; opacity: 0; }
+}
+@keyframes flight-capture {
+  from { opacity: 1; transform: none; }
+  to { opacity: 0; transform: scale(0.82); }
+}
+/* The real piece waits, invisible, and appears when the slide lands.
+   step-end holds opacity 0 for the whole run; the animation does not fill,
+   so the moment it ends (or is removed) the piece is simply visible. */
+.square.arriving .piece { animation: piece-arrive var(--flight-ms) step-end; }
+@keyframes piece-arrive { from { opacity: 0; } }
 
 .board-overlay {
   position: absolute;
@@ -166,4 +218,8 @@
 @media (prefers-reduced-motion: reduce) {
   .square.legal::after, .eval-bar-white, .promotion button { transition: none; }
   .square.legal:hover::after, .promotion button:hover { transform: none; }
+  /* Moves cut, exactly as they did before Task 1: nothing flies, and the
+     real piece is never held back. */
+  .flight-layer { display: none; }
+  .flight-piece.flight-mover, .flight-piece.flight-captured, .square.arriving .piece { animation: none; }
 }

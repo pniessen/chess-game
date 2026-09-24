@@ -54,4 +54,39 @@ describe('useMoveInput', () => {
     expect(hook.result.current.canRedo).toBe(false)
     expect(hook.result.current.selection.kind).toBe('idle')
   })
+
+  // The board animates a move by comparing the position it is showing with
+  // the one it is handed. Undo, redo and a jump can all hand it a position
+  // that is exactly one ply on — indistinguishable from a move — so each
+  // bumps `cutKey` to say "snap to this, do not animate into it".
+  test('undo, redo, a jump and a reset each ask the board to cut', () => {
+    const { hook } = setup()
+    act(() => hook.result.current.onSquareClick('e2'))
+    act(() => hook.result.current.onSquareClick('e4'))
+    const afterMove = hook.result.current.cutKey
+
+    act(() => hook.result.current.handleUndo())
+    const afterUndo = hook.result.current.cutKey
+    expect(afterUndo).not.toBe(afterMove)
+
+    act(() => hook.result.current.handleRedo())
+    const afterRedo = hook.result.current.cutKey
+    expect(afterRedo).not.toBe(afterUndo)
+
+    act(() => hook.result.current.handleJump(0))
+    const afterJump = hook.result.current.cutKey
+    expect(afterJump).not.toBe(afterRedo)
+
+    act(() => hook.result.current.resetInput())
+    expect(hook.result.current.cutKey).not.toBe(afterJump)
+  })
+
+  // The whole point: a played move must look different from a jump.
+  test('playing a move leaves cutKey alone, so the move animates', () => {
+    const { hook } = setup()
+    const before = hook.result.current.cutKey
+    act(() => hook.result.current.onSquareClick('e2'))
+    act(() => hook.result.current.onSquareClick('e4'))
+    expect(hook.result.current.cutKey).toBe(before)
+  })
 })

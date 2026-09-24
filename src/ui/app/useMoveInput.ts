@@ -12,6 +12,16 @@ import { resignableSide } from './matchText'
 export function useMoveInput(controller: MatchController, snapshot: MatchSnapshot) {
   const [selection, setSelection] = useState<SelectionState>({ kind: 'idle' })
   const [canRedo, setCanRedo] = useState(false)
+  /**
+   * Bumped by everything that changes the displayed position WITHOUT a move
+   * being played. Undo, redo and a history jump can all land one ply on
+   * from the position the board is showing — which is exactly what a played
+   * move looks like — so the board is told to cut rather than animate (see
+   * Board's `cutKey` and useMoveFlight). Purely cosmetic: nothing here
+   * gates, delays or reorders the controller calls below.
+   */
+  const [cutKey, setCutKey] = useState(0)
+  const cut = () => setCutKey((n) => n + 1)
   const game = snapshot.game
   const position = game.current()
 
@@ -19,6 +29,7 @@ export function useMoveInput(controller: MatchController, snapshot: MatchSnapsho
   const resetInput = () => {
     setCanRedo(false)
     setSelection({ kind: 'idle' })
+    cut()
   }
 
   const apply = (
@@ -39,6 +50,7 @@ export function useMoveInput(controller: MatchController, snapshot: MatchSnapsho
 
   const handleUndo = () => {
     if (game.moves.length === 0) return
+    cut()
     controller.undo()
     setCanRedo(true)
     setSelection({ kind: 'idle' })
@@ -46,6 +58,7 @@ export function useMoveInput(controller: MatchController, snapshot: MatchSnapsho
 
   const handleRedo = () => {
     if (!canRedo) return
+    cut()
     // The controller owns this: it re-derives `phase` from the position
     // redo() lands on (e.g. back onto a checkmate), not just the move data.
     const restored = controller.redo()
@@ -60,6 +73,7 @@ export function useMoveInput(controller: MatchController, snapshot: MatchSnapsho
   // enforces, rather than trusting the click to just no-op silently.
   const handleJump = (ply: number) => {
     if (snapshot.phase.kind === 'engine-thinking') return
+    cut()
     controller.goTo(ply)
   }
 
@@ -82,6 +96,9 @@ export function useMoveInput(controller: MatchController, snapshot: MatchSnapsho
   return {
     selection,
     canRedo,
+    cutKey,
+    /** Snap the board to its next position instead of animating into it. */
+    cut,
     resetInput,
     onSquareClick,
     choosePromotion,

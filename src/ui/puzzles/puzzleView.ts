@@ -1,7 +1,8 @@
 import type { HintSuggestion } from '../../coach/hints'
 import { uciToIntent } from '../../engine/uci'
-import type { Color } from '../../game-core/types'
+import type { Color, PlayedMove } from '../../game-core/types'
 import { expectedMove, lastMoveOf, positionOf, type PuzzleSession } from '../../puzzles/session'
+import { positionAfter } from '../../puzzles/spec'
 import type { BlunderPuzzle } from '../../puzzles/types'
 import type { Annotation } from '../Board/annotations'
 import { hintAnnotations, hintText } from '../hints/hintView'
@@ -47,6 +48,24 @@ export function hintSuggestionOf(s: PuzzleSession): HintSuggestion | null {
     piece: played.move.piece,
     lines: [],
   }
+}
+
+/**
+ * The last move of the line as a full move record, replayed from the spec
+ * — `lastMoveOf` only reports its two squares, and the board needs the
+ * capture, castle and promotion detail to animate it. Null when there is
+ * no move yet or the line does not replay (a corrupt spec is never shown,
+ * and degrades to no animation rather than throwing).
+ */
+export function lastPlayedMoveOf(s: PuzzleSession): PlayedMove | null {
+  const uci = s.played[s.played.length - 1]
+  if (uci === undefined) return null
+  const before = positionAfter(s.spec.fen, s.played.slice(0, -1))
+  const intent = uciToIntent(uci)
+  if (!before || !intent) return null
+  // `before` is this call's own Position, so playing on it mutates nothing.
+  const played = before.tryMove(intent)
+  return played.ok ? played.move : null
 }
 
 export function puzzleAnnotations(s: PuzzleSession, stage: PuzzleHintStage): Annotation[] {

@@ -1,9 +1,5 @@
 import type { Color, PieceSymbol } from '../../game-core/types'
-import { pieceImageSrc } from '../pieceSets'
-
-const LETTER: Record<PieceSymbol, string> = {
-  p: 'P', n: 'N', b: 'B', r: 'R', q: 'Q', k: 'K',
-}
+import { pieceCode, pieceImageSrc } from '../pieceSets'
 
 /** `pieceSet` is a piece-set id (see pieceSets.ts); unknown ids fall back to Rhosgfx. */
 export function Piece({
@@ -15,7 +11,7 @@ export function Piece({
   type: PieceSymbol
   pieceSet?: string
 }) {
-  const code = `${color === 'w' ? 'w' : 'b'}${LETTER[type]}`
+  const code = pieceCode(color, type)
   return (
     <img
       className="piece"

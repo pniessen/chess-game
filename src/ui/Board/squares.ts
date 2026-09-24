@@ -31,3 +31,15 @@ export function isLightSquare(square: Square): boolean {
   const rank = Number(square[1])
   return (file + rank) % 2 === 0
 }
+
+/**
+ * A square's column and row in the 8x8 grid AS THE VIEWER SEES IT
+ * (0,0 = top-left). The flight layer positions airborne pieces with it.
+ */
+export function squareCell(square: Square, orientation: 'white' | 'black'): { col: number; row: number } {
+  const file = square.charCodeAt(0) - 97 // a = 0
+  const rank = Number(square[1]) // 1..8
+  return orientation === 'white'
+    ? { col: file, row: 8 - rank }
+    : { col: 7 - file, row: rank - 1 }
+}
