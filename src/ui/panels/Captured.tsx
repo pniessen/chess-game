@@ -64,7 +64,13 @@ export function Captured({
       {/* Pieces WHITE has captured (i.e. black material taken) sit by white's tray. */}
       <Tray pieces={captured.w} testId="captured-by-white" color="b" pieceSet={pieceSet} />
       {balance !== 0 ? (
-        <span className="material-balance" data-testid="material-balance">
+        // Keyed by the balance itself (Task 11): when it changes value —
+        // a new capture, or scrubbing history to a ply with a different
+        // balance — React mounts a fresh node instead of patching the text
+        // of the old one, which is what lets the CSS entrance animation
+        // (app.css) replay for the new lead. Purely presentational: the
+        // number itself still comes straight from materialBalance.
+        <span key={balance} className="material-balance" data-testid="material-balance">
           {balance > 0 ? `White +${balance}` : `Black +${-balance}`}
         </span>
       ) : null}
