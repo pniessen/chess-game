@@ -158,6 +158,25 @@ describe('the game-end card', () => {
     expect(screen.getByTestId('new-game')).toHaveFocus()
   })
 
+  // Final-review fix: the card has no backdrop and the board stays
+  // mouse-live, so a board-square click (a plain, non-focusable div) drops
+  // focus to <body> without the in-card `onKeyDown` ever seeing the
+  // Escape that follows — nothing bubbles through an unfocused element.
+  // The document-level fallback (see the class comment) dismisses anyway.
+  test('Escape dismisses it even when focus has drifted outside the card', () => {
+    const { container } = render(<App />)
+    playMate(container)
+    const card = screen.getByTestId('game-end-card')
+    expect(card).toHaveFocus()
+
+    card.blur()
+    expect(document.body).toHaveFocus()
+
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.queryByTestId('game-end-card')).not.toBeInTheDocument()
+    expect(screen.getByTestId('new-game')).toHaveFocus()
+  })
+
   // Red if the opener is captured again on Strict Mode's SECOND effect pass,
   // when the card itself already holds focus: restoring to the card that is
   // about to unmount drops focus onto <body>. (The real app renders inside

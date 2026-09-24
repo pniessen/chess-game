@@ -113,6 +113,45 @@ describe('keyboard shortcuts', () => {
     expect(container.querySelector('.board')?.className.includes('black')).toBeFalsy()
   })
 
+  // Final-review fix: the game-end card is non-modal by design, so
+  // navigation should keep working behind it — but it used to block
+  // navigation too (via the old, single `overlayOpen` gate), and worse: a
+  // board-square click (which drops focus to `<body>` — squares are plain,
+  // non-focusable divs) left Escape unable to reach the card's own
+  // `onKeyDown` at all, since nothing bubbles through an unfocused
+  // element. Both are fixed: `cardOpen` lets Left/Right/Home/End through
+  // while blocking `f`, and GameEndCard's new document-level Escape
+  // fallback dismisses it regardless of where focus has drifted.
+  test('while the game-end card is open, move browsing still works but other shortcuts wait for it', () => {
+    const { container } = render(<App />)
+    clickSquare(container, 'e2')
+    clickSquare(container, 'e4')
+    fireEvent.click(screen.getByTestId('resign'))
+    const card = screen.getByTestId('game-end-card')
+    expect(card).toBeInTheDocument()
+    expect(screen.getByTestId('move-1')).toHaveClass('current')
+
+    fireEvent.keyDown(document, { key: 'ArrowLeft' })
+    expect(screen.getByTestId('move-1')).not.toHaveClass('current')
+
+    const isFlipped = () => container.querySelector('.board')?.className.includes('black')
+    fireEvent.keyDown(document, { key: 'f' })
+    expect(isFlipped()).toBeFalsy()
+
+    // A board-square click drops focus to <body> (squares are plain,
+    // non-focusable divs); simulate that directly since jsdom's
+    // `fireEvent.click` does not itself move `document.activeElement`.
+    card.blur()
+    expect(document.body).toHaveFocus()
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.queryByTestId('game-end-card')).not.toBeInTheDocument()
+    expect(screen.getByTestId('new-game')).toHaveFocus()
+
+    // The card is gone: 'f' now works again.
+    fireEvent.keyDown(document, { key: 'f' })
+    expect(isFlipped()).toBeTruthy()
+  })
+
   test('shortcuts do not fire while the settings popover owns the keyboard', () => {
     render(<App />)
     fireEvent.click(screen.getByTestId('settings-toggle'))

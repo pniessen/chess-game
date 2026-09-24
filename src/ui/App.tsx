@@ -232,14 +232,17 @@ function AppInner({
     puzzleMode.enter()
   }
 
-  // Task 13: the app-wide keyboard shortcuts. `overlayOpen` covers every
-  // overlay that isn't already gated some other way here: the settings
-  // popover (whose own open state this reports up via onOpenChange) and the
-  // game-end card. The promotion picker and this hook's own shortcuts
-  // overlay are passed separately (see useShortcuts).
+  // Task 13: the app-wide keyboard shortcuts. `overlayOpen` is the settings
+  // popover (whose own open state this reports up via onOpenChange) — a
+  // true modal for this hook's purposes. The game-end card is passed
+  // separately as `cardOpen`: it is non-modal by design (see GameEndCard's
+  // doc comment), so useShortcuts lets the navigation keys through while it
+  // is open and blocks only the rest. The promotion picker and this hook's
+  // own shortcuts overlay are passed separately too (see useShortcuts).
   const shortcuts = useShortcuts({
     active: puzzleMode.screen === 'game',
-    overlayOpen: settingsOpen || endCard.open,
+    overlayOpen: settingsOpen,
+    cardOpen: endCard.open,
     promotionOpen: selection.kind === 'awaiting-promotion',
     hintDisabled,
     currentPly: game.ply,

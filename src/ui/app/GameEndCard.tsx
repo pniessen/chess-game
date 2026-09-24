@@ -20,6 +20,21 @@ const FOCUSABLE = 'button:not(:disabled), [href], [tabindex]:not([tabindex="-1"]
  * behind stays mouse-interactive — and it would hide the final position
  * from a screen reader until the card was dismissed. The focus trap is what
  * keeps the keyboard inside it.
+ *
+ * Final-review fix: because there is no backdrop and the board stays
+ * mouse-live, one click on a board square (which no longer makes a move —
+ * the game is over — but still moves focus) drops focus onto `<body>`.
+ * From there the in-card `onKeyDown` below never even sees an Escape
+ * keystroke (nothing bubbles through an element that isn't focused), so
+ * the card became silently stuck: Escape did nothing, Tab walked the page
+ * behind it, and — because `overlayOpen` in App.tsx includes this card's
+ * `open` state — every other keyboard shortcut was dead too, with no
+ * keyboard way back except finding Dismiss with the mouse.
+ * ShortcutsOverlay hit the identical shape (its backdrop click blurs focus
+ * the same way) and fixed it the same way: a `document`-level Escape
+ * listener, added only while this card is mounted, that calls the exact
+ * same `restoreFocus()` + `onDismiss()` the in-card Escape handler uses —
+ * so Escape dismisses correctly no matter where focus has drifted.
  */
 export function GameEndCard({
   headline,
@@ -92,11 +107,29 @@ export function GameEndCard({
     [restoreFocus],
   )
 
+  const dismiss = useCallback(() => {
+    restoreFocus()
+    onDismiss()
+  }, [restoreFocus, onDismiss])
+
+  // Document-level fallback: catches Escape even when focus has ended up
+  // outside the card (a board-square click, see the class comment above),
+  // so it never depends on the React `onKeyDown` below actually receiving
+  // the event. When focus IS inside the card, that handler's own
+  // `e.stopPropagation()` fires first and this listener never sees the
+  // keystroke at all.
+  useEffect(() => {
+    const onDocumentKeyDown = (e: globalThis.KeyboardEvent) => {
+      if (e.key === 'Escape') dismiss()
+    }
+    document.addEventListener('keydown', onDocumentKeyDown)
+    return () => document.removeEventListener('keydown', onDocumentKeyDown)
+  }, [dismiss])
+
   const handleKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.key === 'Escape') {
       e.stopPropagation()
-      restoreFocus()
-      onDismiss()
+      dismiss()
       return
     }
     if (e.key !== 'Tab') return

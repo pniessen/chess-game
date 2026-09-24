@@ -179,6 +179,38 @@ test('focus is trapped in the card, and Escape dismisses it', async ({ page }) =
   await expect(page.getByTestId('result')).toContainText(/checkmate/i)
 })
 
+// Final-review fix. Red if a board click (which drops focus to <body> — the
+// squares are plain, non-focusable divs, and the card has no backdrop to
+// catch the click first) leaves Escape unable to dismiss the card, or
+// leaves every other keyboard shortcut dead behind it.
+test('a board click drops focus off the card; Escape still dismisses it, and move browsing still works, from there', async ({ page }) => {
+  await play(page, SCHOLARS_MATE)
+  await expect(page.getByTestId('game-end-card')).toBeFocused()
+
+  // A real click on a board square: no move happens (the game is over),
+  // but it still moves focus off the card.
+  await page.locator('[data-square="e4"]').click()
+  await expect(page.getByTestId('game-end-card')).not.toBeFocused()
+
+  // Non-modal by design: browsing the finished game's move history behind
+  // the card still works from here.
+  await page.keyboard.press('ArrowLeft')
+  await expect(page.getByTestId('move-6')).toHaveClass(/current/)
+  // A letter shortcut, by contrast, waits for the card to be dismissed.
+  const isFlipped = () => document.querySelector('.board')?.className.includes('black')
+  await page.keyboard.press('f')
+  expect(await page.evaluate(isFlipped)).toBe(false)
+
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('game-end-card')).toHaveCount(0)
+  await expect(page.getByTestId('new-game')).toBeFocused()
+  await expect(page.getByTestId('result')).toContainText(/checkmate/i)
+
+  // The card is gone: 'f' now works again.
+  await page.keyboard.press('f')
+  expect(await page.evaluate(isFlipped)).toBe(true)
+})
+
 // Red if Rematch stops keeping the finished game's setup, or leaves the
 // card standing over the new game.
 test('Rematch starts a new game with the same setup, ignoring the panel', async ({ page }) => {

@@ -915,8 +915,11 @@ body {
   position: absolute;
   top: calc(100% + 8px);
   right: 0;
-  /* Above the board's own layers and the game-end card (6); the promotion
-     dialog's backdrop (10) is the only thing that should ever cover it. */
+  /* The app's real stacking order, high to low: the shortcuts overlay's
+     backdrop (40) > this popover (30) > the promotion dialog's backdrop
+     (10) > everything inside the board, including the game-end card (the
+     0-6 pool — see board.css's "Stacking order" comment and the game-end
+     card's own z-index). Only the shortcuts overlay ever covers this. */
   z-index: 30;
   box-sizing: border-box;
   width: 320px;

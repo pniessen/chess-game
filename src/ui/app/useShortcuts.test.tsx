@@ -21,6 +21,7 @@ function Harness(props: Partial<Parameters<typeof useShortcuts>[0]> = {}) {
   const shortcuts = useShortcuts({
     active: true,
     overlayOpen: false,
+    cardOpen: false,
     promotionOpen: false,
     hintDisabled: false,
     currentPly: 2,
@@ -125,6 +126,25 @@ describe('useShortcuts', () => {
     expect(calls().onJump).not.toHaveBeenCalled()
     fireEvent.keyDown(document, { key: 'Escape' })
     expect(calls().onCancelPromotion).toHaveBeenCalledTimes(1)
+  })
+
+  // The game-end card is non-modal (see GameEndCard/useShortcuts' own doc
+  // comments): navigation keeps working while it's up, everything else waits.
+  test('while the game-end card is open, navigation still works but every other shortcut is blocked', () => {
+    render(<Harness cardOpen currentPly={2} totalPlies={4} />)
+    fireEvent.keyDown(document, { key: 'ArrowLeft' })
+    expect(calls().onJump).toHaveBeenCalledWith(1)
+    fireEvent.keyDown(document, { key: 'Home' })
+    expect(calls().onJump).toHaveBeenCalledWith(0)
+
+    fireEvent.keyDown(document, { key: 'f' })
+    expect(calls().onFlip).not.toHaveBeenCalled()
+    fireEvent.keyDown(document, { key: 'u' })
+    expect(calls().onUndo).not.toHaveBeenCalled()
+    fireEvent.keyDown(document, { key: 'p' })
+    expect(calls().onOpenPuzzles).not.toHaveBeenCalled()
+    fireEvent.keyDown(document, { key: '?' })
+    expect(screen.queryByTestId('help-open')).toBeNull()
   })
 
   test('nothing fires while the puzzle screen is active (active: false)', () => {

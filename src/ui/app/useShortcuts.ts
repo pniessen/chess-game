@@ -37,15 +37,24 @@ const NAV_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'Home', 'End'])
  *    shortcuts sharing these letters (Cmd+R, Ctrl+F, ...) are left alone,
  *  - while focus is on a tab button, for Left/Right/Home/End only — every
  *    other shortcut still works from there,
- *  - while ANY overlay owns the keyboard (`overlayOpen`, computed by the
- *    caller from the settings popover / game-end card, or `promotionOpen`,
- *    or this hook's own shortcuts overlay) — except Escape for the
- *    promotion picker, the one overlay with no Escape handling of its own,
+ *  - while a true modal owns the keyboard (`overlayOpen`, computed by the
+ *    caller from the settings popover, or `promotionOpen`, or this hook's
+ *    own shortcuts overlay) — except Escape for the promotion picker, the
+ *    one overlay with no Escape handling of its own,
+ *  - while the game-end card is open (`cardOpen`) — but ONLY for the
+ *    non-navigation shortcuts. The card is deliberately non-modal (no
+ *    backdrop, board still visible and mouse-live behind it — see
+ *    GameEndCard's doc comment), so stepping through the finished game's
+ *    move history with Left/Right/Home/End stays live even with the card
+ *    up; f/u/r/h/p/? still wait for it to be dismissed, since undoing,
+ *    redoing, flipping or opening another overlay while the result is
+ *    still up front is a much bigger surprise than browsing history is,
  *  - while the puzzle screen is showing instead of the game (`active`).
  */
 export function useShortcuts({
   active,
   overlayOpen,
+  cardOpen,
   promotionOpen,
   hintDisabled,
   currentPly,
@@ -60,8 +69,10 @@ export function useShortcuts({
 }: {
   /** False while the puzzle screen is showing instead of the game. */
   active: boolean
-  /** True while the settings popover, the game-end card, or this hook's own overlay owns the keyboard. */
+  /** True while the settings popover or this hook's own overlay owns the keyboard. */
   overlayOpen: boolean
+  /** True while the game-end card is open — blocks every shortcut except navigation; see the class comment above. */
+  cardOpen: boolean
   /** True while the promotion picker is up. */
   promotionOpen: boolean
   hintDisabled: boolean
@@ -97,12 +108,17 @@ export function useShortcuts({
         return
       }
 
-      // A dialog owns the keyboard: every other shortcut is swallowed,
+      // A modal dialog owns the keyboard: every shortcut is swallowed,
       // whether or not focus actually landed inside it (the promotion
       // picker never moves focus into itself).
       if (overlayOpen || helpOpen || promotionOpen) return
 
-      if (NAV_KEYS.has(e.key) && isWithinTab(e.target)) return
+      const isNav = NAV_KEYS.has(e.key)
+      // The game-end card is non-modal: browsing history behind it stays
+      // live, so only the non-navigation shortcuts wait for it to close.
+      if (cardOpen && !isNav) return
+
+      if (isNav && isWithinTab(e.target)) return
 
       switch (e.key) {
         case 'ArrowLeft':
@@ -154,6 +170,7 @@ export function useShortcuts({
   }, [
     active,
     overlayOpen,
+    cardOpen,
     promotionOpen,
     helpOpen,
     hintDisabled,
