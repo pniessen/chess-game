@@ -43,11 +43,14 @@ export function classifyError(err: unknown): FailureKind {
 
 const failure = (kind: FailureKind): ClaudeResult => ({ ok: false, kind, message: MESSAGES[kind] })
 
-export function createClaude(opts: { apiKey?: string; client?: MessagesClient }): Claude {
+export function createClaude(opts: { apiKey?: string; baseURL?: string; client?: MessagesClient }): Claude {
   const client: MessagesClient =
     opts.client ??
     new Anthropic({
       apiKey: opts.apiKey,
+      // Normally undefined, which means Anthropic's own API. The Netlify
+      // deployment passes a base URL when it is using Netlify's AI Gateway.
+      baseURL: opts.baseURL,
       // TypeScript SDK timeouts are in MILLISECONDS. No retries: 15s is the wall-clock bound.
       timeout: CLAUDE_TIMEOUT_MS,
       maxRetries: 0,
