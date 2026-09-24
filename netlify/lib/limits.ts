@@ -172,12 +172,21 @@ export async function reserveBudget(
  * Whether a browser at `origin` may use these endpoints.
  *
  * Only this site and a developer's own machine: the point is that somebody
- * else's page cannot embed a script that spends this key. Netlify sets
- * `URL`, `DEPLOY_PRIME_URL` and `DEPLOY_URL` on every build, which covers
- * production, branch deploys and deploy previews without hard-coding a
- * hostname; `COACH_ALLOWED_ORIGINS` is there for a custom domain.
+ * else's page cannot embed a script that spends this key.
+ *
+ * The rule that does the work is same-origin — `requestUrl` is the address
+ * this very request arrived at, and Netlify only routes its own domains
+ * here, so an Origin equal to it can only be this deployment's own page.
+ * That covers production, branch deploys and previews with no
+ * configuration. The deploy URLs Netlify publishes as `URL`,
+ * `DEPLOY_PRIME_URL` and `DEPLOY_URL` are accepted as well, and
+ * `COACH_ALLOWED_ORIGINS` is there for a custom domain.
  */
-export function isAllowedOrigin(origin: string | null | undefined, env: Record<string, string | undefined>): boolean {
+export function isAllowedOrigin(
+  origin: string | null | undefined,
+  env: Record<string, string | undefined>,
+  requestUrl?: string,
+): boolean {
   if (!origin) return false
   let parsed: URL
   try {
@@ -189,6 +198,7 @@ export function isAllowedOrigin(origin: string | null | undefined, env: Record<s
   if (host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '[::1]') return true
 
   const allowed = new Set<string>()
+  if (requestUrl) addOrigin(allowed, requestUrl)
   for (const name of ['URL', 'DEPLOY_PRIME_URL', 'DEPLOY_URL']) {
     const value = env[name]
     if (value) addOrigin(allowed, value)

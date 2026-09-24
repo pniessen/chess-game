@@ -184,4 +184,10 @@ describe('the origin allow-list', () => {
     expect(isAllowedOrigin('https://chess-coach.netlify.app', {})).toBe(false)
     expect(isAllowedOrigin('http://localhost:5173', {})).toBe(true)
   })
+
+  test("the page served by this very deploy is allowed even with no env at all", () => {
+    const here = 'https://deploy-preview--chess-coach.netlify.app/api/hint'
+    expect(isAllowedOrigin('https://deploy-preview--chess-coach.netlify.app', {}, here)).toBe(true)
+    expect(isAllowedOrigin('https://evil.example', {}, here)).toBe(false)
+  })
 })

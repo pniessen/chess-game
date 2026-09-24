@@ -72,7 +72,7 @@ export async function handleCoach(endpoint: CoachEndpoint, request: Request, dep
 
   // Gate 1: this site only. Browsers send Origin on every cross-origin-capable
   // POST, so a missing one means something that is not this page.
-  if (!isAllowedOrigin(request.headers.get('origin'), deps.env)) {
+  if (!isAllowedOrigin(request.headers.get('origin'), deps.env, request.url)) {
     // No echo of the header: it is attacker-controlled input.
     return errorResponse(403, { kind: 'bad-request', message: 'Forbidden origin.' })
   }
