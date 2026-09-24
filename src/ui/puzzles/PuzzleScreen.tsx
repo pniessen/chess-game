@@ -5,7 +5,8 @@ import { reduceSelection, type SelectionState } from '../Board/selection'
 import type { Square } from '../../game-core/types'
 import { loadPuzzleSet } from '../../puzzles/data'
 import { selectPuzzle } from '../../puzzles/select'
-import { lastMoveOf, positionOf, solverColorOf } from '../../puzzles/session'
+import { positionOf, solverColorOf } from '../../puzzles/session'
+import { highlightsFor } from '../app/highlights'
 import { specOfBlunder, specOfRated, validateSpec } from '../../puzzles/spec'
 import {
   loadBlunderPuzzles,
@@ -173,8 +174,6 @@ export function PuzzleScreen({
   // step, not a fresh one on every render.
   const played = useMemo(() => (session ? lastPlayedMoveOf(session) : null), [session])
   const solver = spec ? solverColorOf(spec) : 'w'
-  const last = session ? lastMoveOf(session) : null
-  const status = position?.status()
   const rated = current?.source === 'rated' ? current.puzzle : null
   const mistake = current?.source === 'mistakes' ? current.puzzle : null
 
@@ -212,15 +211,19 @@ export function PuzzleScreen({
     if (source === 'rated' && set.kind === 'ready') showRated(set.puzzles, next, null)
   }
 
+  // Shared with the main game board (src/ui/app/highlights.ts) rather than
+  // recomputed here — a duplicated `status.kind === 'in-progress'` check
+  // once let the check glow vanish on checkmate on this screen only, while
+  // the main board's copy got fixed. `played` (lastPlayedMoveOf) is the
+  // same move `lastMoveOf` would report, already in the shape highlightsFor
+  // wants.
   const highlights: Highlights = position
-    ? {
-        ...(selection.kind === 'selected' ? { selected: selection.square } : {}),
-        legal: selection.kind === 'selected' ? position.legalMovesFrom(selection.square).map((m) => m.to) : [],
-        ...(last ? { lastMove: [last.from, last.to] as [Square, Square] } : {}),
-        ...(status?.kind === 'in-progress' && status.inCheck
-          ? { check: position.kingSquare(position.turn()) ?? undefined }
-          : {}),
-      }
+    ? highlightsFor({
+        selection,
+        position,
+        lastMove: played ?? undefined,
+        displayedStatus: position.status(),
+      })
     : {}
 
   return (

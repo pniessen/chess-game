@@ -134,6 +134,25 @@ describe('PuzzleScreen (My mistakes)', () => {
     expect(loadPuzzleStats()).toMatchObject({ rating: 1200, games: 0 })
   })
 
+  // Regression guard: this screen used to build its own Highlights inline,
+  // duplicating (and, on checkmate, losing) the `status.kind ===
+  // 'in-progress'` check that src/ui/app/highlights.ts also had — solving a
+  // mate-in-1 puzzle used to leave the mated king with no glow at all.
+  // SEEDED above is exactly that: White plays Qd1-d8#, mating the king on g8.
+  test('solving a mate-in-1 puzzle holds the check glow on the mated king and shakes the board', async () => {
+    localStorage.setItem('chess-game:blunder-puzzles', JSON.stringify(SEEDED))
+    await mount()
+    fireEvent.change(screen.getByTestId('puzzle-source'), { target: { value: 'mistakes' } })
+    click('d1')
+    click('d8')
+    expect(screen.getByTestId('puzzle-status')).toHaveTextContent('Solved!')
+
+    const king = document.querySelector('[data-square="g8"]')
+    expect(king?.className).toContain('check')
+    expect(king?.className).toContain('mated')
+    expect(document.querySelector('[role="grid"]')?.className).toContain('checkmate-shake')
+  })
+
   test('a wrong move on a mistake is not rated either', async () => {
     localStorage.setItem('chess-game:blunder-puzzles', JSON.stringify(SEEDED))
     await mount()

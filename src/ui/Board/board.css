@@ -42,13 +42,16 @@
    position is checkmate (see highlightsFor/Board.tsx), so it plays once
    when mate lands and replays if you browse back to that position later.
    `transform` only (no layout thrash), well inside the 600ms celebration
-   budget. Known, accepted edge case: `.drag-ghost` is `position: fixed` and
-   relies on nothing between it and the viewport setting a `transform` (see
-   the "Drag polish" comment below) — a drag started in this ~380ms window
-   after mate would briefly compute against the shaking board instead of the
-   viewport. The move that delivers mate always clears its own drag before
-   this class is ever applied, so this can only happen if a NEW drag is
-   started on an already-finished board, which is otherwise inert.
+   budget.
+
+   This `transform` on `.board` is safe next to `.drag-ghost`'s `position:
+   fixed` (see the "Drag polish" comment below, which depends on nothing
+   between the ghost and the viewport setting a `transform`) for a stronger
+   reason than timing: `useDragMove`'s `onPointerDown` early-returns
+   whenever `position.legalMovesFrom(from).length === 0` (see
+   useDragMove.ts), and checkmate means EVERY square has zero legal moves
+   from it — not just the one that was just played. No drag, on any square,
+   can ever begin while `.checkmate-shake` is applied.
    Reduced motion (below) drops the animation; the board simply never moves. */
 .board.checkmate-shake { animation: board-shake 380ms ease-in-out; }
 @keyframes board-shake {
@@ -101,8 +104,8 @@
 }
 /* Checkmate: the glow holds at its peak instead of continuing to pulse —
    the game is over, so nothing about the king's square should keep moving.
-   Wins over .square.check's own animation by source order (same specificity,
-   both classes are always applied together — see Board.tsx). */
+   `.square.check.mated` is strictly more specific than `.square.check`
+   alone (two classes vs. one), so it wins regardless of source order. */
 .square.check.mated { animation: none; opacity: 1; }
 @keyframes check-pulse {
   0%, 100% { opacity: 0.72; }

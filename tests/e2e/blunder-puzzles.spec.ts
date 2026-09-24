@@ -129,3 +129,29 @@ test('a solved mistake is marked solved, the rating is untouched, and it stays s
   await page.getByTestId('puzzle-source').selectOption('mistakes')
   await expect(page.getByTestId('mistake-solved')).toHaveCount(1)
 })
+
+// Regression guard (Task 4 review fix): PuzzleScreen used to build its own
+// Highlights inline, duplicating — and, on checkmate, losing — the
+// `status.kind === 'in-progress'` gate that src/ui/app/highlights.ts also
+// had. Solving this same mate-in-1 (Ra8#, mating the black king on g8) used
+// to leave it with no check glow at all.
+test('solving a mate-in-1 puzzle holds the check glow on the mated king and shakes the board', async ({ page }) => {
+  await page.addInitScript(
+    ({ k, v }) => {
+      if (!localStorage.getItem(k)) localStorage.setItem(k, v)
+    },
+    { k: KEY, v: JSON.stringify(SEEDED) },
+  )
+  await servePuzzles(page)
+  await page.reload()
+  await openPuzzles(page)
+  await page.getByTestId('puzzle-source').selectOption('mistakes')
+  await page.locator('[data-square="a1"]').click()
+  await page.locator('[data-square="a8"]').click() // Ra8#
+  await expect(page.getByTestId('puzzle-status')).toHaveText('Solved!')
+
+  const king = page.locator('[data-square="g8"]')
+  await expect(king).toHaveClass(/check/)
+  await expect(king).toHaveClass(/mated/)
+  await expect(page.locator('.board')).toHaveClass(/checkmate-shake/)
+})
