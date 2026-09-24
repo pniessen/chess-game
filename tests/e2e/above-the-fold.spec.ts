@@ -483,3 +483,66 @@ test('at 1280x720 a long game scrolls the left column, not the page', async ({ p
   expect(await page.evaluate(() => window.scrollY)).toBe(0)
   expect(await pageOverflow(page)).toBe(0)
 })
+
+/* --------------------------------------------------------------------
+   Task 5, fix round 1: the explorer's results list needs a floor.
+
+   Dropping `max-height: 280px` left `.explorer-results` as the only
+   child of `.explorer` that can give — `.explorer-detail` is `flex:
+   none` at a natural 97px — so it absorbed the whole shortfall by
+   itself. Measured before `min-height: 90px`: 55.7px at 1280x720,
+   3.7px at 1366x668, and a flat 0px at 1440x660 and below, where
+   `clientHeight` is 0 and the list cannot even be scrolled. `.tabs`'
+   own 160px floor does nothing about it, because the fixed detail
+   block eats the panel whatever height the card has.
+
+   1366x768 is a mainstream laptop; its inner height once browser
+   chrome is taken off is around 668, which is why that is the size
+   below.
+   -------------------------------------------------------------------- */
+for (const size of [
+  { width: 1366, height: 668 },
+  { width: 1440, height: 600 },
+]) {
+  test(`the explorer results stay usable and scrollable at ${size.width}x${size.height}`, async ({
+    page,
+  }) => {
+    await coachOffline(page)
+    await page.setViewportSize(size)
+    await page.goto('/')
+    await page.getByTestId('tab-explorer').click()
+
+    const results = page.locator('.explorer-results')
+    const firstRow = results.locator('button').first()
+    await expect(firstRow).toBeVisible()
+    await firstRow.click()
+    await expect(page.locator('.explorer-detail')).toBeVisible()
+
+    const rowHeight = await firstRow.evaluate((el) => el.getBoundingClientRect().height)
+    const metrics = await results.evaluate((el) => ({
+      clientHeight: el.clientHeight,
+      scrollHeight: el.scrollHeight,
+    }))
+
+    // The bug this pins: clientHeight 0 is a list that cannot be scrolled
+    // at all, whatever is in it.
+    expect(metrics.clientHeight).toBeGreaterThan(0)
+    // Three rows, which is the floor's stated value.
+    expect(metrics.clientHeight / rowHeight).toBeGreaterThanOrEqual(3)
+    expect(metrics.scrollHeight).toBeGreaterThan(metrics.clientHeight)
+    // The first row is whole, not sliced by the list's own edge.
+    const rowBox = await firstRow.boundingBox()
+    const listBox = await results.boundingBox()
+    if (!rowBox || !listBox) throw new Error('explorer results or first row has no bounding box')
+    expect(rowBox.y + rowBox.height).toBeLessThanOrEqual(listBox.y + listBox.height + 1)
+
+    // And the overflow goes where it is supposed to: into the panel, not
+    // into the page.
+    const panelScrolls = await page.evaluate(() => {
+      const panel = document.querySelector('.tab-panel:not([hidden])')
+      return panel ? panel.scrollHeight > panel.clientHeight + 1 : null
+    })
+    expect(panelScrolls).toBe(true)
+    expect(await pageOverflow(page)).toBe(0)
+  })
+}

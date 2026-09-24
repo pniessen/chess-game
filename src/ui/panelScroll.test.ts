@@ -79,10 +79,30 @@ describe('no list carries a fixed px cap on the desktop layout', () => {
       const rule = declarationsOf(selector)
       expect(rule).not.toMatch(/max-height:\s*\d+px/)
       expect(rule).toMatch(/flex:\s*1 1 auto/)
-      expect(rule).toMatch(/min-height:\s*0/)
       expect(rule).toMatch(/overflow-y:\s*auto/)
     })
   }
+
+  for (const selector of ['.move-list', '.history-list']) {
+    test(`${selector} may shrink below its content`, () => {
+      // `.explorer-results` is deliberately not in this list: it carries a
+      // 90px floor instead, because a `flex: none` sibling can otherwise
+      // squeeze it to zero. See its own test below.
+      expect(declarationsOf(selector)).toMatch(/min-height:\s*0/)
+    })
+  }
+
+  test('.explorer-results keeps a floor, because a fixed sibling can squeeze it to nothing', () => {
+    // `.explorer-detail` is `flex: none`, so the results are the only child
+    // of `.explorer` that gives and they absorb the whole shortfall:
+    // measured at 0px (clientHeight 0, unscrollable) at 1440x660 and below
+    // before this floor existed.
+    expect(declarationsOf('.explorer-results')).toMatch(/min-height:\s*90px/)
+    // ...and it is lifted on phones, where there is no cap to be squeezed
+    // by and it would only pad a short list out.
+    const phone = CSS.slice(CSS.indexOf('@media (max-width: 768px)'))
+    expect(declarationsOf('.explorer-results', phone)).toMatch(/min-height:\s*0/)
+  })
 
   test('the phone breakpoint keeps them, because there the page scrolls', () => {
     const phone = CSS.slice(CSS.indexOf('@media (max-width: 768px)'))
@@ -101,6 +121,19 @@ describe('both side columns are bounded by the board', () => {
       expect(rule).toMatch(/min-height:\s*0/)
     })
   }
+
+  test('both reserve a scrollbar gutter, so a classic scrollbar cannot reflow them', () => {
+    // Unobservable on macOS, where overlay scrollbars reserve 0 — which is
+    // exactly why it is pinned here rather than in a browser test. On
+    // Windows and most Linux the bar takes ~15px out of the fixed 232px
+    // and 280px tracks the moment it appears, and the left column only
+    // starts scrolling once the captured card has grown mid-game, so
+    // without this every card in it would reflow narrower part-way
+    // through a game.
+    for (const selector of ['.left-column', '.right-column']) {
+      expect(declarationsOf(selector), selector).toMatch(/scrollbar-gutter:\s*stable/)
+    }
+  })
 
   test('the phone breakpoint takes the caps off again', () => {
     const phone = CSS.slice(CSS.indexOf('@media (max-width: 768px)'))

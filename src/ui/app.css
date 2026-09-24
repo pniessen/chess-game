@@ -382,6 +382,23 @@ body {
          for the clamp's 360px FLOOR not to bind (>= 482px) — Task 1's
          board floor is the deliberate backstop below that.
 
+     HOW MUCH SLACK that leaves is worth being precise about, because there
+     is a whole band of viewport heights where the answer is NONE. Wherever
+     the clamp's middle term is what wins — every height from 482px to
+     762px — `--board-size` is exactly `100svh - 122`, so as soon as either
+     side column reaches its cap the page is exactly
+     `122 + (100svh - 122) = 100svh`: fits to the pixel, with nothing spare.
+     1280x720 is one point on that 280px-wide band, not a special case.
+     Only above 762px does the 640px cap win and leave real slack
+     (`viewport height - 762`, so 38px at 800 and 318px at 1080).
+
+     The practical consequence, for whoever touches the header next: any
+     growth in `--chrome` — a status row that wraps to a second line, a
+     fourth action beside Game file / Shortcuts / Settings — reintroduces a
+     page scroll across that ENTIRE band at once, not at one awkward size.
+     `--chrome` and this cap are a matched pair; changing one without
+     re-measuring the other is what will break it.
+
      Measured at 1440x800 with a 70-move game: the column's content is 613px
      (the captured card grows as material comes off) against a 640px cap, so
      it does not scroll there; at 1280x720 the cap is 598px and it scrolls
@@ -390,6 +407,16 @@ body {
   min-height: 0;
   max-height: var(--board-size);
   overflow-y: auto;
+  /* `overflow-y: auto` also computes `overflow-x` to `auto`, and on
+     platforms with classic space-taking scrollbars (Windows, most Linux)
+     the bar eats ~15px of this fixed 232px track the moment it appears.
+     This column only STARTS scrolling once the captured card has grown
+     mid-game, so without a reserved gutter every card in it would reflow
+     15px narrower part-way through a game. Reserving the space up front
+     costs nothing on macOS (overlay scrollbars reserve 0) and also keeps
+     the cards' box-shadows off the clipping edge on the gutter side.
+     Deliberately NOT visible locally on macOS — reasoned, not observed. */
+  scrollbar-gutter: stable;
 }
 /* The cards keep their natural height. Without this, a flex column that has
    hit its `max-height` SHRINKS its items (flex-shrink defaults to 1) down
@@ -428,6 +455,9 @@ body {
      fit). Clipping instead would make the bottom of New game unreachable
      there, since the page has no scrollbar of its own any more. */
   overflow-y: auto;
+  /* See .left-column: a reserved gutter instead of a 15px reflow the first
+     time a classic scrollbar appears in this fixed 280px track. */
+  scrollbar-gutter: stable;
 }
 /* New game cannot give: its selects are already at their floor (Task 3
    measured a 2x2 grid clipping "Engine vs engine"), so 324px is its real
@@ -1275,8 +1305,25 @@ body {
 .explorer > * { flex: none; }
 .explorer-current { margin: 0; font-size: 0.85em; color: var(--color-muted); }
 /* Task 5: was `max-height: 280px` — now the results take whatever the panel
-   has left under the current-opening line and above the detail block. */
-.explorer-results { list-style: none; margin: 0; padding: 0; flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+   has left under the current-opening line and above the detail block.
+
+   `min-height: 90px` is not decoration, it is the fix for a hole this task
+   opened. `.explorer-detail` is `flex: none` at a natural 97px, so the
+   results are the ONLY child that gives and they absorb the whole
+   shortfall on their own: measured, they fell to 55.7px at 1280x720, 3.7px
+   at 1366x668 (a mainstream laptop) and a flat 0px at 1440x660 and below,
+   where `clientHeight` is 0 and the list cannot even be scrolled — a
+   hundred openings rendered as a sliver. `.tabs`' own 160px floor does
+   nothing about it, because the fixed detail block eats the panel whatever
+   height the card has.
+
+   90px is three rows at the measured 30px row height, and this list has no
+   padding of its own, so it is exactly three. Past that the results plus
+   the detail simply outgrow `.explorer`, which overflows into
+   `.tab-panel`'s `overflow-y: auto` — the backstop that rule exists for.
+   It never inflates anything: at 1440x800 the results are 97.7px, above
+   the floor, and unchanged. */
+.explorer-results { list-style: none; margin: 0; padding: 0; flex: 1 1 auto; min-height: 90px; overflow-y: auto; }
 .app .explorer-results button {
   width: 100%; text-align: left; border: none; background: transparent;
   color: var(--color-fg); padding: 5px 8px; border-radius: 6px; cursor: pointer; font: inherit;
@@ -1750,7 +1797,13 @@ body {
   }
   .move-list { max-height: 420px; }
   .history-list { max-height: 420px; }
-  .explorer-results { max-height: 280px; }
+  /* `min-height` goes with the cap: the desktop floor exists because a
+     fixed-height `.explorer-detail` can squeeze the results to nothing
+     inside a height-capped panel. Here there is no cap and no shortfall to
+     floor against, and leaving it on would pad a two-result list out to
+     90px — a change to this breakpoint, which otherwise renders exactly as
+     it did before this task. */
+  .explorer-results { max-height: 280px; min-height: 0; }
 
   .clocks { flex-direction: row; }
   .clocks .clock { flex: 1 1 0; min-width: 0; padding: 10px 12px; }
