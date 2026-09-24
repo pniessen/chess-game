@@ -54,6 +54,9 @@ describe('PuzzleScreen (rated)', () => {
     expect(screen.getByTestId('user-puzzle-rating')).toHaveTextContent('1233')
     expect(screen.getByTestId('puzzle-rating-delta')).toHaveTextContent('(+33)')
     expect(loadPuzzleStats()).toMatchObject({ rating: 1233, games: 1, seen: ['0000D'] })
+    // Task 7: the celebration ring class is on solving — presentation only,
+    // reading `phase`, never touching the rating maths asserted above.
+    expect(document.querySelector('.board')?.className).toContain('celebrate-solved')
   })
 
   // Breaks if retrying after a wrong move can win the rating back.
@@ -64,6 +67,9 @@ describe('PuzzleScreen (rated)', () => {
     click('c7')
     expect(screen.getByTestId('puzzle-status')).toHaveTextContent("That's not it.")
     expect(screen.getByTestId('user-puzzle-rating')).toHaveTextContent('1193')
+    // Task 7: the wrong move's own square shakes; no celebration ring.
+    expect(document.querySelector('[data-square="c7"]')?.className).toContain('wrong-move')
+    expect(document.querySelector('.board')?.className).not.toContain('celebrate-solved')
     fireEvent.click(screen.getByTestId('puzzle-retry'))
     click('f8')
     click('d8')
@@ -132,6 +138,9 @@ describe('PuzzleScreen (My mistakes)', () => {
     expect(screen.getByTestId('mistake-solved')).toBeInTheDocument()
     expect(loadBlunderPuzzles()[0]?.solved).toBe(true)
     expect(loadPuzzleStats()).toMatchObject({ rating: 1200, games: 0 })
+    // Task 7: My-mistakes still celebrates (the ring), but never any rating text.
+    expect(document.querySelector('.board')?.className).toContain('celebrate-solved')
+    expect(screen.queryByTestId('puzzle-rating-delta')).not.toBeInTheDocument()
   })
 
   // Regression guard: this screen used to build its own Highlights inline,

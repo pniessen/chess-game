@@ -10,6 +10,7 @@ import {
   puzzleStatusText,
   ratingDeltaText,
   sideName,
+  wrongMoveSquare,
 } from './puzzleView'
 import { playReply, playSetup, playSolutionStep, revealSolution, startSession, submitMove } from '../../puzzles/session'
 import { specOfRated } from '../../puzzles/spec'
@@ -65,6 +66,20 @@ test('hint text and button label', () => {
   expect(puzzleHintButtonLabel(0)).toBe('Hint')
   expect(puzzleHintButtonLabel(1)).toBe('Show move')
   expect(puzzleHintButtonLabel(2)).toBe('Hint')
+})
+
+// Task 7: the shake target for a wrong move — the same square
+// puzzleAnnotations tints red, but only ever while 'failed' is current.
+describe('wrongMoveSquare', () => {
+  test('the wrong move\'s destination, only while failed', () => {
+    expect(wrongMoveSquare(failed)).toBe('c7')
+  })
+  test('null before, during and after — never on a correct or solved session', () => {
+    expect(wrongMoveSquare(ready)).toBeNull()
+    expect(wrongMoveSquare(reply)).toBeNull()
+    expect(wrongMoveSquare(solved)).toBeNull()
+    expect(wrongMoveSquare(startSession(DEF))).toBeNull()
+  })
 })
 
 test('rating change text', () => {

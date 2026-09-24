@@ -25,6 +25,10 @@ export interface Highlights {
   check?: SquareName
   /** The displayed position is checkmate (the king on `check` is the mated one). */
   checkmate?: boolean
+  /** Puzzle-solved celebration (Task 7): a green ring sweeps the board once. */
+  celebrate?: boolean
+  /** Puzzle wrong-move (Task 7): the piece just moved to this square shakes once. */
+  wrongMove?: SquareName
 }
 
 export function Board({
@@ -147,7 +151,7 @@ export function Board({
         ))}
       </div>
       <div
-        className={`board ${orientation}${highlights.checkmate ? ' checkmate-shake' : ''}`}
+        className={`board ${orientation}${highlights.checkmate ? ' checkmate-shake' : ''}${highlights.celebrate ? ' celebrate-solved' : ''}`}
         role="grid"
         aria-label="Chess board"
         onPointerDown={handlePointerDown}
@@ -163,6 +167,7 @@ export function Board({
           if (draggingSquare === name) classes.push('dragging')
           if (arriving.has(name)) classes.push('arriving')
           if (drag?.over === name) classes.push('drag-target')
+          if (highlights.wrongMove === name) classes.push('wrong-move')
           const piece = pieces.get(name)
           return (
             <Square key={name} name={name} classes={classes} onClick={handleSquareClick}>

@@ -30,6 +30,7 @@ import {
   puzzleStatusText,
   ratingDeltaText,
   sideName,
+  wrongMoveSquare,
 } from './puzzleView'
 import './puzzles.css'
 
@@ -218,12 +219,21 @@ export function PuzzleScreen({
   // same move `lastMoveOf` would report, already in the shape highlightsFor
   // wants.
   const highlights: Highlights = position
-    ? highlightsFor({
-        selection,
-        position,
-        lastMove: played ?? undefined,
-        displayedStatus: position.status(),
-      })
+    ? {
+        ...highlightsFor({
+          selection,
+          position,
+          lastMove: played ?? undefined,
+          displayedStatus: position.status(),
+        }),
+        // Task 7 (presentation only — reads `phase`/`session`, never
+        // decides them): the ring sweeps once on the phase that means the
+        // user actually solved it, for both rated and My-mistakes puzzles.
+        // "Show solution" lands on 'revealed', not 'solved', so it never
+        // celebrates.
+        ...(phase === 'solved' ? { celebrate: true } : {}),
+        ...(session ? { wrongMove: wrongMoveSquare(session) ?? undefined } : {}),
+      }
     : {}
 
   return (
@@ -272,6 +282,21 @@ export function PuzzleScreen({
                   <span data-testid="puzzle-rating-delta" className={delta >= 0 ? 'rating-up' : 'rating-down'}>
                     {' '}
                     ({ratingDeltaText(delta)})
+                  </span>
+                ) : null}
+                {/* Task 7: a transient rising, fading echo of the same
+                    number — purely decorative (the span above already
+                    carries the persisted, always-visible text a screen
+                    reader or reduced-motion user needs), so aria-hidden and
+                    keyed to the showing: a fresh attempt always replays it,
+                    even when the delta happens to repeat a prior value. */}
+                {delta !== null ? (
+                  <span
+                    key={current?.key}
+                    className={`rating-pop ${delta >= 0 ? 'rating-up' : 'rating-down'}`}
+                    aria-hidden="true"
+                  >
+                    {ratingDeltaText(delta)}
                   </span>
                 ) : null}
               </p>

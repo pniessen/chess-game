@@ -63,6 +63,59 @@
   75% { transform: translateX(-2px); }
   90% { transform: translateX(1px); }
 }
+/* Puzzle-solved celebration (Task 7): a green ring sweeps outward from the
+   board's own edge and fades, once, whenever `highlights.celebrate` is set
+   (PuzzleScreen only — App.tsx never passes it, so the main game board is
+   unaffected). `transform`/`opacity` only — no layout thrash — and, like
+   `.checkmate-shake` above, the class itself is added unconditionally by
+   Board.tsx; only the animation is dropped under reduced motion (below), so
+   the class stays a faithful "a puzzle was just solved" signal either way.
+   Rendered as `.board`'s own `::after` (see "Stacking order (Task 3)" below
+   for why z-index 6 — one above the drag ghost, itself the previous
+   highest layer — safely orders it above every layer in that shared pool
+   without needing a dedicated child element or DOM changes elsewhere). */
+.board.celebrate-solved::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  border-radius: inherit;
+  pointer-events: none;
+  border: 4px solid rgba(39, 174, 96, 0.9);
+  opacity: 0;
+  animation: celebrate-ring 550ms ease-out;
+}
+@keyframes celebrate-ring {
+  0% { transform: scale(0.98); opacity: 0.95; }
+  60% { opacity: 0.55; }
+  100% { transform: scale(1.05); opacity: 0; }
+}
+/* Puzzle wrong-move (Task 7): a short shake of the piece that just landed
+   on the wrong square — paired with the existing red `tone-blunder` square
+   annotation PuzzleScreen already draws there. `transform` only, on the
+   piece image itself, so it never affects board layout.
+
+   `:not(.arriving)` is required, not decorative: a wrong move is animated
+   as a flight like any other move, so `wrong-move` and `arriving` (Task 1)
+   both land on the same square for the ~200ms the real piece stays hidden
+   under the flying ghost (see `.square.arriving .piece` / piece-arrive
+   below) — the moment that animation is overridden is the moment the
+   double-piece flash Task 1 exists to prevent comes back. Excluding
+   `.arriving` here (rather than relying on this rule losing a same-
+   specificity cascade tie by sitting earlier in the file, which would
+   silently break if this block were ever moved) makes the two states
+   mutually exclusive by construction: piece-arrive always finishes first,
+   and the shake starts fresh the instant `arriving` clears — the browser
+   restarts an animation whenever the matched rule's `animation-name`
+   actually changes, so no explicit hand-off is needed here. */
+.square.wrong-move:not(.arriving) .piece { animation: piece-shake 320ms ease-in-out; }
+@keyframes piece-shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-4px); }
+  40% { transform: translateX(4px); }
+  60% { transform: translateX(-3px); }
+  80% { transform: translateX(2px); }
+}
 .coords {
   display: flex;
   pointer-events: none;
@@ -296,6 +349,15 @@
                                    comment on .square.legal::after above)
      4  .board-overlay            hint/review squares + arrows
      5  .drag-ghost               the piece under the pointer during a drag
+     6  .board.celebrate-solved   the puzzle-solved ring sweep (Task 7) — only
+        ::after                  ever present on the puzzle screen, and only
+                                  for the ~550ms it takes to play once; above
+                                  the drag ghost is academic (dragging is
+                                  never possible while a puzzle reads
+                                  "Solved!"), but keeping it in the same
+                                  numbered pool, one above the previous
+                                  highest layer, is what keeps this table a
+                                  complete and accurate ordering.
 
    A last-move arrow and a hint arrow can therefore be on screen together
    (e.g. hinting the same reply that was just played back) and stay
@@ -429,6 +491,12 @@
      above, no pulse — and no checkmate shake. */
   .square.check { animation: none; opacity: 1; }
   .board.checkmate-shake { animation: none; }
+  /* Puzzle celebration (Task 7): no ring sweep and no piece shake — the
+     classes are still applied (see the comments above), but the animations
+     they'd otherwise start are dropped, exactly like the shake above. The
+     existing solved/failed status text is untouched by any of this. */
+  .board.celebrate-solved::after { display: none; }
+  .square.wrong-move .piece { animation: none; }
   /* Moves cut, exactly as they did before Task 1: nothing flies, and the
      real piece is never held back. */
   .flight-layer { display: none; }

@@ -65,11 +65,30 @@
 }
 
 .puzzle-rating-line {
+  position: relative; /* anchors .rating-pop (Task 7) */
   display: flex;
   align-items: baseline;
   gap: 6px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
+}
+
+/* Task 7: the rating change rises and fades once, next to the persistent
+   "(+33)" text (.puzzle-rating-delta, unchanged) that stays on screen —
+   this is a purely decorative echo, `aria-hidden` and `pointer-events:
+   none`, so removing it changes nothing a screen reader or a
+   reduced-motion user relies on. `transform`/`opacity` only. */
+.rating-pop {
+  position: absolute;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+  font-weight: 700;
+  animation: rating-rise 600ms ease-out forwards;
+}
+@keyframes rating-rise {
+  0% { transform: translateY(0); opacity: 1; }
+  100% { transform: translateY(-22px); opacity: 0; }
 }
 
 .puzzle-big {
@@ -316,5 +335,13 @@
     flex-wrap: wrap;
     gap: 4px 16px;
     padding-top: 6px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Task 7: no rise. The persistent .puzzle-rating-delta text (unchanged)
+     is what a reduced-motion user is left with, same as before this task. */
+  .rating-pop {
+    display: none;
   }
 }

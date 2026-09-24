@@ -1,6 +1,6 @@
 import type { HintSuggestion } from '../../coach/hints'
 import { uciToIntent } from '../../engine/uci'
-import type { Color, PlayedMove } from '../../game-core/types'
+import type { Color, PlayedMove, Square } from '../../game-core/types'
 import { expectedMove, lastMoveOf, positionOf, type PuzzleSession } from '../../puzzles/session'
 import { positionAfter } from '../../puzzles/spec'
 import type { BlunderPuzzle } from '../../puzzles/types'
@@ -66,6 +66,16 @@ export function lastPlayedMoveOf(s: PuzzleSession): PlayedMove | null {
   // `before` is this call's own Position, so playing on it mutates nothing.
   const played = before.tryMove(intent)
   return played.ok ? played.move : null
+}
+
+/**
+ * The square the wrong move landed on, while `phase` is 'failed' — Task 7's
+ * shake target. Same square `puzzleAnnotations` already tints red via the
+ * `tone: 'blunder'` square annotation; this is the piece sitting on it.
+ */
+export function wrongMoveSquare(s: PuzzleSession): Square | null {
+  if (s.phase !== 'failed' || !s.wrongMove) return null
+  return uciToIntent(s.wrongMove)?.to ?? null
 }
 
 export function puzzleAnnotations(s: PuzzleSession, stage: PuzzleHintStage): Annotation[] {
