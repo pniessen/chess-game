@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { coachOffline } from './helpers'
+import { coachOffline, startOnePlayer } from './helpers'
 
 /**
  * Task 1 of the above-the-fold plan: the board's edge length derives from
@@ -66,4 +66,86 @@ test('at the shortest of the three viewports, the board is measurably smaller th
   // renders it at 548px at 1280x720 (100svh(720) - --chrome(122) = 598,
   // under the 640px cap) — well clear of any rendering-engine rounding.
   expect(boardBox.width).toBeLessThan(580)
+})
+
+/**
+ * Task 2: Controls moved out of .board-column (where Pause/Step were
+ * clipped by the fold and Hint was entirely below it) into .left-column,
+ * re-laid out for its 232px width. Red before this task: with Controls
+ * still under a 610px board, Pause/Step/Speed and Hint sit well past
+ * y=800 at 1440x800 — verified live (see task-2-report.md) — so their
+ * bounding boxes would fail the "inside the viewport" assertion below.
+ */
+test('at 1440x800, every control is inside the viewport', async ({ page }) => {
+  await coachOffline(page)
+  await page.setViewportSize({ width: 1440, height: 800 })
+  await page.goto('/')
+
+  for (const id of ['undo', 'redo', 'flip', 'resign', 'pause', 'step', 'speed', 'hint']) {
+    const box = await page.getByTestId(id).boundingBox()
+    if (!box) throw new Error(`[data-testid="${id}"] has no bounding box`)
+    expect(box.y, `${id}.y`).toBeGreaterThanOrEqual(0)
+    expect(box.x, `${id}.x`).toBeGreaterThanOrEqual(0)
+    expect(box.y + box.height, `${id} bottom edge`).toBeLessThanOrEqual(800)
+    expect(box.x + box.width, `${id} right edge`).toBeLessThanOrEqual(1440)
+  }
+})
+
+// Red if `.hint-text` loses its reserved min-height (app.css, `.hint-row
+// .hint-text`): verified live by removing it — `.controls` grows from
+// 216px to 260px (+43.5px, exactly the 2 reserved lines) once the hint
+// text fills in, where WITH the reservation it stays at 260px throughout.
+// `.controls`, not the board, is the direct assertion: `.left-column` and
+// `.board-column` are independent CSS Grid tracks (`align-items: start`),
+// so the board's own position is unaffected by `.left-column` growing
+// EITHER way — asserting the board alone would pass even with the
+// reservation deleted, which is why `.controls`'s height is checked too.
+// The board check is kept because it's what the brief's own e2e bullet
+// asks for, and stays a fair regression guard against that grid
+// independence itself ever changing.
+test('the hint text filling in from empty does not move the board or resize the controls card', async ({
+  page,
+}) => {
+  await coachOffline(page)
+  await page.setViewportSize({ width: 1440, height: 800 })
+  await page.goto('/')
+  await startOnePlayer(page)
+  // Let the engine finish its own async warm-up first (its spinner in the
+  // status row disappears once ready, changing that row's height) so the
+  // only thing left to move anything, below, is the hint text itself.
+  const hint = page.getByTestId('hint')
+  await expect(hint).toBeEnabled()
+
+  // Viewport-relative board position isn't reliable here: clicking Hint
+  // several times in a row makes Playwright re-scroll it into view between
+  // clicks (a pre-existing quirk, unrelated to this task, of focus
+  // handling elsewhere on the page), which moves the board's VIEWPORT
+  // position without moving it in the page at all. Document-relative
+  // (boundingBox().y + scrollY) cancels that out.
+  const boardDocumentTop = async () => {
+    const box = await page.locator('.board').boundingBox()
+    if (!box) throw new Error('.board has no bounding box')
+    return box.y + (await page.evaluate(() => window.scrollY))
+  }
+  const controlsHeight = async () => {
+    const box = await page.locator('.controls').boundingBox()
+    if (!box) throw new Error('.controls has no bounding box')
+    return box.height
+  }
+
+  const hintText = page.getByTestId('hint-text')
+  await expect(hintText).toBeEmpty()
+  const topBefore = await boardDocumentTop()
+  const heightBefore = await controlsHeight()
+
+  // Three presses: nudge -> move -> reasoning (coach offline, so reasoning
+  // falls back to a templated sentence built from the engine's own line —
+  // no network needed, same fallback the existing hint e2e specs rely on).
+  await hint.click()
+  await hint.click()
+  await hint.click()
+  await expect(hintText).not.toBeEmpty()
+
+  expect(await boardDocumentTop()).toBe(topBefore)
+  expect(await controlsHeight()).toBe(heightBefore)
 })

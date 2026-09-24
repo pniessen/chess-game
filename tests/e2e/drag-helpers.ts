@@ -25,6 +25,18 @@ export async function centerOf(page: Page, square: string): Promise<{ x: number;
  * `page.mouse.up()`, so a test can inspect the board mid-drag.
  */
 export async function pressAndDragTo(page: Page, from: string, to: string): Promise<void> {
+  // Read `from` and `to` from the SAME scroll position. `centerOf` scrolls
+  // its own square into view, independently, each time it's called — if
+  // the page starts far enough down (e.g. right after a click on a button
+  // well below the board) that `from` and `to` are not simultaneously in
+  // view, the second call's scroll invalidates the first call's
+  // already-read coordinate, and the drag starts from a point that no
+  // longer corresponds to `from` once the page has moved. Scrolling the
+  // whole board into view first avoids that: `--board-size` keeps it
+  // shorter than every tested viewport, so once any part of it is in view,
+  // the whole board — both squares — is too, and neither subsequent
+  // `centerOf` call needs to scroll again.
+  await page.locator('.board').scrollIntoViewIfNeeded()
   const start = await centerOf(page, from)
   const end = await centerOf(page, to)
   await page.mouse.move(start.x, start.y)

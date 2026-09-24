@@ -321,6 +321,40 @@ function AppInner({
           <Clocks clock={snapshot.clock} readClock={readClock} orientation={orientation} />
           <Captured moves={game.moves.slice(0, game.ply)} pieceSet={settings.pieceSetId} />
           <Scoreboard score={records.score} />
+          {/* Task 2: moved out of .board-column, below the fold behind a
+              610px board, into the left column where it fits above it. */}
+          <Controls
+            phase={snapshot.phase}
+            config={snapshot.config}
+            canUndo={game.moves.length > 0 && snapshot.phase.kind !== 'idle'}
+            canRedo={input.canRedo}
+            canResign={resignableSide(snapshot.config, snapshot.phase) !== null}
+            speed={snapshot.config.engineDelayMs ?? 500}
+            hint={{
+              label: hints.label,
+              text: hints.text,
+              disabled: hintDisabled,
+              loading: engineWarmingUp,
+            }}
+            onUndo={input.handleUndo}
+            onRedo={input.handleRedo}
+            onFlip={lifecycle.handleFlip}
+            onResign={input.handleResign}
+            onHint={handleHint}
+            onPause={() => controller.pause()}
+            onResume={() => {
+              // Both snap the display back to the live ply, which can be
+              // exactly one move on from the browsed position: a jump, not
+              // a move, so the board cuts to it.
+              input.cut()
+              controller.resume()
+            }}
+            onStep={() => {
+              input.cut()
+              controller.step()
+            }}
+            onSpeedChange={(ms) => controller.setSpeed(ms)}
+          />
         </div>
 
         <div className="board-column">
@@ -364,38 +398,6 @@ function AppInner({
               pieceSet={settings.pieceSetId}
             />
           ) : null}
-          <Controls
-            phase={snapshot.phase}
-            config={snapshot.config}
-            canUndo={game.moves.length > 0 && snapshot.phase.kind !== 'idle'}
-            canRedo={input.canRedo}
-            canResign={resignableSide(snapshot.config, snapshot.phase) !== null}
-            speed={snapshot.config.engineDelayMs ?? 500}
-            hint={{
-              label: hints.label,
-              text: hints.text,
-              disabled: hintDisabled,
-              loading: engineWarmingUp,
-            }}
-            onUndo={input.handleUndo}
-            onRedo={input.handleRedo}
-            onFlip={lifecycle.handleFlip}
-            onResign={input.handleResign}
-            onHint={handleHint}
-            onPause={() => controller.pause()}
-            onResume={() => {
-              // Both snap the display back to the live ply, which can be
-              // exactly one move on from the browsed position: a jump, not
-              // a move, so the board cuts to it.
-              input.cut()
-              controller.resume()
-            }}
-            onStep={() => {
-              input.cut()
-              controller.step()
-            }}
-            onSpeedChange={(ms) => controller.setSpeed(ms)}
-          />
           <NewGame
             mode={choices.mode}
             level={choices.level}

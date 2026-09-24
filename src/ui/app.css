@@ -801,7 +801,13 @@ body {
 }
 
 /* ------------------------------------------------------------------
-   Under-board panels
+   Controls panel (also reused, as .controls.puzzle-panel, by the puzzle
+   screen — see puzzles.css). Task 2: the game's own Controls now lives in
+   the 232px .left-column rather than under the board, so its internal
+   rows (.controls-grid, .speed-control, .hint-row below) are laid out for
+   that width; anything shared with the puzzle screen (.controls itself,
+   .hint-text) is kept generic or scoped with `.hint-row` so the puzzle
+   screen's own (wider, under-the-board) layout is untouched.
    ------------------------------------------------------------------ */
 .controls {
   display: flex;
@@ -812,6 +818,16 @@ body {
   padding: 12px;
 }
 
+/* Only Controls.tsx uses these three — safe to size for its 232px column. */
+.left-column .controls {
+  padding: 10px;
+  gap: 8px;
+}
+.left-column .controls button {
+  padding: 7px 8px;
+  font-size: 0.85em;
+}
+
 .controls-row {
   display: flex;
   gap: 8px;
@@ -819,27 +835,43 @@ body {
   flex-wrap: wrap;
 }
 
+/* undo/redo/flip/resign, and pause/step: two equal-width columns so
+   neither row needs to shrink-wrap or truncate "Flip board" in a narrow
+   column. */
+.controls-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
 .speed-control {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   gap: 8px;
-  margin-left: auto;
+  width: 100%;
   font-size: 0.9em;
   font-weight: 600;
   color: var(--muted);
 }
-.speed-control input { width: 140px; }
+.speed-control input { flex: 1; min-width: 0; }
 
+/* Task 2: hint stays with the rest of the controls (not its own strip
+   under the board — see task-2-brief.md), so it stacks button-then-text
+   instead of sitting side by side. */
 .hint-row {
-  align-items: flex-start;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
   padding-top: 10px;
   border-top: 1px solid var(--line);
 }
+.hint-row button[data-testid='hint'] { width: 100%; }
 /* A loading Hint button reads as "busy", not "broken": still visibly a
    button (icon + label), rather than a plain greyed-out disabled state. */
 .hint-row button[data-testid='hint'].hint-loading {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
 }
 
@@ -851,6 +883,16 @@ body {
   color: var(--ink);
 }
 .hint-text:not(:empty) { font-style: italic; }
+/* Reserve ~2 lines (line-height 1.45 * 2) so an arriving or clearing hint
+   never shifts the column beneath it. Scoped to `.hint-row` so the puzzle
+   screen's own `.hint-text` (not nested in a `.hint-row`) is unaffected. */
+.hint-row .hint-text {
+  flex: none;
+  width: 100%;
+  min-width: 0;
+  min-height: 2.9em;
+  padding-top: 0;
+}
 
 .new-game {
   display: flex;
@@ -1473,12 +1515,16 @@ body {
   }
   .board-column { display: contents; }
   .board-row { order: 1; }
+  /* Task 2: Controls now nests inside .left-column (order 2) instead of
+     being a direct .board-column child ordered on its own — it renders
+     after the clocks/captured/scoreboard already in there, which is the
+     same visual slot (between the left column and the right column's
+     tabs) this used to reach with an explicit `order: 3`. */
   .left-column { order: 2; grid-area: auto; }
-  .controls { order: 3; }
   .right-column { order: 4; grid-area: auto; }
   .new-game { order: 5; }
   .game-io { order: 6; }
-  .controls, .new-game, .game-io { max-width: none; }
+  .new-game, .game-io { max-width: none; }
 
   .clocks { flex-direction: row; }
   .clocks .clock { flex: 1 1 0; min-width: 0; padding: 10px 12px; }
@@ -1489,8 +1535,9 @@ body {
   .left-column .captured { padding: 6px 10px; }
   .left-column .scoreboard { flex-direction: column; justify-content: center; gap: 0; padding: 6px 14px; }
   .scoreboard-label { font-size: 0.8em; }
-
-  .speed-control { margin-left: 0; }
+  /* Controls' own 2-column grids need the full row, not the auto-placed
+     half-width cell a plain grid item would fall into here. */
+  .left-column .controls { grid-column: 1 / -1; max-width: none; }
 
   /* Tighter, and closer to the board's bottom edge, so a phone-sized board
      still shows its top half. */
