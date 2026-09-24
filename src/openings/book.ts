@@ -1,3 +1,4 @@
+import { assetUrl } from '../assetUrl'
 import { parseOpeningsData, type OpeningsData } from './data'
 
 export interface OpeningEntry {
@@ -63,7 +64,7 @@ let cached: Promise<OpeningBook | null> | null = null
 /** Fetch the index once per page. A failed load is not cached, so a later call retries. */
 export function loadOpeningBook(
   fetchImpl: (url: string) => Promise<Response> = (url) => fetch(url),
-  url = '/openings/openings.json',
+  url = assetUrl('openings/openings.json'),
 ): Promise<OpeningBook | null> {
   cached ??= fetchImpl(url)
     .then((res) => (res.ok ? res.json() : null))

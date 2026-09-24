@@ -4,6 +4,12 @@
    Variable woff2 files, latin subset only, served from this origin — no
    network request leaves the browser. Weight ranges and the opsz axis
    match what the app actually uses (see --font-ui / --font-display).
+
+   The `/fonts/...` and `/pieces/...` urls below are public-directory
+   references: Vite rewrites them to the deploy base at build time (they
+   come out as `/chess-game/fonts/...` on GitHub Pages), so they must stay
+   root-absolute here. Code that builds such a URL as a string cannot be
+   rewritten that way and goes through src/assetUrl.ts instead.
    ------------------------------------------------------------------ */
 @font-face {
   font-family: 'Figtree';

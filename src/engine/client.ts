@@ -1,3 +1,4 @@
+import { assetUrl } from '../assetUrl'
 import type { StrengthProfile } from './strength'
 import { isCriticalError, parseBestMove, parseInfo, type EngineInfo } from './uci'
 
@@ -26,14 +27,14 @@ export interface SearchLimits {
   multiPv: number
 }
 
-const DEFAULT_ENGINE_URL = '/engine/stockfish-19-lite-single.js'
+const ENGINE_ASSET = 'engine/stockfish-19-lite-single.js'
 
 /**
  * Load the Emscripten glue script as a CLASSIC worker. It is not an ES
  * module and finds its .wasm relative to its own URL, so Vite's module
  * worker pipeline must not touch it.
  */
-export function createWorkerTransport(url: string = DEFAULT_ENGINE_URL): EngineTransport {
+export function createWorkerTransport(url: string = assetUrl(ENGINE_ASSET)): EngineTransport {
   const worker = new Worker(url)
   return {
     post: (cmd) => worker.postMessage(cmd),

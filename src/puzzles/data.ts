@@ -1,3 +1,4 @@
+import { assetUrl } from '../assetUrl'
 import { isUci } from './spec'
 import type { RatedPuzzle } from './types'
 
@@ -30,7 +31,7 @@ let cached: Promise<RatedPuzzle[] | null> | null = null
 /** Fetched only when puzzle mode opens; cached on success, retried after a failure. */
 export function loadPuzzleSet(
   fetchImpl: (url: string) => Promise<Response> = (url) => fetch(url),
-  url = '/puzzles/puzzles.json',
+  url = assetUrl('puzzles/puzzles.json'),
 ): Promise<RatedPuzzle[] | null> {
   cached ??= fetchImpl(url)
     .then((res) => (res.ok ? res.json() : null))

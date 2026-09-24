@@ -1,5 +1,5 @@
-import { describe, expect, test, vi } from 'vitest'
-import { EngineClient, type EngineTransport } from './client'
+import { afterEach, describe, expect, test, vi } from 'vitest'
+import { EngineClient, createWorkerTransport, type EngineTransport } from './client'
 import { profileFor } from './strength'
 
 /** A transport we drive by hand; no Stockfish involved. */
@@ -567,5 +567,50 @@ describe('EngineClient', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+})
+
+describe('createWorkerTransport', () => {
+  /** Records the URL `new Worker(...)` was handed; no Stockfish is loaded. */
+  function captureWorkerUrls(): string[] {
+    const urls: string[] = []
+    vi.stubGlobal(
+      'Worker',
+      class {
+        constructor(url: string) {
+          urls.push(url)
+        }
+        addEventListener() {}
+        postMessage() {}
+        terminate() {}
+      },
+    )
+    return urls
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.unstubAllEnvs()
+  })
+
+  test('loads the engine from the app root by default', () => {
+    const urls = captureWorkerUrls()
+    createWorkerTransport()
+    expect(urls).toEqual(['/engine/stockfish-19-lite-single.js'])
+  })
+
+  // Breaks on GitHub Pages: the glue script resolves its .wasm relative to
+  // its own URL, so a root-absolute worker URL 404s under /chess-game/.
+  test('loads the engine from the deploy base', () => {
+    vi.stubEnv('BASE_URL', '/chess-game/')
+    const urls = captureWorkerUrls()
+    createWorkerTransport()
+    expect(urls).toEqual(['/chess-game/engine/stockfish-19-lite-single.js'])
+  })
+
+  test('an explicit url still wins', () => {
+    const urls = captureWorkerUrls()
+    createWorkerTransport('/custom/engine.js')
+    expect(urls).toEqual(['/custom/engine.js'])
   })
 })

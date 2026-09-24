@@ -47,6 +47,16 @@ describe('loadPuzzleSet', () => {
     expect(fetchImpl).toHaveBeenCalledWith('/puzzles/puzzles.json')
   })
 
+  // Breaks under a subpath deploy (GitHub Pages), where the file is not at
+  // the domain root.
+  test('the default url follows the deploy base', async () => {
+    vi.stubEnv('BASE_URL', '/chess-game/')
+    const fetchImpl = vi.fn(async (_url: string) => respond(PUZZLE_FIXTURE))
+    await loadPuzzleSet(fetchImpl)
+    expect(fetchImpl).toHaveBeenCalledWith('/chess-game/puzzles/puzzles.json')
+    vi.unstubAllEnvs()
+  })
+
   // Breaks if a failure is cached (puzzles would stay broken until reload) or thrown.
   test('a 404 or a network error resolves to null and is retried next time', async () => {
     expect(await loadPuzzleSet(async (_url: string) => respond('missing', false))).toBeNull()

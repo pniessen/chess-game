@@ -57,6 +57,17 @@ describe('loadOpeningBook', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1)
   })
 
+  // Breaks under a subpath deploy (GitHub Pages), where the index is not at
+  // the domain root.
+  test('the default url follows the deploy base', async () => {
+    vi.stubEnv('BASE_URL', '/chess-game/')
+    const data = buildOpeningsData([FIXTURE_TSV])
+    const fetchImpl = vi.fn(async (_url: string) => new Response(JSON.stringify(data)))
+    await loadOpeningBook(fetchImpl)
+    expect(fetchImpl).toHaveBeenCalledWith('/chess-game/openings/openings.json')
+    vi.unstubAllEnvs()
+  })
+
   test('a failure yields null and is retried next time', async () => {
     const failing = vi.fn(async () => new Response('nope', { status: 404 }))
     expect(await loadOpeningBook(failing)).toBeNull()
