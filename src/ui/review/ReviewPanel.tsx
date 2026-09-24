@@ -1,3 +1,4 @@
+import { EvalLine } from './EvalLine'
 import type { ReviewState } from './useReview'
 
 const fmt = (x: number | null) => (x === null ? '—' : x.toFixed(1))
@@ -39,6 +40,7 @@ export function ReviewPanel({
         <p>
           Black accuracy: <span data-testid="accuracy-b">{fmt(state.review.accuracy.b)}</span>%
         </p>
+        <EvalLine review={state.review} />
         <p className="review-current" data-testid="review-current">
           {currentText}
         </p>

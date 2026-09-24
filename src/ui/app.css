@@ -1107,6 +1107,25 @@ body {
 .review-summary { white-space: pre-wrap; }
 .review-source, .review-hint { font-size: 0.85em; color: var(--color-muted); }
 .review-error { color: var(--color-error); }
+
+/* Task 10: the whole-game evaluation line (EvalLine.tsx) — a compact
+   sparkline built from the review's own per-ply evals. The SVG is
+   decorative (`aria-hidden`, see the component); the caption above it and
+   the `.sr-only` table below it are the real accessible content, so
+   nothing here needs its own contrast-checked "meaningful graphic" pass —
+   `--ink`/`--brass`/`--line-strong` are the same body-text/accent/border
+   tokens used everywhere else in this file, already readable in both
+   themes. The classification dots reuse the existing `.mark-*` colours
+   (Task 8, contrast-checked across all four theme combinations) via
+   `currentColor`, rather than defining a second copy of the same colours. */
+.eval-line { margin: 2px 0 0; }
+.eval-line-summary { margin: 0 0 4px; font-size: 0.85em; color: var(--color-muted); }
+.eval-line-svg { display: block; width: 100%; height: 40px; }
+.eval-line-baseline { stroke: var(--line-strong); stroke-width: 1; stroke-dasharray: 2 2; }
+.eval-line-area { fill: var(--ink); opacity: 0.1; stroke: none; }
+.eval-line-stroke { fill: none; stroke: var(--brass); stroke-width: 1.6; vector-effect: non-scaling-stroke; }
+.eval-line-mark { fill: currentColor; }
+
 /* Task 8: move-quality chips — a small coloured pill per classification,
    next to the SAN in the move list (MoveList.tsx). Colours are redefined
    under both dark-mode signals below, the same pattern every other themed

@@ -81,6 +81,43 @@ test.describe('post-game review (coach offline unless stated)', () => {
     await expect(page.getByTestId('mark-6')).toHaveText('??')
   })
 
+  // Task 10: the whole-game evaluation line. Red if it ever renders before a
+  // review exists, if it stops covering one point per ply on a short AND a
+  // long game, or if the mate-ending row/marker never show up.
+  test('the evaluation line is absent until reviewed, then plots one point per ply with an accessible table', async ({ page }) => {
+    await coachOffline(page)
+    await page.goto('/')
+    await importFinished(page, SCHOLAR)
+    await page.getByTestId('tab-review').click()
+    // No review yet: the line must not exist at all (not an empty chart).
+    await expect(page.getByTestId('eval-line')).toHaveCount(0)
+
+    await reviewNow(page)
+    const line = page.getByTestId('eval-line')
+    await expect(line).toBeVisible()
+    // Decorative chart, real content lives in the caption + table.
+    await expect(line.locator('svg')).toHaveAttribute('aria-hidden', 'true')
+    await expect(page.getByTestId('eval-line-summary')).toContainText('Ended at 1-0')
+    const points = await line.locator('polyline').getAttribute('points')
+    expect(points!.trim().split(' ')).toHaveLength(8) // start + 7 plies
+    const rows = line.locator('[data-testid="eval-line-table"] tbody tr')
+    await expect(rows).toHaveCount(8)
+    await expect(rows.last()).toContainText('1-0')
+    // The blunder (3...Nf6??) gets a marker dot in the same colour class
+    // MoveList's own chip uses.
+    await expect(line.locator('circle.mark-blunder')).toHaveCount(1)
+  })
+
+  test('a long game’s evaluation line still plots every ply', async ({ page }) => {
+    await pinRandom(page, 0.99)
+    await coachOffline(page)
+    await page.goto('/')
+    await importLongAndResign(page)
+    await reviewNow(page)
+    const points = await page.getByTestId('eval-line').locator('polyline').getAttribute('points')
+    expect(points!.trim().split(' ')).toHaveLength(101) // start + 100 plies
+  })
+
   test('with the server up, the summary comes from Claude and carries the flagged moves', async ({ page }) => {
     // A holder object: TS does not see assignments made inside callbacks to a plain `let`.
     const sent: { body: { flagged: Array<{ ply: number; classification: string }> } | null } = { body: null }
