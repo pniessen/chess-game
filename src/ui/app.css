@@ -318,8 +318,40 @@ body {
    Layout
    ------------------------------------------------------------------ */
 .layout {
+  /* Task 1: the board's edge length reacts to viewport HEIGHT instead of
+     being a hard 640px that never reacts to it — a 1920x1080 display used
+     to scroll for no reason, since nothing about the board ever got
+     smaller. --board-size keeps the 640px cap (so nothing changes at
+     1440x800 — see below) but shrinks on shorter viewports instead of
+     pushing the page taller; board.css's .board-frame width and this
+     grid's own board track both read it, so `.board-row`, the board
+     itself, the eval bar (a flex sibling that stretches to the row's
+     height) and the coordinate gutters (part of .board-frame's own width
+     calc) all move together.
+
+     --chrome is the vertical space around the board's row that is NOT the
+     board — measured live in a real browser (not guessed) at 1280x720,
+     1440x800 and 1920x1080; identical at all three, since none of it
+     depends on viewport WIDTH, only on the fixed-height header above the
+     board and the page's own padding:
+       .app padding-top                                    20px
+       .status-row rendered height                         42px
+       .status-row margin-bottom (the gap between the       20px  <- "the layout gap"
+         header row and .layout below it)
+       .app padding-bottom                                 40px
+                                                            -----
+                                                            122px
+     (Verified at 1440x800 the board still renders at 610px inside its
+     640px-capped track — unchanged from before this task, since
+     100svh - 122px = 678px there, which still clamps to the 640px cap.)
+
+     `svh`, not `vh`: on mobile Safari `vh` is sized to the LARGEST
+     viewport (URL bar hidden), so a `vh`-sized board would be taller than
+     the actually-visible viewport exactly when the URL bar is showing. */
+  --chrome: 122px;
+  --board-size: clamp(360px, min(640px, calc(100svh - var(--chrome, 180px))), 640px);
   display: grid;
-  grid-template-columns: 232px minmax(0, 640px) 280px;
+  grid-template-columns: 232px minmax(0, var(--board-size)) 280px;
   grid-template-areas: 'left board right';
   gap: 24px;
   justify-content: center;

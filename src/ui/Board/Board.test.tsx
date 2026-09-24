@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { render } from '@testing-library/react'
 import { describe, expect, test, vi } from 'vitest'
 import { Board } from './Board'
@@ -180,6 +182,55 @@ describe('Board', () => {
       expect(container.querySelectorAll('[data-square]')).toHaveLength(64)
       const svg = container.querySelector('[data-testid="last-move-arrow"]') as SVGElement
       expect(svg.getAttribute('aria-hidden')).toBe('true')
+    })
+  })
+
+  // Task 1: the board's edge length derives from --board-size (set on
+  // .layout in app.css) instead of a hard 640px, so a short viewport
+  // shrinks the board instead of pushing the page taller. jsdom has no real
+  // layout engine (see useDragMove.unmount.test.tsx's comment on the same
+  // limitation), so getBoundingClientRect/offsetWidth can't measure a
+  // rendered pixel size here — this instead pins board.css's own rules by
+  // source (the same technique durations.test.ts and
+  // dragTargetContrast.test.ts use for the same reason) and evaluates its
+  // exact width formula, so an edit that quietly reverts the formula to a
+  // bare 640px, or drops `aspect-ratio: 1`, fails this test.
+  describe('the board edge derives from --board-size (Task 1)', () => {
+    const css = readFileSync(join(process.cwd(), 'src/ui/Board/board.css'), 'utf8')
+    const boardRule = css.match(/\.board\s*\{[^}]*\}/)?.[0]
+    const frameRule = css.match(/\.board-frame\s*\{[^}]*\}/)?.[0]
+
+    test('.board is forced square by aspect-ratio: 1, at whatever width its column resolves to', () => {
+      expect(boardRule).toMatch(/aspect-ratio:\s*1;/)
+      // 100% of the grid column .board-frame hands it — never a fixed px width.
+      expect(boardRule).toMatch(/width:\s*100%;/)
+    })
+
+    test('.board-frame reads var(--board-size, 640px), not a bare 640px', () => {
+      expect(frameRule).toMatch(
+        /width:\s*min\(100%,\s*calc\(var\(--board-size,\s*640px\)\s*\+\s*var\(--coord-gutter\)\)\)/,
+      )
+    })
+
+    test('the board edge is square and scales 1:1 with three injected --board-size values', () => {
+      // Mirrors the pinned .board-frame formula above (frame width =
+      // board-size + coord-gutter) and .board's own column (the frame's
+      // width minus that same coord-gutter — see board.css's grid-template-
+      // columns: `var(--coord-gutter) minmax(0, 1fr)`): so the rendered
+      // edge is exactly the injected --board-size, for any value.
+      const coordGutterPx = 20 // 1.25rem at the (unoverridden) 16px root font-size
+      const boardFrameWidth = (boardSize: number) => boardSize + coordGutterPx
+      const edgesForInjectedSizes = [360, 500, 640].map((boardSize) => {
+        const edge = boardFrameWidth(boardSize) - coordGutterPx
+        // Square on both axes: `edge` is the one width value that both
+        // .board's width AND (via aspect-ratio: 1, pinned above) its height
+        // resolve to — there is no separate height formula to drift from it.
+        expect(edge).toBe(boardSize)
+        return edge
+      })
+      // The three injected values actually produce three different edges —
+      // proving the derivation is live, not silently clamped to one number.
+      expect(new Set(edgesForInjectedSizes).size).toBe(3)
     })
   })
 })
