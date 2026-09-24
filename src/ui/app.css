@@ -364,7 +364,38 @@ body {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  /* Task 5: the side columns are bounded by the board's own edge length and
+     scroll INSIDE that bound, so the PAGE never scrolls.
+
+     Why `max-height: var(--board-size)` and not `height`:
+       - `max-height` leaves a short column at its content height (the idle
+         left column is 504px against a 640px board — `height` would stretch
+         it to 640 and strand 136px of empty card below the controls), while
+         still capping a tall one.
+       - It makes "the page never scrolls" provable rather than measured.
+         The page's height is `--chrome` (122px) + the tallest thing in the
+         `.layout` row, and every one of the three is now <= --board-size:
+         the board column is `min(track, --board-size + gutter)` tall minus
+         its gutter, and both side columns are capped here. Since
+         --board-size is itself `clamp(360px, 100svh - 122px, 640px)`, the
+         page is 122 + --board-size <= 100svh at every viewport tall enough
+         for the clamp's 360px FLOOR not to bind (>= 482px) — Task 1's
+         board floor is the deliberate backstop below that.
+
+     Measured at 1440x800 with a 70-move game: the column's content is 613px
+     (the captured card grows as material comes off) against a 640px cap, so
+     it does not scroll there; at 1280x720 the cap is 598px and it scrolls
+     15px — the accepted cost of never scrolling the page (the alternative
+     is Hint sitting below the fold, which is what Task 2 just fixed). */
+  min-height: 0;
+  max-height: var(--board-size);
+  overflow-y: auto;
 }
+/* The cards keep their natural height. Without this, a flex column that has
+   hit its `max-height` SHRINKS its items (flex-shrink defaults to 1) down
+   to their min-content size — the clocks and the controls grid visibly
+   squash — instead of overflowing and letting the column scroll. */
+.left-column > * { flex: none; }
 
 .board-column {
   grid-area: board;
@@ -385,7 +416,24 @@ body {
   flex-direction: column;
   gap: 12px;
   min-width: 0;
+  /* Task 5: same cap as .left-column (see there for why `max-height`). This
+     is the column the plan exists for: with a 70-move game loaded it
+     measured 826px against a ~702px budget at 1440x800, and ALL of the
+     page's overflow was here. */
+  min-height: 0;
+  max-height: var(--board-size);
+  /* A backstop, not the mechanism: .tabs below gives up its height first,
+     so this only ever scrolls once .tabs has hit its own min-height (i.e.
+     on a viewport short enough that New game + a usable tab card no longer
+     fit). Clipping instead would make the bottom of New game unreachable
+     there, since the page has no scrollbar of its own any more. */
+  overflow-y: auto;
 }
+/* New game cannot give: its selects are already at their floor (Task 3
+   measured a 2x2 grid clipping "Engine vs engine"), so 324px is its real
+   height. The tab card is the one that flexes. */
+.right-column > .new-game { flex: none; }
+.right-column > .tabs { flex: 1 1 auto; }
 
 /* Card surfaces */
 .clock,
@@ -520,9 +568,20 @@ body {
 /* ------------------------------------------------------------------
    Tabs (segmented control)
    ------------------------------------------------------------------ */
-.tabs { overflow: hidden; }
+/* Task 5: the tab card is the flexible part of the right column — it takes
+   whatever height is left under New game and its PANEL scrolls, instead of
+   each list carrying its own fixed px cap and pushing the page past the
+   fold. `overflow: hidden` was already here (it keeps the header's corners
+   inside the card's radius) and does double duty now: it also zeroes this
+   item's automatic minimum size, which is what lets it shrink at all. */
+.tabs {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
 
 .tabs-header {
+  flex: none;
   display: flex;
   gap: 2px;
   margin: 8px;
@@ -555,6 +614,27 @@ body {
   box-shadow: 0 1px 2px rgba(23, 32, 48, 0.12);
 }
 
+/* The panel is the scroll container, not the document: it takes the tab
+   card's leftover height and anything taller than that scrolls inside it.
+
+   `display` is set on `:not([hidden])` ONLY. Tabs.tsx keeps every panel
+   mounted and hides the inactive ones with the `hidden` attribute, and an
+   author `display: flex` would beat the UA stylesheet's `[hidden] { display:
+   none }` no matter the specificity — putting all four panels on screen at
+   once. */
+.tab-panel {
+  flex: 1 1 auto;
+  min-height: 0;
+  /* A backstop for panels whose content cannot shrink (Review is a plain
+     block of prose). Panels whose content DOES flex — Moves, History,
+     Explorer — scroll in their own list below and never reach this. */
+  overflow-y: auto;
+}
+.tab-panel:not([hidden]) {
+  display: flex;
+  flex-direction: column;
+}
+
 /* ------------------------------------------------------------------
    Move list
    ------------------------------------------------------------------ */
@@ -562,7 +642,15 @@ body {
   list-style: none;
   margin: 0;
   padding: 4px 8px 10px;
-  max-height: 420px;
+  /* Task 5: was `max-height: 420px`. A constant cap is what put 948px of
+     page into an 800px viewport with a long game loaded — the list simply
+     grew to 420px and shoved everything under it past the fold. It now
+     takes the panel's height instead (`min-height: 0` so it may shrink
+     below its content, which a flex item otherwise refuses to do) and
+     scrolls there: measured 248px at 1440x800 and 206px at 1280x720 under a
+     324px New game card. */
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
   font-variant-numeric: tabular-nums;
 }
@@ -1181,9 +1269,14 @@ body {
 /* ------------------------------------------------------------------
    Explorer, review, history
    ------------------------------------------------------------------ */
-.explorer { display: flex; flex-direction: column; gap: 8px; padding: 4px 12px 12px; }
+.explorer { display: flex; flex-direction: column; gap: 8px; padding: 4px 12px 12px; flex: 1 1 auto; min-height: 0; }
+/* Everything except the results list keeps its own height, so the detail
+   block stays pinned under the list the way the old 280px cap kept it. */
+.explorer > * { flex: none; }
 .explorer-current { margin: 0; font-size: 0.85em; color: var(--color-muted); }
-.explorer-results { list-style: none; margin: 0; padding: 0; max-height: 280px; overflow-y: auto; }
+/* Task 5: was `max-height: 280px` — now the results take whatever the panel
+   has left under the current-opening line and above the detail block. */
+.explorer-results { list-style: none; margin: 0; padding: 0; flex: 1 1 auto; min-height: 0; overflow-y: auto; }
 .app .explorer-results button {
   width: 100%; text-align: left; border: none; background: transparent;
   color: var(--color-fg); padding: 5px 8px; border-radius: 6px; cursor: pointer; font: inherit;
@@ -1261,7 +1354,11 @@ body {
 :root[data-theme='dark'] .mark-mistake { color: #ffab5e; background: rgba(255, 171, 94, 0.18); }
 :root[data-theme='dark'] .mark-blunder { color: #ff8a80; background: rgba(255, 138, 128, 0.18); }
 
-.history-list { list-style: none; margin: 0; padding: 4px 12px 12px; max-height: 420px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+/* Task 5: was `max-height: 420px`, same story as .move-list. Entries are
+   stored newest-first (storage.ts's addHistoryEntry prepends), so the most
+   recent game is the one at scrollTop 0 — shrinking this list never hides
+   it. */
+.history-list { list-style: none; margin: 0; padding: 4px 12px 12px; flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
 .history-entry {
   display: flex; flex-direction: column; gap: 4px;
   padding: 10px 12px; border-radius: 10px; background: var(--surface-2);
@@ -1272,6 +1369,7 @@ body {
 .history-empty { margin: 0; padding: 4px 12px 14px; color: var(--color-muted); }
 
 .history-notice {
+  flex: none;
   display: flex; flex-direction: column; gap: 8px; align-items: flex-start;
   margin: 4px 12px 12px; padding: 10px 12px; border-radius: var(--radius);
   background: var(--color-warning-bg); border: 1px solid var(--color-warning-border);
@@ -1635,6 +1733,25 @@ body {
      both .right-column children preserves DOM order. */
   .right-column { order: 4; grid-area: auto; }
 
+  /* Task 5 is a DESKTOP measure: it caps the two side columns at the board's
+     edge length so the page never scrolls beside it. Here the layout is one
+     column and the page is meant to scroll, so the caps come off — a column
+     capped at --board-size would put a second, nested scrollbar inside a
+     page that already has one. The three lists get their original px caps
+     back with them, which keeps this breakpoint pixel-identical to what it
+     rendered before this task: without them a 70-move game would run the
+     moves list to 2,097px and push History and New game miles down the
+     page. (The flex plumbing above is harmless here: in a panel with no
+     height cap, `flex: 1 1 auto` items just take their content height.) */
+  .left-column,
+  .right-column {
+    max-height: none;
+    overflow-y: visible;
+  }
+  .move-list { max-height: 420px; }
+  .history-list { max-height: 420px; }
+  .explorer-results { max-height: 280px; }
+
   .clocks { flex-direction: row; }
   .clocks .clock { flex: 1 1 0; min-width: 0; padding: 10px 12px; }
   .clock-time { font-size: 1.5rem; }
@@ -1661,6 +1778,37 @@ body {
   }
   .game-end-headline { font-size: 1.05rem; }
   .app .game-end-card button { padding: 7px 10px; font-size: 0.86em; }
+}
+
+/* ------------------------------------------------------------------
+   Task 5: a floor for the tab card, on SHORT viewports only.
+
+   The right column's height is capped at `--board-size` and `.tabs` is the
+   part of it that gives, so the panel's height is a straight subtraction
+   (measured at 1440x800, and width-independent):
+
+     panel = --board-size - (New game 324 + column gap 12 + tab header 56)
+     (the header's 56px is the 38px tab row plus its 8px margins and the
+      card's own 1px top and bottom borders — all measured, not guessed)
+           = (100svh - --chrome 122) - 392
+           = viewport height - 514
+
+   Above ~620px of viewport height that leaves 100px or more and no floor is
+   needed — the card cannot shrink past its own header there, so the tabs
+   stay clickable on their own. Below it the subtraction runs the panel down
+   towards nothing, and `overflow: hidden` on `.tabs` (which is what lets it
+   shrink at all) would eventually clip the tab row itself out of reach,
+   with no page scrollbar left to get at it.
+
+   So below that threshold the card refuses to go under 160px — the header
+   plus about three move rows — and `.right-column`'s own `overflow-y: auto`
+   takes over, scrolling the column instead. The floor is deliberately NOT
+   unconditional: measured, applying it at every height padded the empty
+   Moves card from 70px to 160px and the empty History card from 96px to
+   160px, a visibly empty box beside a full-height board, to buy something
+   only ever needed down here. */
+@media (max-height: 620px) {
+  .tabs { min-height: 160px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
