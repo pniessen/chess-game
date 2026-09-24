@@ -434,7 +434,12 @@ body {
 
    No transition: the attribute only flips at rest, between scroll/resize
    events, never mid-frame — there is no motion here to gate behind
-   `prefers-reduced-motion` in the first place. */
+   `prefers-reduced-motion` in the first place.
+
+   A `mask-image` (like a `transform` or a `filter`) makes its element a
+   containing block for `position: fixed` descendants — nothing fixed
+   lives inside `.left-column` today, which is exactly why that would
+   break silently, later, the day something does. */
 .left-column[data-fade-bottom] {
   -webkit-mask-image: linear-gradient(to bottom, black calc(100% - 28px), transparent 100%);
   mask-image: linear-gradient(to bottom, black calc(100% - 28px), transparent 100%);
@@ -705,6 +710,11 @@ body {
   min-height: 0;
   overflow-y: auto;
   font-variant-numeric: tabular-nums;
+  /* Task 6 fix round 1: makes this list every row's `offsetParent`, so
+     MoveList.tsx's auto-scroll effect can read `el.offsetTop` relative to
+     the list itself (not some ancestor further up) and write only
+     `list.scrollTop` — never an ancestor, never the page. */
+  position: relative;
 }
 
 .move-list li {
@@ -1707,16 +1717,20 @@ body {
 
    Below 900px `NewGameControl` swaps the always-visible `NewGame` card for
    this trigger + popover pair — same shell as Game file/Settings
-   (`usePopover`), but anchored in normal flow (inside `.right-column`,
-   above `.tabs`) rather than the header, since that is where `NewGame`
-   itself already sits at every width. `position: relative` on the anchor
-   is what makes that work: the popover positions against ITS trigger, not
-   the header.
-   ------------------------------------------------------------------ */
-.new-game-anchor {
-  position: relative;
-}
+   (`usePopover`).
 
+   Fix round 1: the popover itself is portaled to `document.body` and
+   positioned `fixed` from JS (NewGameControl.tsx), same technique as
+   `MovePreview.tsx` — `.new-game-anchor` (still just the trigger's normal-
+   flow wrapper inside `.right-column`) is NOT its containing block any
+   more. It was, in the first version (`position: absolute` on the
+   popover, `position: relative` here) — and `.right-column`'s own
+   `overflow-y: auto` (Task 5) clipped it to a sliver, since an
+   absolutely-positioned descendant of a scrolling ancestor cannot escape
+   that ancestor's box, `z-index` or no. `position: fixed` escapes every
+   ancestor's overflow by definition, which is the actual fix; the anchor
+   needs no `position` of its own for it.
+   ------------------------------------------------------------------ */
 .app .new-game-trigger {
   display: inline-flex;
   align-items: center;
@@ -1735,17 +1749,16 @@ body {
 }
 
 .new-game-popover {
-  position: absolute;
-  top: calc(100% + 8px);
-  left: 0;
-  right: 0;
+  /* `position`, `top`/`bottom`, `left`, `width` and `max-height` are all
+     set inline, per-instance, by NewGameControl.tsx's `place()` — computed
+     from the trigger's live `getBoundingClientRect()` and the viewport,
+     re-run on every scroll/resize while open, and picking upward vs.
+     downward from which half of the viewport the trigger is in. Nothing
+     here can be a static value any more (that was the bug — see the
+     comment above this block). */
+  position: fixed;
   z-index: 30;
   box-sizing: border-box;
-  /* Task 6 brief: every mobile popover gets this cap (Settings/Game file
-     stay at their desktop 70vh — see the max-width:768px override below —
-     this one is mobile-only by construction, so its base value can just
-     be the mobile number). */
-  max-height: min(80vh, 560px);
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -1849,7 +1862,9 @@ body {
      it is wide — 70vh of a short desktop window clips sooner than the
      same 70vh of a tall phone actually needs to. `.new-game-popover`
      needs no entry here: it only ever exists below 900px (NewGameControl),
-     so its base rule already carries this value. */
+     and fix round 1 made its `max-height` a per-instance inline style
+     (computed from the trigger's own position — see NewGameControl.tsx),
+     not a static rule this block could override. */
   .settings-popover,
   .game-file-popover {
     max-height: min(80vh, 560px);

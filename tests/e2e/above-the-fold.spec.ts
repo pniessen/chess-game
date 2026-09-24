@@ -645,6 +645,95 @@ test('New game is inline at 900px and wider, and a popover below it', async ({ p
   await expect(page.getByTestId('new-game-toggle')).toBeFocused()
 })
 
+/**
+ * Fix round 1, Critical: the FIRST version of the popover was
+ * `position: absolute` inside `.new-game-anchor`, itself inside
+ * `.right-column` — which Task 5 gave `overflow-y: auto`. An
+ * absolutely-positioned descendant of a scrolling ancestor is clipped to
+ * that ancestor's box; `z-index` does nothing about it. Measured live at
+ * 899x800 on an idle game before this fix: `.right-column` `clientHeight`
+ * 117 against `scrollHeight` 455, the popover 412px tall with only 73.8px
+ * of it inside the clip, and the Start button 213.8px outside it —
+ * `document.elementFromPoint` at its centre resolved to the `.layout` div
+ * behind it, not the button. `toBeVisible()` alone does not catch this
+ * (it checks the bounding box and `visibility`, not ancestor-overflow
+ * clipping), and Playwright's own `.click()` auto-scrolls the clipping
+ * ancestor before clicking, which is exactly why the pre-fix version of
+ * "New game is inline at 900px..." above passed anyway — a real tap
+ * would not have reached it. `elementFromPoint` is what actually proves
+ * the button is reachable.
+ */
+for (const size of [
+  { width: 899, height: 800 },
+  { width: 800, height: 800 },
+  { width: 769, height: 700 },
+]) {
+  test(`the New game popover is not clipped at ${size.width}x${size.height}`, async ({ page }) => {
+    await coachOffline(page)
+    await page.setViewportSize(size)
+    await page.goto('/')
+    await page.getByTestId('new-game-toggle').click()
+
+    const popover = page.getByTestId('new-game-popover')
+    await expect(popover).toBeVisible()
+    const popoverBox = await popover.boundingBox()
+    if (!popoverBox) throw new Error('new-game-popover has no bounding box')
+    expect(popoverBox.y, 'popover top').toBeGreaterThanOrEqual(0)
+    expect(popoverBox.y + popoverBox.height, 'popover bottom').toBeLessThanOrEqual(size.height)
+    expect(popoverBox.x, 'popover left').toBeGreaterThanOrEqual(0)
+    expect(popoverBox.x + popoverBox.width, 'popover right').toBeLessThanOrEqual(size.width)
+
+    const start = popover.getByTestId('new-game')
+    const hit = await start.evaluate((el) => {
+      const r = el.getBoundingClientRect()
+      const atCentre = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)
+      return atCentre === el || (el.contains(atCentre) ?? false)
+    })
+    expect(hit, 'Start button is hit-testable at its own centre').toBe(true)
+  })
+}
+
+// Minor #5: at 375x812 the reviewer measured the popover opening straight
+// below the trigger and mostly off-screen (105.8/412px visible, 306px of
+// further page scroll needed). Fixed by anchoring upward when the trigger
+// sits in the lower half of the viewport (NewGameControl.tsx's `place()`).
+test('at 375x812 the New game popover opens upward and fits the viewport', async ({ page }) => {
+  await coachOffline(page)
+  await page.setViewportSize({ width: 375, height: 812 })
+  await page.goto('/')
+  await page.getByTestId('new-game-toggle').click()
+
+  const popover = page.getByTestId('new-game-popover')
+  const box = await popover.boundingBox()
+  if (!box) throw new Error('new-game-popover has no bounding box')
+  expect(box.y, 'popover top').toBeGreaterThanOrEqual(0)
+  expect(box.y + box.height, 'popover bottom').toBeLessThanOrEqual(812)
+  // The whole point of anchoring upward: no further scroll needed to reach
+  // the submit button.
+  await expect(popover.getByTestId('new-game')).toBeInViewport()
+})
+
+// Important #2: resizing past 900px with the popover open used to strand
+// it — the `!mobile` branch drops the popover's markup but never told
+// `usePopover` it had closed, so `overlayOpen` (App.tsx) stayed pinned
+// true and every keyboard shortcut died until the next click anywhere.
+// Red before the `useEffect(() => { if (!mobile && open) close(false) },
+// ...)` guard in NewGameControl.tsx.
+test('resizing past 900px with the New game popover open releases the keyboard', async ({ page }) => {
+  await coachOffline(page)
+  await page.setViewportSize({ width: 500, height: 900 })
+  await page.goto('/')
+  await page.getByTestId('new-game-toggle').click()
+  await expect(page.getByTestId('new-game-popover')).toBeVisible()
+
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await expect(page.getByTestId('new-game-popover')).toHaveCount(0)
+  await expect(page.getByTestId('mode')).toBeVisible()
+
+  await page.keyboard.press('f')
+  await expect(page.getByTestId('board-frame')).toHaveClass(/black/)
+})
+
 /* --------------------------------------------------------------------
    Additional item A: the move list auto-scrolls to the current ply.
 
@@ -666,19 +755,24 @@ test('importing a long game scrolls the moves panel to the current ply', async (
   await expect(current).toBeInViewport()
 })
 
-// The three things the reviewer flagged, all in one test: (1) the board
-// and the page must not move even though the scroll walks ancestors,
-// including `.right-column` on a viewport short enough to make it a
-// scroll container; (2) Home/a click both re-trigger it, not just import.
-test('jumping to a far-away ply scrolls the panel into view without moving the board or the page', async ({
+// Fix round 1, item 3: the auto-scroll used to walk ancestors via the
+// native `Element.scrollIntoView`, including `.right-column` on a short
+// viewport; it now writes only `.move-list`'s own `scrollTop`, computed
+// from `offsetTop` (see MoveList.tsx). This test now asserts something
+// stronger than "the board and page didn't move": that `.right-column`'s
+// OWN scrollTop is untouched too — the scroll happened in exactly one
+// place, not merely without visible side effects two ancestors up.
+test('jumping to a far-away ply scrolls only the moves panel, never an ancestor, the board or the page', async ({
   page,
 }) => {
   await withLongGame(page, { width: 1280, height: 720 })
 
   const list = page.getByTestId('move-list')
+  const rightColumn = page.locator('.right-column')
   await list.evaluate((el) => el.scrollTo({ top: 0 }))
   const boardBefore = await page.locator('.board').boundingBox()
   if (!boardBefore) throw new Error('.board has no bounding box')
+  const rightColumnScrollBefore = await rightColumn.evaluate((el) => el.scrollTop)
 
   // Home: jump to the very start (ply 0) with the panel scrolled to the
   // opposite end — nothing to auto-scroll TO (no move carries `.current`),
@@ -691,6 +785,9 @@ test('jumping to a far-away ply scrolls the panel into view without moving the b
   await page.keyboard.press('End')
   const current = page.locator('.move-list .move.current')
   await expect(current).toBeInViewport()
+  // The list really did scroll — the assertion below is about WHERE the
+  // scroll happened, not about nothing having happened at all.
+  expect(await list.evaluate((el) => el.scrollTop)).toBeGreaterThan(0)
 
   const boardAfter = await page.locator('.board').boundingBox()
   if (!boardAfter) throw new Error('.board has no bounding box')
@@ -698,6 +795,7 @@ test('jumping to a far-away ply scrolls the panel into view without moving the b
   expect(boardAfter.y).toBe(boardBefore.y)
   expect(await page.evaluate(() => window.scrollY)).toBe(0)
   expect(await pageOverflow(page)).toBe(0)
+  expect(await rightColumn.evaluate((el) => el.scrollTop)).toBe(rightColumnScrollBefore)
 })
 
 // `prefers-reduced-motion` is satisfied by construction (the scroll is
@@ -712,15 +810,21 @@ test('the auto-scroll still lands on the current ply under prefers-reduced-motio
   await expect(page.locator('.move-list .move.current')).toBeInViewport()
 })
 
-// Red before this task's mobile guard (MoveList.tsx): below 768px
-// `.right-column` gives up its own cap/scroll (Task 5's mobile override),
-// so `scrollIntoView`'s ancestor walk has nothing to stop at before the
-// PAGE itself, which genuinely can scroll there. Measured live: playing a
-// move while the (default-active) Moves tab held a move off-panel yanked
+// Originally red under the first version of the auto-scroll (native
+// `Element.scrollIntoView`, which walks every scrollable ANCESTOR): below
+// 768px `.right-column` gives up its own cap/scroll (Task 5's mobile
+// override), so the walk had nothing to stop at before the PAGE itself,
+// which genuinely can scroll there. Measured live: playing a move while
+// the (default-active) Moves tab held a move off-panel yanked
 // `window.scrollY` from 0 to over 300px — moving the board out from under
 // whatever the reader was just doing on it, exactly what
 // tests/e2e/touch-drag.spec.ts's "no page scroll" assertion caught this
-// with in practice.
+// with in practice. Fix round 1, item 3 replaced that with a container-
+// local `list.scrollTop` write (MoveList.tsx) that structurally cannot
+// reach an ancestor at any width, which is what this test now guards —
+// kept rather than deleted, since "never touches the page" is worth
+// pinning at the one width where the page is SUPPOSED to be able to
+// scroll (everywhere else, Task 5 already guarantees it can't).
 test('at 375x812, playing a move never scrolls the page even though the moves tab is active', async ({
   page,
 }) => {

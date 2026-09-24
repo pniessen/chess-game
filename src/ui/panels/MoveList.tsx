@@ -56,36 +56,45 @@ export function MoveList({
   // absence far more noticeable: this panel went from ~14 visible pairs to
   // ~7-8 with no page scrollbar left to hint "there is more here".
   //
-  // `block: 'nearest'` is deliberate: it is a no-op once the move is
-  // already visible, so it never fights a reader scrolling the panel by
-  // hand — which matters more now the panel is small. It also walks every
-  // scrollable ANCESTOR, not just this list: on a short DESKTOP viewport
-  // `.right-column` is itself a scroll container (Task 5), and that is
-  // usually what you want too.
+  // Fix round 1: the first version of this used the browser's own
+  // `Element.scrollIntoView({ block: 'nearest' })`, which walks every
+  // scrollable ANCESTOR, not just this list — and on mobile (≤768px,
+  // where `.right-column` gives up its own scroll container, Task 5's
+  // mobile override) the walk continued past it to the document itself,
+  // which genuinely can scroll there. Measured live: playing a single
+  // move while the Moves tab was merely active yanked the whole PAGE down
+  // to reveal it, moving the board out from under whatever the reader was
+  // doing on it. Guarding it off below 768px only deleted the feature
+  // exactly where the panel is smallest and needs it most (measured: at
+  // 375x812 with a 70-move game, `.move-list` is its own scroll container
+  // — `scrollHeight` 2097 against `clientHeight` 434 — and the current
+  // move sat off-panel, unreached, guard or no guard).
   //
-  // Deliberately instant (no `behavior: 'smooth'`): a native smooth scroll
-  // has a duration this codebase cannot bound — on a long jump (Home from
-  // move 140, say) it can run well past the 200ms state-change budget —
-  // and an animated, multi-frame scroll is exactly what would race
-  // tests/e2e/move-preview.spec.ts's own explicit `scrollIntoView` call on
-  // the same list. Instant scrolling satisfies "respect
-  // prefers-reduced-motion" by construction: there is no motion to gate.
+  // This version scrolls `listRef` DIRECTLY instead: `el.offsetTop` is
+  // relative to `.move-list` itself (app.css makes it `position:
+  // relative`, so it is every row's `offsetParent`), and only
+  // `list.scrollTop` is ever written — never an ancestor, never the page,
+  // identically at every viewport width. No 768px literal to keep in
+  // sync with the CSS breakpoint any more, either.
   //
-  // Skipped entirely below the 768px single-column breakpoint. There
-  // `.right-column` gives up its own cap and scrolling (Task 5's mobile
-  // override), so it is no longer a qualifying ancestor for
-  // `scrollIntoView` to stop at — the walk continues past it to the
-  // document itself, which genuinely DOES have scrollable overflow on
-  // mobile ("everything else scrolls" — manually, by design; see
-  // task-6-report.md). Measured live: without this guard, playing a move
-  // while the Moves tab is merely the active one (default) yanked the
-  // whole PAGE down to reveal it — mid-drag, with the board the reader was
-  // just touching sliding out from under their finger. Above 768px the
-  // page provably cannot scroll at all (Task 5's own guarantee), so the
-  // exact same call is always panel-only there — nothing to guard.
+  // Deliberately instant, and a plain `if`/`else`, not an animated
+  // easing: a duration this codebase cannot bound (a long jump — Home
+  // from move 140 — could run well past the 200ms state-change budget)
+  // would race tests/e2e/move-preview.spec.ts's own explicit,
+  // synchronous scroll on the same list. Instant scrolling satisfies
+  // "respect prefers-reduced-motion" by construction: there is no motion
+  // to gate.
+  const listRef = useRef<HTMLOListElement>(null)
   useLayoutEffect(() => {
-    if (window.matchMedia('(max-width: 768px)').matches) return
-    anchorsRef.current.get(currentPly)?.scrollIntoView({ block: 'nearest' })
+    const el = anchorsRef.current.get(currentPly)
+    const list = listRef.current
+    if (!el || !list) return
+    const top = el.offsetTop
+    if (top < list.scrollTop) {
+      list.scrollTop = top
+    } else if (top + el.offsetHeight > list.scrollTop + list.clientHeight) {
+      list.scrollTop = top + el.offsetHeight - list.clientHeight
+    }
   }, [currentPly])
 
   const entry = (e?: { san: string; ply: number }) => {
@@ -138,7 +147,7 @@ export function MoveList({
 
   return (
     <>
-      <ol className="move-list" data-testid="move-list">
+      <ol className="move-list" data-testid="move-list" ref={listRef}>
         {pairs.map((p) => (
           <li key={p.number}>
             <span className="number">{p.number}.</span>

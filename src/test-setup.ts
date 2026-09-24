@@ -43,4 +43,13 @@ if (typeof window !== 'undefined') {
       disconnect() {}
     } as unknown as typeof ResizeObserver
   }
+
+  // Fix round 1: `NewGameControl`'s `window.scrollTo({ top: 0 })` (the
+  // scroll-anchoring fix — see task-6-report.md) logs a jsdom "not
+  // implemented" warning without this; harmless, but noisy the moment a
+  // component test actually starts a game from the popover. jsdom DOES
+  // define `window.scrollTo` (so it can't be feature-detected by
+  // presence) — it just throws its "not implemented" warning when called;
+  // a plain no-op replacement is simplest.
+  window.scrollTo = () => {}
 }
