@@ -1260,6 +1260,92 @@ body {
 }
 
 /* ------------------------------------------------------------------
+   Task 13: keyboard shortcuts overlay
+
+   A real backdrop (unlike settings/the game-end card): this one covers the
+   whole board on purpose — it's reference material, not something the game
+   stays interactive behind.
+   ------------------------------------------------------------------ */
+.app .shortcuts-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--surface);
+}
+.shortcuts-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  flex: none;
+  border-radius: 50%;
+  border: 1.5px solid currentColor;
+  font-size: 0.7rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.shortcuts-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: rgba(12, 16, 24, 0.55);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  box-sizing: border-box;
+}
+.shortcuts-overlay {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 420px;
+  max-height: min(80vh, 560px);
+  overflow-y: auto;
+  padding: 20px 22px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-board);
+  animation: settings-pop-in 140ms ease-out;
+}
+.shortcuts-overlay:focus { outline: none; }
+.shortcuts-overlay h2 {
+  margin: 0 0 12px;
+  font-family: var(--font-display);
+  font-size: 1.1rem;
+  color: var(--ink);
+}
+.shortcuts-list {
+  margin: 0 0 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.shortcut-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.shortcut-row dt { flex: none; }
+.shortcut-row dd { margin: 0; color: var(--muted); text-align: right; }
+.shortcut-row kbd {
+  display: inline-block;
+  padding: 2px 7px;
+  font: inherit;
+  font-size: 0.82em;
+  font-weight: 700;
+  color: var(--ink);
+  background: var(--surface-2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 1px 0 var(--line-strong);
+}
+
+/* ------------------------------------------------------------------
    Narrow screens: one column, board first, clocks right under it.
    `display: contents` lifts the under-board panels into the layout grid
    so they can be ordered around the clocks and the move list.

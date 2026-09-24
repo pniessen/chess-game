@@ -10,7 +10,8 @@ import { PIECE_SETS, pieceImageSrc } from '../pieceSets'
  * would make the trap hand focus to an unchecked radio and let an arrow
  * key silently change the setting.
  */
-const FOCUSABLE = 'button:not(:disabled), input:not(:disabled), [href], [tabindex]:not([tabindex="-1"])'
+const FOCUSABLE =
+  'button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [href], [tabindex]:not([tabindex="-1"]), [contenteditable]'
 
 function tabbables(root: HTMLElement): HTMLElement[] {
   const seen = new Set<string>()
@@ -63,20 +64,34 @@ export function SettingsPopover({
   settings,
   onChange,
   onPreviewVolume,
+  onOpenChange,
 }: {
   settings: Settings
   onChange: (patch: Partial<Settings>) => void
   /** Plays one move sound, so the volume slider is audible while you set it. */
   onPreviewVolume?: () => void
+  /** Task 13: lets the keyboard-shortcuts hook know an overlay owns the keyboard. */
+  onOpenChange?: (open: boolean) => void
 }) {
-  const [open, setOpen] = useState(false)
+  const [open, setOpenState] = useState(false)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const popRef = useRef<HTMLDivElement>(null)
 
-  const close = useCallback((restoreFocus: boolean) => {
-    setOpen(false)
-    if (restoreFocus) triggerRef.current?.focus({ preventScroll: true })
-  }, [])
+  const setOpen = useCallback(
+    (next: boolean) => {
+      setOpenState(next)
+      onOpenChange?.(next)
+    },
+    [onOpenChange],
+  )
+
+  const close = useCallback(
+    (restoreFocus: boolean) => {
+      setOpen(false)
+      if (restoreFocus) triggerRef.current?.focus({ preventScroll: true })
+    },
+    [setOpen],
+  )
 
   // Focus the popover itself (not its first control) so a screen reader
   // announces "Settings" before reading the board previews.
@@ -92,11 +107,16 @@ export function SettingsPopover({
       const target = e.target
       if (!(target instanceof Node)) return
       if (popRef.current?.contains(target) || triggerRef.current?.contains(target)) return
-      setOpen(false)
+      // Restore focus to the trigger only when it was actually inside the
+      // popover (Task 12 review fix, round 1, finding 2): otherwise focus
+      // was already somewhere else on the page (e.g. the board), and
+      // yanking it to the trigger on every outside click would be a
+      // surprise, not a courtesy.
+      close(popRef.current?.contains(document.activeElement) ?? false)
     }
     document.addEventListener('pointerdown', onPointerDown)
     return () => document.removeEventListener('pointerdown', onPointerDown)
-  }, [open])
+  }, [open, close])
 
   const handleKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.key === 'Escape') {

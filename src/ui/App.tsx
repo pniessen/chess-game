@@ -37,6 +37,8 @@ import { useMatchLifecycle } from './app/useMatchLifecycle'
 import { useCoachHints } from './app/useCoachHints'
 import { useReviewFlow } from './app/useReviewFlow'
 import { useEndCard } from './app/useEndCard'
+import { useShortcuts } from './app/useShortcuts'
+import { ShortcutsOverlay } from './app/ShortcutsOverlay'
 import { downloadPgn } from './pgnFile'
 import './app.css'
 
@@ -87,6 +89,9 @@ function AppInner({
   const puzzleMode = usePuzzleMode(controller)
 
   const [tab, setTab] = useState<RightTab>('moves')
+  // Reported up by SettingsPopover's onOpenChange, purely so the keyboard
+  // shortcuts hook knows it owns the keyboard — App never reads inside it.
+  const [settingsOpen, setSettingsOpen] = useState(false)
 
   const { engineHealth, engineAvailable } = useEngineHealth(engine, engineConstructed)
   // "Loading" (the very first handshake) and "restarting" (a later one,
@@ -165,6 +170,45 @@ function AppInner({
   const result = describeResult(snapshot.phase, displayedStatus)
   const canReview = engineAvailable && snapshot.phase.kind === 'finished' && game.moves.length > 0
 
+  // Read by the Hint button AND the 'h' shortcut, so they can never disagree
+  // about whether a hint is available right now.
+  const hintDisabled =
+    !engineAvailable ||
+    snapshot.phase.kind !== 'awaiting-human' ||
+    !game.isViewingLive() ||
+    hints.pending ||
+    hints.exhausted ||
+    engineWarmingUp
+
+  // The puzzle button and the 'p' shortcut are the same action: leaving a
+  // game-end card open behind the puzzle screen would remount it — and
+  // re-steal focus — on the way back.
+  const openPuzzles = () => {
+    endCard.dismiss()
+    puzzleMode.enter()
+  }
+
+  // Task 13: the app-wide keyboard shortcuts. `overlayOpen` covers every
+  // overlay that isn't already gated some other way here: the settings
+  // popover (whose own open state this reports up via onOpenChange) and the
+  // game-end card. The promotion picker and this hook's own shortcuts
+  // overlay are passed separately (see useShortcuts).
+  const shortcuts = useShortcuts({
+    active: puzzleMode.screen === 'game',
+    overlayOpen: settingsOpen || endCard.open,
+    promotionOpen: selection.kind === 'awaiting-promotion',
+    hintDisabled,
+    currentPly: game.ply,
+    totalPlies: game.moves.length,
+    onJump: input.handleJump,
+    onFlip: lifecycle.handleFlip,
+    onUndo: input.handleUndo,
+    onRedo: input.handleRedo,
+    onHint: handleHint,
+    onOpenPuzzles: openPuzzles,
+    onCancelPromotion: input.cancelPromotion,
+  })
+
   // Rendered INSTEAD of the game UI, after every hook above, so hook order
   // never changes. The match stays in the controller (paused) meanwhile.
   if (puzzleMode.screen === 'puzzles') {
@@ -191,13 +235,31 @@ function AppInner({
         coachState={coachState}
         onDismissNotice={() => coach.dismissNotice()}
         actions={
-          <SettingsPopover
-            settings={settings}
-            onChange={updateSettings}
-            onPreviewVolume={() => sound.play('move')}
-          />
+          <>
+            <button
+              type="button"
+              className="shortcuts-trigger"
+              data-testid="shortcuts-toggle"
+              aria-haspopup="dialog"
+              aria-expanded={shortcuts.helpOpen}
+              onClick={() => (shortcuts.helpOpen ? shortcuts.closeHelp() : shortcuts.openHelp())}
+            >
+              <span className="shortcuts-icon" aria-hidden="true">
+                ?
+              </span>
+              Shortcuts
+            </button>
+            <SettingsPopover
+              settings={settings}
+              onChange={updateSettings}
+              onPreviewVolume={() => sound.play('move')}
+              onOpenChange={setSettingsOpen}
+            />
+          </>
         }
       />
+
+      {shortcuts.helpOpen ? <ShortcutsOverlay onClose={shortcuts.closeHelp} /> : null}
 
       <div className="layout">
         <div className="left-column">
@@ -257,13 +319,7 @@ function AppInner({
             hint={{
               label: hints.label,
               text: hints.text,
-              disabled:
-                !engineAvailable ||
-                snapshot.phase.kind !== 'awaiting-human' ||
-                !game.isViewingLive() ||
-                hints.pending ||
-                hints.exhausted ||
-                engineWarmingUp,
+              disabled: hintDisabled,
               loading: engineWarmingUp,
             }}
             onUndo={input.handleUndo}
@@ -296,13 +352,7 @@ function AppInner({
             onTimeControlChange={choices.setTimeControlId}
             onColorChange={choices.setColor}
             onStart={lifecycle.handleNewGame}
-            onPuzzles={() => {
-              // The puzzle screen renders INSTEAD of the game UI; leaving a
-              // card open behind it would remount it — and re-steal focus —
-              // on the way back.
-              endCard.dismiss()
-              puzzleMode.enter()
-            }}
+            onPuzzles={openPuzzles}
           />
           <GameIO game={game} onImport={lifecycle.handleImport} />
         </div>
