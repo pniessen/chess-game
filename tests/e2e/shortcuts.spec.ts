@@ -154,6 +154,25 @@ test('shortcuts never fire while the settings popover owns the keyboard', async 
   await expect(page.getByTestId('settings')).toHaveCount(0)
 })
 
+// Task 6: New game is the same kind of popover as Game file/Settings below
+// 900px (NewGameControl) — red before `newGameOpen` was wired into
+// `overlayOpen` (App.tsx): 'f' would flip the board right behind the open
+// popover.
+test('shortcuts never fire while the New game popover owns the keyboard', async ({ page }) => {
+  await page.setViewportSize({ width: 500, height: 900 })
+  await coachOffline(page)
+  await page.goto('/')
+  await page.getByTestId('new-game-toggle').click()
+  await expect(page.getByTestId('new-game-popover')).toBeVisible()
+
+  await page.keyboard.press('p')
+  await expect(page.getByTestId('puzzle-screen')).toHaveCount(0)
+  await page.keyboard.press('f')
+  await expect(page.getByTestId('board-frame')).toHaveClass(/white/)
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('new-game-popover')).toHaveCount(0)
+})
+
 test("Left/Right move between tabs when a tab has focus, not through the move list", async ({ page }) => {
   await move(page, 'e2', 'e4')
   await move(page, 'e7', 'e5')

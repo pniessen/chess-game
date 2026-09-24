@@ -65,6 +65,10 @@
   /* Masked to `currentColor` where it is used, so it needs no dark variant. */
   --icon-sliders: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.6' stroke-linecap='round'%3E%3Cpath d='M2 4.5h4.5M11.5 4.5H14M2 11.5h2.5M9.5 11.5H14'/%3E%3Ccircle cx='9' cy='4.5' r='2'/%3E%3Ccircle cx='7' cy='11.5' r='2'/%3E%3C/svg%3E");
   --icon-file: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M9 1.75H4.25A1.25 1.25 0 0 0 3 3v10a1.25 1.25 0 0 0 1.25 1.25h7.5A1.25 1.25 0 0 0 13 13V5.75Z'/%3E%3Cpath d='M9 1.75V5.75H13'/%3E%3Cpath d='M5.75 9h4.5M5.75 11.25h3'/%3E%3C/svg%3E");
+  /* Task 6: New game's mobile-only popover trigger (below 900px — see
+     NewGameControl.tsx). Same masked-to-`currentColor` pattern as the two
+     icons above. */
+  --icon-plus: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.6' stroke-linecap='round'%3E%3Ccircle cx='8' cy='8' r='6.25'/%3E%3Cpath d='M8 5.25v5.5M5.25 8h5.5'/%3E%3C/svg%3E");
 
   --radius-sm: 8px;
   --radius: 12px;
@@ -418,6 +422,24 @@ body {
      Deliberately NOT visible locally on macOS — reasoned, not observed. */
   scrollbar-gutter: stable;
 }
+
+/* Task 6 (mobile pass, item B): a bottom fade while `useOverflowFade`
+   (App.tsx) finds there is genuinely more content below the current
+   scroll position — otherwise a long game's Controls card is sliced flat
+   at the column's bottom edge with no border, radius or shadow of its own
+   to read as "cut off" by (worst in dark mode, where there is nothing to
+   cast a shadow against). `data-fade-bottom` is absent — not merely
+   false — once there is nothing left to scroll to, so the mask lifts the
+   instant the reader actually reaches the end.
+
+   No transition: the attribute only flips at rest, between scroll/resize
+   events, never mid-frame — there is no motion here to gate behind
+   `prefers-reduced-motion` in the first place. */
+.left-column[data-fade-bottom] {
+  -webkit-mask-image: linear-gradient(to bottom, black calc(100% - 28px), transparent 100%);
+  mask-image: linear-gradient(to bottom, black calc(100% - 28px), transparent 100%);
+}
+
 /* The cards keep their natural height. Without this, a flex column that has
    hit its `max-height` SHRINKS its items (flex-shrink defaults to 1) down
    to their min-content size — the clocks and the controls grid visibly
@@ -1681,6 +1703,71 @@ body {
 }
 
 /* ------------------------------------------------------------------
+   Task 6 (mobile pass): New game's mobile-only popover.
+
+   Below 900px `NewGameControl` swaps the always-visible `NewGame` card for
+   this trigger + popover pair — same shell as Game file/Settings
+   (`usePopover`), but anchored in normal flow (inside `.right-column`,
+   above `.tabs`) rather than the header, since that is where `NewGame`
+   itself already sits at every width. `position: relative` on the anchor
+   is what makes that work: the popover positions against ITS trigger, not
+   the header.
+   ------------------------------------------------------------------ */
+.new-game-anchor {
+  position: relative;
+}
+
+.app .new-game-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  justify-content: center;
+  background: var(--surface);
+}
+.new-game-icon {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  background: currentColor;
+  -webkit-mask: var(--icon-plus) center / contain no-repeat;
+  mask: var(--icon-plus) center / contain no-repeat;
+}
+
+.new-game-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  z-index: 30;
+  box-sizing: border-box;
+  /* Task 6 brief: every mobile popover gets this cap (Settings/Game file
+     stay at their desktop 70vh — see the max-width:768px override below —
+     this one is mobile-only by construction, so its base value can just
+     be the mobile number). */
+  max-height: min(80vh, 560px);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  text-align: left;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card), 0 18px 40px -16px rgba(23, 32, 48, 0.35);
+  animation: settings-pop-in 140ms ease-out;
+}
+.new-game-popover:focus { outline: none; }
+
+.new-game-popover-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+/* ------------------------------------------------------------------
    Task 14: sharing the current position
    ------------------------------------------------------------------ */
 .share-game {
@@ -1756,6 +1843,18 @@ body {
     margin-left: 0;
   }
 
+  /* Task 6: every popover gets a taller cap on a phone, where there is no
+     side column's worth of alternative content to look at while it is
+     open and a phone screen is itself often taller, proportionally, than
+     it is wide — 70vh of a short desktop window clips sooner than the
+     same 70vh of a tall phone actually needs to. `.new-game-popover`
+     needs no entry here: it only ever exists below 900px (NewGameControl),
+     so its base rule already carries this value. */
+  .settings-popover,
+  .game-file-popover {
+    max-height: min(80vh, 560px);
+  }
+
   .opening { max-width: 100%; }
 
   .layout {
@@ -1815,8 +1914,17 @@ body {
   .left-column .scoreboard { flex-direction: column; justify-content: center; gap: 0; padding: 6px 14px; }
   .scoreboard-label { font-size: 0.8em; }
   /* Controls' own 2-column grids need the full row, not the auto-placed
-     half-width cell a plain grid item would fall into here. */
-  .left-column .controls { grid-column: 1 / -1; max-width: none; }
+     half-width cell a plain grid item would fall into here.
+
+     Task 6 (mobile pass): `order: -1` puts Controls FIRST among
+     `.left-column`'s own children — the brief's "status -> board ->
+     controls -> clocks/captured/score -> tabs" — so Undo and Hint sit
+     right under the board instead of below three cards' worth of
+     clocks/captured/score first. `order` is presentation-only: it does
+     not touch DOM order or Tab order, both of which stay
+     clocks/captured/scoreboard/controls, matching every existing
+     data-testid and this file's own reading order. */
+  .left-column .controls { grid-column: 1 / -1; max-width: none; order: -1; }
 
   /* Tighter, and closer to the board's bottom edge, so a phone-sized board
      still shows its top half. */

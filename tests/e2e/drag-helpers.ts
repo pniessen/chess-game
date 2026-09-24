@@ -6,6 +6,16 @@ import { coachOffline } from './helpers'
 export async function twoPlayer(page: Page): Promise<void> {
   await coachOffline(page)
   await page.goto('/')
+  // Task 6: below 900px New game is a popover (NewGameControl.tsx), not
+  // the inline card Task 3 left on desktop — `mode`/`new-game` are the
+  // same two controls either way, just behind a trigger first on the
+  // touch/phone-width specs this helper is shared with (touch-drag.spec.ts
+  // sets a 375px `test.use` viewport for the whole file). Checked off the
+  // viewport Playwright already has, not a DOM probe: the popover trigger
+  // and the inline `mode` select never coexist, so waiting on either one
+  // to decide which is present would be racing the app's first render.
+  const mobile = (page.viewportSize()?.width ?? 1280) < 900
+  if (mobile) await page.getByTestId('new-game-toggle').click()
   await page.getByTestId('mode').selectOption('two-player')
   await page.getByTestId('new-game').click()
 }

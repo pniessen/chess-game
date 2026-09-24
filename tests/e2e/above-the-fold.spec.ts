@@ -546,3 +546,230 @@ for (const size of [
     expect(await pageOverflow(page)).toBe(0)
   })
 }
+
+/* ====================================================================
+   Task 6: the mobile pass, plus two items ruled over from Task 5 —
+   auto-scrolling the move list to the current ply, and a scroll
+   affordance on `.left-column`.
+   ==================================================================== */
+
+/**
+ * The brief's own target: "the status row, the board, and the primary
+ * actions (undo, hint)" fit above the fold at 375x812; everything else is
+ * allowed to scroll. Red before this task: Controls sat AFTER
+ * Clocks/Captured/Scoreboard in `.left-column` (Task 2's order), and while
+ * that measured in bounds too, the brief calls for Controls to lead —
+ * "status -> board -> controls -> clocks/captured/score -> tabs" — which
+ * only `.left-column .controls { order: -1 }` (app.css) delivers.
+ */
+test('at 375x812, the board and the primary actions are above the fold', async ({ page }) => {
+  await coachOffline(page)
+  await page.setViewportSize({ width: 375, height: 812 })
+  await page.goto('/')
+
+  const board = await page.locator('.board').boundingBox()
+  if (!board) throw new Error('.board has no bounding box')
+  expect(board.width).toBeGreaterThanOrEqual(300)
+  expect(board.y).toBeGreaterThanOrEqual(0)
+  expect(board.y + board.height).toBeLessThanOrEqual(812)
+
+  for (const id of ['undo', 'hint']) {
+    const box = await page.getByTestId(id).boundingBox()
+    if (!box) throw new Error(`[data-testid="${id}"] has no bounding box`)
+    expect(box.y, `${id}.y`).toBeGreaterThanOrEqual(0)
+    expect(box.y + box.height, `${id} bottom edge`).toBeLessThanOrEqual(812)
+  }
+
+  // And Controls really does lead the column — Clocks (the next card) is
+  // BELOW the fold-worthy stuff, not above it.
+  const controlsTop = (await page.locator('.controls').boundingBox())?.y
+  const clocksTop = (await page.locator('.clocks').boundingBox())?.y
+  if (controlsTop === undefined || clocksTop === undefined) throw new Error('missing bounding box')
+  expect(controlsTop).toBeLessThan(clocksTop)
+})
+
+// Red before this task at any of these (a fixed 232px/280px side-column
+// pair, or an un-collapsed New game card, was never tuned for a phone this
+// narrow): the brief calls for zero horizontal scroll at 320/375/414/430.
+for (const width of [320, 375, 414, 430]) {
+  test(`no horizontal page scroll at ${width}px wide`, async ({ page }) => {
+    await coachOffline(page)
+    await page.setViewportSize({ width, height: 800 })
+    await page.goto('/')
+    await page.getByTestId('undo').waitFor()
+
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)
+    expect(overflow, `${width}px: scrollWidth - innerWidth`).toBe(0)
+  })
+}
+
+/**
+ * New game is the entry point to every session on desktop (a prior binding
+ * ruling — task-6-report.md) and stays inline there; below 900px it
+ * collapses into a popover, exactly like Game file. Red before this task:
+ * `NewGame` rendered inline unconditionally at every width, so `mode`
+ * would already be in the document at 500px with no `new-game-toggle`
+ * anywhere, and `new-game` (the popover's OWN accordion) is unrelated to
+ * this).
+ */
+test('New game is inline at 900px and wider, and a popover below it', async ({ page }) => {
+  await coachOffline(page)
+
+  await page.setViewportSize({ width: 900, height: 800 })
+  await page.goto('/')
+  await expect(page.getByTestId('mode')).toBeVisible()
+  await expect(page.getByTestId('new-game-toggle')).toHaveCount(0)
+
+  await page.setViewportSize({ width: 899, height: 800 })
+  // A resize alone has to flip it — useMediaQuery's `change` listener, not
+  // just the initial mount.
+  await expect(page.getByTestId('new-game-toggle')).toBeVisible()
+  await expect(page.getByTestId('mode')).toHaveCount(0)
+
+  await page.getByTestId('new-game-toggle').click()
+  const popover = page.getByTestId('new-game-popover')
+  await expect(popover).toBeVisible()
+  await expect(popover.getByTestId('mode')).toBeVisible()
+
+  // Starting a game closes the popover behind it, same as Game file
+  // closing on a successful import.
+  await popover.getByTestId('new-game').click()
+  await expect(popover).toHaveCount(0)
+
+  // Red before the fix (`close(true)`, not `close(false)`, in
+  // NewGameControl.tsx): the click that starts the game lands on a button
+  // INSIDE the popover, and the very next render removes that button (and
+  // the popover) from the DOM — measured, focus landed on `<body>` there,
+  // the same hole `usePopover`'s own focusout guard and `documentEscape`
+  // exist to close elsewhere in this file.
+  await expect(page.getByTestId('new-game-toggle')).toBeFocused()
+})
+
+/* --------------------------------------------------------------------
+   Additional item A: the move list auto-scrolls to the current ply.
+
+   Never built before this task (Task 5 measured no `scrollIntoView`
+   anywhere in src/) — genuinely missing, not a regression — but Task 5
+   made the absence far more noticeable: ~14 visible pairs shrank to
+   ~7-8, with no page scrollbar left to hint "there is more here".
+   -------------------------------------------------------------------- */
+
+// Red before this task: importing 140 plies left the moves panel's
+// scrollTop at 0, so the current move (the last one played) sat off the
+// bottom of a ~206px-tall panel, unreachable without the reader
+// scrolling it themselves.
+test('importing a long game scrolls the moves panel to the current ply', async ({ page }) => {
+  await withLongGame(page, { width: 1440, height: 800 })
+
+  const current = page.locator('.move-list .move.current')
+  await expect(current).toHaveText('Kg1')
+  await expect(current).toBeInViewport()
+})
+
+// The three things the reviewer flagged, all in one test: (1) the board
+// and the page must not move even though the scroll walks ancestors,
+// including `.right-column` on a viewport short enough to make it a
+// scroll container; (2) Home/a click both re-trigger it, not just import.
+test('jumping to a far-away ply scrolls the panel into view without moving the board or the page', async ({
+  page,
+}) => {
+  await withLongGame(page, { width: 1280, height: 720 })
+
+  const list = page.getByTestId('move-list')
+  await list.evaluate((el) => el.scrollTo({ top: 0 }))
+  const boardBefore = await page.locator('.board').boundingBox()
+  if (!boardBefore) throw new Error('.board has no bounding box')
+
+  // Home: jump to the very start (ply 0) with the panel scrolled to the
+  // opposite end — nothing to auto-scroll TO (no move carries `.current`),
+  // so this leg is really about the jump below not disturbing anything.
+  await page.keyboard.press('Home')
+  await expect(page.locator('.move-list .move.current')).toHaveCount(0)
+
+  // End: back to the last move, from the panel's top — this is the leg
+  // that actually exercises the auto-scroll.
+  await page.keyboard.press('End')
+  const current = page.locator('.move-list .move.current')
+  await expect(current).toBeInViewport()
+
+  const boardAfter = await page.locator('.board').boundingBox()
+  if (!boardAfter) throw new Error('.board has no bounding box')
+  expect(boardAfter.x).toBe(boardBefore.x)
+  expect(boardAfter.y).toBe(boardBefore.y)
+  expect(await page.evaluate(() => window.scrollY)).toBe(0)
+  expect(await pageOverflow(page)).toBe(0)
+})
+
+// `prefers-reduced-motion` is satisfied by construction (the scroll is
+// always instant — see MoveList.tsx's own comment on why), but this pins
+// that the feature still WORKS under it, rather than merely not crashing.
+test('the auto-scroll still lands on the current ply under prefers-reduced-motion', async ({
+  page,
+}) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await withLongGame(page, { width: 1440, height: 800 })
+
+  await expect(page.locator('.move-list .move.current')).toBeInViewport()
+})
+
+// Red before this task's mobile guard (MoveList.tsx): below 768px
+// `.right-column` gives up its own cap/scroll (Task 5's mobile override),
+// so `scrollIntoView`'s ancestor walk has nothing to stop at before the
+// PAGE itself, which genuinely can scroll there. Measured live: playing a
+// move while the (default-active) Moves tab held a move off-panel yanked
+// `window.scrollY` from 0 to over 300px — moving the board out from under
+// whatever the reader was just doing on it, exactly what
+// tests/e2e/touch-drag.spec.ts's "no page scroll" assertion caught this
+// with in practice.
+test('at 375x812, playing a move never scrolls the page even though the moves tab is active', async ({
+  page,
+}) => {
+  await coachOffline(page)
+  await page.setViewportSize({ width: 375, height: 812 })
+  await page.goto('/')
+  await expect(page.getByTestId('tab-moves')).toHaveAttribute('aria-selected', 'true')
+
+  await page.locator('[data-square="e2"]').click()
+  await page.locator('[data-square="e4"]').click()
+  await expect(page.getByTestId('ply-count')).toHaveText('1')
+
+  expect(await page.evaluate(() => window.scrollY)).toBe(0)
+})
+
+/* --------------------------------------------------------------------
+   Additional item B: the left column's scroll affordance.
+   -------------------------------------------------------------------- */
+
+// Red before this task: `.left-column` has no `mask-image` rule at all,
+// so `getComputedStyle` reports 'none' regardless of overflow, and the
+// Controls card is simply sliced flat at the column's bottom edge.
+test('the left column fades at the bottom only while there is more to scroll to', async ({
+  page,
+}) => {
+  await withLongGame(page, { width: 1280, height: 720 })
+
+  const column = page.locator('.left-column')
+  await expect(column).toHaveAttribute('data-fade-bottom', '')
+  const maskImage = await column.evaluate((el) => getComputedStyle(el).maskImage || getComputedStyle(el).webkitMaskImage)
+  expect(maskImage).not.toBe('none')
+
+  // Scrolled all the way down: nothing left below, so the affordance lifts.
+  await column.evaluate((el) => el.scrollTo({ top: el.scrollHeight }))
+  await expect(column).not.toHaveAttribute('data-fade-bottom', '')
+
+  // ...and back up, it returns.
+  await column.evaluate((el) => el.scrollTo({ top: 0 }))
+  await expect(column).toHaveAttribute('data-fade-bottom', '')
+})
+
+// The column that does NOT overflow (an idle, empty game) must never carry
+// the affordance — otherwise it would misreport "there is more below" on
+// a card that is simply sitting there whole.
+test('the left column never fades when its content already fits', async ({ page }) => {
+  await coachOffline(page)
+  await page.setViewportSize({ width: 1440, height: 800 })
+  await page.goto('/')
+  await page.getByTestId('undo').waitFor()
+
+  await expect(page.locator('.left-column')).not.toHaveAttribute('data-fade-bottom', '')
+})

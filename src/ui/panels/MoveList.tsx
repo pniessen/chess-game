@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import type { PlayedMove } from '../../game-core/types'
 import { moveQualityTitle, type MoveQuality } from '../review/reviewView'
 import { MARK } from '../../review/summary'
@@ -49,6 +49,44 @@ export function MoveList({
   const showPreview = (ply: number) => setPreviewPly(ply)
   const hidePreview = (ply: number) =>
     setPreviewPly((current) => (current === ply ? null : current))
+
+  // Task 6 (mobile pass, item A): the current move was never auto-scrolled
+  // into view — a genuinely missing feature (Task 5 measured no
+  // `scrollIntoView` anywhere in src/ before this), and Task 5 made its
+  // absence far more noticeable: this panel went from ~14 visible pairs to
+  // ~7-8 with no page scrollbar left to hint "there is more here".
+  //
+  // `block: 'nearest'` is deliberate: it is a no-op once the move is
+  // already visible, so it never fights a reader scrolling the panel by
+  // hand — which matters more now the panel is small. It also walks every
+  // scrollable ANCESTOR, not just this list: on a short DESKTOP viewport
+  // `.right-column` is itself a scroll container (Task 5), and that is
+  // usually what you want too.
+  //
+  // Deliberately instant (no `behavior: 'smooth'`): a native smooth scroll
+  // has a duration this codebase cannot bound — on a long jump (Home from
+  // move 140, say) it can run well past the 200ms state-change budget —
+  // and an animated, multi-frame scroll is exactly what would race
+  // tests/e2e/move-preview.spec.ts's own explicit `scrollIntoView` call on
+  // the same list. Instant scrolling satisfies "respect
+  // prefers-reduced-motion" by construction: there is no motion to gate.
+  //
+  // Skipped entirely below the 768px single-column breakpoint. There
+  // `.right-column` gives up its own cap and scrolling (Task 5's mobile
+  // override), so it is no longer a qualifying ancestor for
+  // `scrollIntoView` to stop at — the walk continues past it to the
+  // document itself, which genuinely DOES have scrollable overflow on
+  // mobile ("everything else scrolls" — manually, by design; see
+  // task-6-report.md). Measured live: without this guard, playing a move
+  // while the Moves tab is merely the active one (default) yanked the
+  // whole PAGE down to reveal it — mid-drag, with the board the reader was
+  // just touching sliding out from under their finger. Above 768px the
+  // page provably cannot scroll at all (Task 5's own guarantee), so the
+  // exact same call is always panel-only there — nothing to guard.
+  useLayoutEffect(() => {
+    if (window.matchMedia('(max-width: 768px)').matches) return
+    anchorsRef.current.get(currentPly)?.scrollIntoView({ block: 'nearest' })
+  }, [currentPly])
 
   const entry = (e?: { san: string; ply: number }) => {
     if (!e) return <span className="move empty">…</span>

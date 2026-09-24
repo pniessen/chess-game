@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Game } from '../game-core/game'
 import { Board } from './Board/Board'
 import { EvalBar } from './Board/EvalBar'
@@ -11,7 +11,7 @@ import { Captured } from './panels/Captured'
 import { Clocks } from './panels/Clocks'
 import { Controls } from './panels/Controls'
 import { Scoreboard } from './panels/Scoreboard'
-import { NewGame } from './panels/NewGame'
+import { NewGameControl } from './panels/NewGameControl'
 import { GameFilePopover } from './panels/GameFilePopover'
 import { SettingsPopover } from './panels/SettingsPopover'
 import { currentMoveText, reviewAnnotations } from './review/reviewView'
@@ -40,6 +40,7 @@ import { useEndCard } from './app/useEndCard'
 import { useShortcuts } from './app/useShortcuts'
 import { ShortcutsOverlay } from './app/ShortcutsOverlay'
 import { useShareLink } from './app/useShareLink'
+import { useOverflowFade } from './app/useOverflowFade'
 import { downloadPgn } from './pgnFile'
 import './app.css'
 
@@ -101,6 +102,17 @@ function AppInner({
   // making SettingsPopover controlled — a change to a component this task
   // is meant to leave alone — to reproduce a guarantee that already holds.
   const [gameFileOpen, setGameFileOpen] = useState(false)
+  // Task 6 (mobile pass): the same, for New game's mobile-only popover
+  // (NewGameControl). Never set true on desktop — nothing there is ever
+  // "open" in this sense — but declared unconditionally, same as the two
+  // above, so `overlayOpen` below never has to know which width it's at.
+  const [newGameOpen, setNewGameOpen] = useState(false)
+
+  // Task 6 (mobile pass, item B): the bottom-fade scroll affordance on
+  // `.left-column` — see useOverflowFade's own doc comment for why it
+  // needs the column's DOM node directly rather than derived state.
+  const leftColumnRef = useRef<HTMLDivElement>(null)
+  useOverflowFade(leftColumnRef)
 
   const { engineHealth, engineAvailable } = useEngineHealth(engine, engineConstructed)
   // "Loading" (the very first handshake) and "restarting" (a later one,
@@ -252,7 +264,7 @@ function AppInner({
   // own shortcuts overlay are passed separately too (see useShortcuts).
   const shortcuts = useShortcuts({
     active: puzzleMode.screen === 'game',
-    overlayOpen: settingsOpen || gameFileOpen,
+    overlayOpen: settingsOpen || gameFileOpen || newGameOpen,
     cardOpen: endCard.open,
     promotionOpen: selection.kind === 'awaiting-promotion',
     hintDisabled,
@@ -333,7 +345,7 @@ function AppInner({
       {shortcuts.helpOpen ? <ShortcutsOverlay onClose={shortcuts.closeHelp} /> : null}
 
       <div className="layout">
-        <div className="left-column">
+        <div className="left-column" ref={leftColumnRef}>
           <Clocks clock={snapshot.clock} readClock={readClock} orientation={orientation} />
           <Captured moves={game.moves.slice(0, game.ply)} pieceSet={settings.pieceSetId} />
           <Scoreboard score={records.score} />
@@ -421,8 +433,9 @@ function AppInner({
               the right column where it fits above the tabs. Level and time
               control stay here too — see SettingsPopover's doc comment for
               why they belong next to the button that starts the next game,
-              not in a settings popover. */}
-          <NewGame
+              not in a settings popover. Task 6: below 900px this collapses
+              into a popover (NewGameControl); inline here otherwise. */}
+          <NewGameControl
             mode={choices.mode}
             level={choices.level}
             timeControlId={choices.timeControlId}
@@ -434,6 +447,7 @@ function AppInner({
             onColorChange={choices.setColor}
             onStart={lifecycle.handleNewGame}
             onPuzzles={openPuzzles}
+            onOpenChange={setNewGameOpen}
           />
           <RightTabs
             active={tab}
