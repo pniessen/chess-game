@@ -2,6 +2,11 @@ import type { TimeControl } from '../clock/types'
 
 export type Level = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8
 
+/** Which palette the app forces, or 'system' to follow the host (the default). */
+export type Appearance = 'light' | 'dark' | 'system'
+
+export const APPEARANCES = ['light', 'dark', 'system'] as const
+
 export interface Settings {
   level: Level
   timeControlId: string
@@ -11,6 +16,14 @@ export interface Settings {
   /** Piece-set id (see ../ui/pieceSets.ts); defensive default is the current Rhosgfx set. */
   pieceSetId: string
   showEval: boolean
+  /**
+   * Playback volume, 0..1, applied on top of each tone's own gain (see
+   * ../sound/sounds.ts). Independent of `soundEnabled` — muting silences
+   * the app whatever this is. Defaults to 1, exactly what every build
+   * before Task 12 played, so an existing user hears no change.
+   */
+  volume: number
+  appearance: Appearance
 }
 
 export interface MatchScore {
@@ -27,6 +40,8 @@ export const DEFAULT_SETTINGS: Settings = {
   themeId: 'classic',
   pieceSetId: 'rhosgfx',
   showEval: true,
+  volume: 1,
+  appearance: 'system',
 }
 
 const KEYS = {
@@ -89,11 +104,31 @@ export function loadSettings(): Settings {
     pieceSetId:
       typeof raw['pieceSetId'] === 'string' ? raw['pieceSetId'] : DEFAULT_SETTINGS.pieceSetId,
     showEval: typeof raw['showEval'] === 'boolean' ? raw['showEval'] : DEFAULT_SETTINGS.showEval,
+    volume: parseVolume(raw['volume']),
+    appearance: APPEARANCES.includes(raw['appearance'] as Appearance)
+      ? (raw['appearance'] as Appearance)
+      : DEFAULT_SETTINGS.appearance,
   }
 }
 
+/**
+ * Task 12. Absent (every record written before Task 12), out of range or
+ * not a number all mean "full volume": an existing user must hear exactly
+ * what they heard yesterday.
+ */
+function parseVolume(v: unknown): number {
+  return typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 1 ? v : DEFAULT_SETTINGS.volume
+}
+
+/**
+ * Merged over whatever is already stored, rather than replacing it, so keys
+ * a NEWER build of the app wrote (and this one does not know about) survive
+ * a settings change here — the same "never clobber a newer version" rule
+ * the game history follows. Every key this build owns is still written.
+ */
 export function saveSettings(s: Settings): void {
-  writeJson(KEYS.settings, s)
+  const raw = readJson(KEYS.settings)
+  writeJson(KEYS.settings, isRecord(raw) ? { ...raw, ...s } : s)
 }
 
 export function loadScore(): MatchScore {

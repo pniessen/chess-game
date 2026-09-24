@@ -9,6 +9,24 @@ export async function startOnePlayer(page: Page, level = '1'): Promise<void> {
   await page.getByTestId('new-game').click()
 }
 
+/**
+ * Task 12: settings moved from an always-open card under the board into a
+ * popover on the status row, so a spec that changes a setting has to open
+ * it first. `openSettings` leaves it open; `withSettings` opens it, runs
+ * the assertions/clicks, and closes it again with Escape.
+ */
+export async function openSettings(page: Page): Promise<void> {
+  await page.getByTestId('settings-toggle').click()
+  await expect(page.getByTestId('settings')).toBeVisible()
+}
+
+export async function withSettings(page: Page, body: () => Promise<void>): Promise<void> {
+  await openSettings(page)
+  await body()
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('settings')).toHaveCount(0)
+}
+
 /** Make every /api call fail at the network level: the coaching server is "down". */
 export async function coachOffline(page: Page): Promise<void> {
   await page.route('**/api/**', (route) => route.abort())

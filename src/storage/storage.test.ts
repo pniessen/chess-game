@@ -63,6 +63,43 @@ describe('storage', () => {
     expect(loadSettings().pieceSetId).toBe('cburnett')
   })
 
+  test('volume defaults to full, including for settings saved before it existed, and round-trips', () => {
+    expect(loadSettings().volume).toBe(1)
+    localStorage.setItem('chess-game:settings', JSON.stringify({ level: 2 }))
+    // A record written before Task 12: no volume key, and the user must
+    // hear exactly what they heard yesterday.
+    expect(loadSettings().volume).toBe(1)
+    saveSettings({ ...DEFAULT_SETTINGS, volume: 0.4 })
+    expect(loadSettings().volume).toBe(0.4)
+  })
+
+  test('an out-of-range or non-numeric volume falls back to full', () => {
+    for (const v of [-1, 2, Number.NaN, 'loud', null]) {
+      localStorage.setItem('chess-game:settings', JSON.stringify({ volume: v }))
+      expect(loadSettings().volume).toBe(1)
+    }
+  })
+
+  test('appearance defaults to system, including for older records, and round-trips', () => {
+    expect(loadSettings().appearance).toBe('system')
+    localStorage.setItem('chess-game:settings', JSON.stringify({ level: 2, appearance: 'sepia' }))
+    expect(loadSettings().appearance).toBe('system')
+    saveSettings({ ...DEFAULT_SETTINGS, appearance: 'dark' })
+    expect(loadSettings().appearance).toBe('dark')
+  })
+
+  test('saving settings keeps keys this build does not know about (a newer version is never clobbered)', () => {
+    localStorage.setItem(
+      'chess-game:settings',
+      JSON.stringify({ ...DEFAULT_SETTINGS, boardCoordinates: 'outside', v: 99 }),
+    )
+    saveSettings({ ...DEFAULT_SETTINGS, volume: 0.5 })
+    const raw = JSON.parse(localStorage.getItem('chess-game:settings') ?? '{}')
+    expect(raw.boardCoordinates).toBe('outside')
+    expect(raw.v).toBe(99)
+    expect(raw.volume).toBe(0.5)
+  })
+
   test('every storage key is namespaced and unique', () => {
     const keys = Object.values(STORAGE_KEYS)
     for (const k of keys) expect(k.startsWith('chess-game:')).toBe(true)

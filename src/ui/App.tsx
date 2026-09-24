@@ -13,7 +13,7 @@ import { Controls } from './panels/Controls'
 import { Scoreboard } from './panels/Scoreboard'
 import { NewGame } from './panels/NewGame'
 import { GameIO } from './panels/GameIO'
-import { SettingsPanel } from './panels/SettingsPanel'
+import { SettingsPopover } from './panels/SettingsPopover'
 import { currentMoveText, reviewAnnotations } from './review/reviewView'
 import { PuzzleScreen } from './puzzles/PuzzleScreen'
 import { usePuzzleMode } from './puzzles/usePuzzleMode'
@@ -24,6 +24,7 @@ import { GameEndCard } from './app/GameEndCard'
 import { RightTabs, type RightTab } from './app/RightTabs'
 import { useControllerBundle } from './app/useControllerBundle'
 import { useSettings } from './app/useSettings'
+import { useAppearance } from './app/useAppearance'
 import { useMoveSounds, useSoundPlayer } from './app/useSound'
 import { useCoachClient } from './app/useCoachClient'
 import { useEngineHealth } from './app/useEngineHealth'
@@ -75,7 +76,9 @@ function AppInner({
 }) {
   const { settings, updateSettings } = useSettings()
 
-  const sound = useSoundPlayer(settings.soundEnabled)
+  useAppearance(settings.appearance)
+
+  const sound = useSoundPlayer(settings.soundEnabled, settings.volume)
   const { coach, coachState } = useCoachClient()
 
   const snapshot = useMatch(controller)
@@ -187,6 +190,13 @@ function AppInner({
         opening={opening}
         coachState={coachState}
         onDismissNotice={() => coach.dismissNotice()}
+        actions={
+          <SettingsPopover
+            settings={settings}
+            onChange={updateSettings}
+            onPreviewVolume={() => sound.play('move')}
+          />
+        }
       />
 
       <div className="layout">
@@ -295,7 +305,6 @@ function AppInner({
             }}
           />
           <GameIO game={game} onImport={lifecycle.handleImport} />
-          <SettingsPanel settings={settings} onChange={updateSettings} />
         </div>
 
         <div className="right-column">

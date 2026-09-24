@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { coachOffline, pinRandom } from './helpers'
+import { coachOffline, openSettings, pinRandom, withSettings } from './helpers'
 
 test.beforeEach(async ({ page }) => coachOffline(page))
 
@@ -19,10 +19,14 @@ test('the bar finds a mate, flips with the board, scores the result, and can be 
   await page.locator('[data-square="d8"]').click()
   await expect(label).toHaveText('1-0')
 
-  await page.getByTestId('eval-toggle').uncheck()
+  // Task 12: the evaluation-bar switch lives in the settings popover now.
+  await withSettings(page, async () => {
+    await page.getByTestId('eval-toggle').uncheck()
+  })
   await expect(page.getByTestId('eval-bar')).toHaveCount(0)
   // The mated position is finished, so there is no resume banner after a reload.
   await page.reload()
+  await openSettings(page)
   await expect(page.getByTestId('eval-toggle')).not.toBeChecked()
   await expect(page.getByTestId('eval-bar')).toHaveCount(0)
 })

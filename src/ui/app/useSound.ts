@@ -3,12 +3,20 @@ import type { Game } from '../../game-core/game'
 import type { MatchPhase } from '../../match/types'
 import { SoundPlayer, soundForTransition, type SoundFrame } from '../../sound/sounds'
 
-/** The app's one SoundPlayer, kept in step with the setting and unlocked on the first gesture. */
-export function useSoundPlayer(enabled: boolean): SoundPlayer {
-  const [sound] = useState(() => new SoundPlayer({ enabled }))
+/**
+ * The app's one SoundPlayer, kept in step with the settings and unlocked on
+ * the first gesture. Mute and volume are pushed separately, because they
+ * are separate settings: turning the volume down does not mute, and muting
+ * does not forget the volume.
+ */
+export function useSoundPlayer(enabled: boolean, volume = 1): SoundPlayer {
+  const [sound] = useState(() => new SoundPlayer({ enabled, volume }))
   useEffect(() => {
     sound.setEnabled(enabled)
   }, [sound, enabled])
+  useEffect(() => {
+    sound.setVolume(volume)
+  }, [sound, volume])
   useEffect(() => {
     // Browsers only start audio inside a user gesture: create it on the first one.
     const unlock = () => sound.unlock()

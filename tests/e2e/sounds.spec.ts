@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { coachOffline } from './helpers'
+import { coachOffline, openSettings, withSettings } from './helpers'
 
 declare global {
   interface Window {
@@ -40,7 +40,10 @@ test('no audio before a gesture; a move plays; mute persists', async ({ page }) 
   await expect.poll(async () => (await audio(page)).tones).toBeGreaterThan(0)
   expect((await audio(page)).contexts).toBe(1)
 
-  await page.getByTestId('sound-toggle').uncheck()
+  // Task 12: the mute switch lives in the settings popover now.
+  await withSettings(page, async () => {
+    await page.getByTestId('sound-toggle').uncheck()
+  })
   const before = (await audio(page)).tones
   await page.locator('[data-square="e7"]').click()
   await page.locator('[data-square="e5"]').click()
@@ -49,6 +52,7 @@ test('no audio before a gesture; a move plays; mute persists', async ({ page }) 
 
   await page.reload()
   await page.getByTestId('resume-decline').click()
+  await openSettings(page)
   await expect(page.getByTestId('sound-toggle')).not.toBeChecked()
 })
 

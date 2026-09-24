@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import type { Color } from '../../game-core/types'
 import type { CoachSnapshot } from '../../coach/client'
 import type { OpeningEntry } from '../../openings/book'
@@ -18,6 +19,7 @@ export function StatusHeader({
   opening,
   coachState,
   onDismissNotice,
+  actions,
 }: {
   engineAvailable: boolean
   resumePending: boolean
@@ -33,6 +35,8 @@ export function StatusHeader({
   opening: OpeningEntry | null
   coachState: CoachSnapshot
   onDismissNotice: () => void
+  /** Task 12: the settings popover, anchored at the end of the status row. */
+  actions?: ReactNode
 }) {
   return (
     <>
@@ -81,6 +85,7 @@ export function StatusHeader({
             coaching offline
           </span>
         ) : null}
+        {actions}
       </div>
 
       {coachState.notice ? (
