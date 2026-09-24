@@ -36,6 +36,9 @@ function withTimeout(signal: AbortSignal | undefined, ms: number): AbortSignal {
  * `null` ("use the templated fallback") — never a thrown error — so callers
  * have exactly one code path. Status feeds the "coaching offline" badge; a
  * Claude-side failure is surfaced ONCE per session through `notice`.
+ *
+ * `enabled: false` (see `useCoachClient`) skips every method's network call
+ * outright, for a build with no coach server behind it.
  */
 export class CoachClient {
   private snap: CoachSnapshot = { status: 'unknown', notice: null }
@@ -44,6 +47,7 @@ export class CoachClient {
   private readonly listeners = new Set<() => void>()
   private readonly fetchImpl: typeof fetch
   private readonly timeoutMs: number
+  private readonly enabled: boolean
   // Monotonic counter assigned when a request STARTS (checkHealth or post), so
   // that a status update from a request that resolves out of order — e.g. a
   // slow health check that started before a hint but resolves after it — can
@@ -51,10 +55,13 @@ export class CoachClient {
   private requestSeq = 0
   private lastAppliedSeq = 0
 
-  constructor(opts: { fetch?: typeof fetch; timeoutMs?: number } = {}) {
+  constructor(opts: { fetch?: typeof fetch; timeoutMs?: number; enabled?: boolean } = {}) {
     this.fetchImpl = opts.fetch ?? ((input, init) => fetch(input, init))
     // Slightly above the server's 15s Claude timeout, so the server answers first.
     this.timeoutMs = opts.timeoutMs ?? 20_000
+    // False for a build with no coach server behind it (e.g. GitHub Pages):
+    // every method below then short-circuits before touching `fetchImpl`.
+    this.enabled = opts.enabled ?? true
   }
 
   readonly subscribe = (cb: () => void): (() => void) => {
@@ -72,6 +79,10 @@ export class CoachClient {
 
   async checkHealth(): Promise<void> {
     const seq = ++this.requestSeq
+    if (!this.enabled) {
+      this.setStatus(seq, 'offline')
+      return
+    }
     try {
       const res = await this.fetchImpl('/api/health', { signal: AbortSignal.timeout(5_000) })
       const body: unknown = res.ok ? await res.json() : null
@@ -113,6 +124,7 @@ export class CoachClient {
   }
 
   private async post(path: string, body: unknown, signal?: AbortSignal): Promise<string | null> {
+    if (!this.enabled) return null
     if (this.snap.status === 'no-key') return null
     if (signal?.aborted) return null
     const seq = ++this.requestSeq

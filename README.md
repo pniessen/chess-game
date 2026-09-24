@@ -20,7 +20,9 @@ ratings and history. Nothing is installed and nothing leaves the browser.
 The one thing missing there is Claude coaching: hints and post-game review
 need the Express server in `server/` and your own Anthropic API key, neither
 of which exists on a static host. The app notices, shows a `coaching
-offline` badge, and uses its built-in hints instead.
+offline` badge, and uses its built-in hints instead. That build also sets
+`VITE_COACH=off` (see `.github/workflows/pages.yml`), so the browser never
+even asks a server that isn't there.
 
 ## Run it locally
 

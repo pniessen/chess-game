@@ -40,6 +40,9 @@ jobs:
       - run: npm run build
         env:
           BASE_PATH: /chess-game/
+          # Pages has no coach server; VITE_COACH=off stops CoachClient from
+          # ever requesting /api/health, which would only 404 here.
+          VITE_COACH: off
 
       - uses: actions/configure-pages@v6
 

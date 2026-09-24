@@ -1,9 +1,18 @@
 // @vitest-environment node
 import { describe, expect, test, vi } from 'vitest'
 import { CoachClient } from './client'
-import type { HintRequest } from './protocol'
+import type { HintRequest, ReviewRequest } from './protocol'
 
 const HINT: HintRequest = { fen: 'x', bestMoveSan: 'e4', line: ['e4'], evaluation: '+0.3' }
+const REVIEW: ReviewRequest = {
+  moves: ['e4', 'e5'],
+  firstMover: 'w',
+  result: '*',
+  opening: null,
+  accuracy: { w: null, b: null },
+  flagged: [],
+  humanSide: 'w',
+}
 const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
 
@@ -115,6 +124,26 @@ describe('CoachClient', () => {
     kind = 'auth'
     expect(await c.hint(HINT)).toBeNull()
     expect(c.getSnapshot().notice).toBeNull() // suppressed even though the error kind changed
+  })
+
+  test('enabled: false skips every network call outright', async () => {
+    const fetch = vi.fn(async () => json(200, { ok: true, claude: true }))
+    const c = new CoachClient({ fetch, enabled: false })
+
+    await c.checkHealth()
+    expect(c.getSnapshot().status).toBe('offline')
+
+    expect(await c.hint(HINT)).toBeNull()
+    expect(await c.review(REVIEW)).toBeNull()
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  test('enabled defaults to true: behaviour is unchanged from before the flag existed', async () => {
+    const fetch = vi.fn(async () => json(200, { ok: true, claude: true }))
+    const c = new CoachClient({ fetch })
+    await c.checkHealth()
+    expect(c.getSnapshot().status).toBe('online')
+    expect(fetch).toHaveBeenCalledTimes(1)
   })
 
   test('a health check started before a hint, but resolving after it succeeds, must not flip status offline', async () => {
