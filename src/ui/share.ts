@@ -70,13 +70,11 @@ export function buildShareUrl(game: Game): string {
  * the overwhelmingly common case and must never be treated as an error.
  */
 export function parseShareLink(search: string): ShareParseResult {
-  let params: URLSearchParams
-  try {
-    params = new URLSearchParams(search)
-  } catch {
-    return { kind: 'error', message: 'That shared link could not be read.' }
-  }
-
+  // No try/catch here: URLSearchParams's constructor parses leniently and
+  // never throws, for any string input (per the WHATWG URL spec) — dead
+  // code the review caught (round 1, Task 14 polish). Every genuine
+  // failure point below (gameFromSan, importFen) keeps its own guard.
+  const params = new URLSearchParams(search)
   const fen = params.get(FEN_PARAM)
   if (fen === null) return { kind: 'none' }
   if (fen.length === 0 || fen.length > MAX_FEN_LENGTH) {

@@ -144,9 +144,22 @@ export function useMatchRecords(snapshot: MatchSnapshot, finalOpeningName: strin
     }
     setScore(next)
     saveScore(next)
-    clearInProgress()
+    // Scoring/history recording above are about the CURRENT match, whatever
+    // it is, and must not wait on an unrelated, still-unanswered resume
+    // offer — but clearInProgress() targets the SAME storage key that
+    // offer reads (`chess-game:in-progress`), so while it is unresolved,
+    // that key still belongs to it. Gated the same way the sibling
+    // autosave effect above already gates `saveInProgress` on the same
+    // key. Required fix (review round 1, Task 14, Important finding): this
+    // call used to run unconditionally, silently overwriting an untouched
+    // offer the moment ANY match finished — a shared link accepted
+    // alongside one, or simply a "New game" started while ignoring the
+    // banner — even though the banner promises the saved game "is kept
+    // either way". The loss only showed up on reload, since the banner's
+    // own `pendingResume` was already captured at mount.
+    if (resumeChoice === 'resolved') clearInProgress()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [snapshot.phase])
+  }, [snapshot.phase, resumeChoice])
 
   // A game is recorded once, the moment its finish is OBSERVED LIVE — never
   // for an already-finished game that was imported, resumed or replayed

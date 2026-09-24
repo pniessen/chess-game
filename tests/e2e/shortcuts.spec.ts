@@ -105,6 +105,24 @@ test('the Shortcuts button and the Close button open/close it too', async ({ pag
   await expect(page.getByTestId('shortcuts-toggle')).toBeFocused()
 })
 
+// Review round 1 (Task 13/14) polish: a real click on the backdrop used to
+// blur focus to <body> and do nothing else — the overlay stayed open,
+// escapable (Tab then walked the real page, Escape no longer routed
+// through the overlay's own focus-restoring close()). A genuine browser
+// click (not jsdom's synthetic one) is the right level to catch this.
+test('a real click on the backdrop dismisses the overlay and restores focus', async ({ page }) => {
+  const trigger = page.getByTestId('shortcuts-toggle')
+  await trigger.click()
+  const overlay = page.getByTestId('shortcuts-overlay')
+  await expect(overlay).toBeVisible()
+  await expect(overlay).toHaveAttribute('aria-modal', 'true')
+
+  // Click the backdrop well outside the dialog's own box.
+  await page.getByTestId('shortcuts-backdrop').click({ position: { x: 5, y: 5 } })
+  await expect(overlay).toHaveCount(0)
+  await expect(trigger).toBeFocused()
+})
+
 test('shortcuts never fire while typing in the PGN/FEN import box', async ({ page }) => {
   await page.getByTestId('import-text').fill('f')
   await expect(page.getByTestId('board-frame')).toHaveClass(/white/)

@@ -92,6 +92,49 @@ describe('a shared link alongside a saved in-progress game', () => {
     await waitFor(() => expect(screen.getByTestId('move-1')).toHaveTextContent('d4'))
   })
 
+  // Review round 1 (Task 14), Important finding: the resume banner says
+  // "Your saved game is kept either way", but the scoring effect in
+  // useMatchRecords (a SIBLING of the autosave effect, not gated the same
+  // way) called clearInProgress() unconditionally the moment ANY match
+  // finished — including the newly-loaded shared game, while the ORIGINAL
+  // saved game was still sitting untouched in storage because resumeChoice
+  // was deliberately left 'pending'. In-session this was invisible (the
+  // resume banner's own `pendingResume` was captured at mount, before the
+  // wipe), so the loss only showed up on reload — which this test proves by
+  // reading storage directly rather than relying on any in-memory state.
+  test('finishing the shared game does not wipe the saved game out of storage', async () => {
+    render(<App />)
+    fireEvent.click(screen.getByTestId('share-accept'))
+    await waitFor(() => expect(screen.getByTestId('move-1')).toHaveTextContent('e4'))
+
+    // Finish the shared (now live, two-player) game without touching the
+    // reappeared resume banner at all.
+    fireEvent.click(screen.getByTestId('resign'))
+    await waitFor(() => expect(screen.getByTestId('result')).not.toBeEmptyDOMElement())
+
+    const saved = JSON.parse(localStorage.getItem('chess-game:in-progress') ?? 'null')
+    expect(saved?.pgn).toContain('d4')
+  })
+
+  // Same root cause, older path: Task 14 didn't create this hole, it just
+  // made it reachable a second way. Ignoring the resume banner entirely and
+  // starting an unrelated new game must not wipe the still-unresolved save.
+  test('a "New game" started while the resume offer is unresolved does not wipe it either', async () => {
+    render(<App />)
+    fireEvent.click(screen.getByTestId('share-decline'))
+    expect(screen.getByTestId('resume-banner')).toBeInTheDocument()
+
+    // Ignore the banner; start (and finish) a fresh game instead.
+    fireEvent.click(screen.getByTestId('new-game'))
+    fireEvent.click(document.querySelector('[data-square="e2"]') as HTMLElement)
+    fireEvent.click(document.querySelector('[data-square="e4"]') as HTMLElement)
+    fireEvent.click(screen.getByTestId('resign'))
+    await waitFor(() => expect(screen.getByTestId('result')).not.toBeEmptyDOMElement())
+
+    const saved = JSON.parse(localStorage.getItem('chess-game:in-progress') ?? 'null')
+    expect(saved?.pgn).toContain('d4')
+  })
+
   test('declining falls through to the ordinary resume banner, unmodified', () => {
     render(<App />)
     fireEvent.click(screen.getByTestId('share-decline'))

@@ -11,7 +11,7 @@ import { PIECE_SETS, pieceImageSrc } from '../pieceSets'
  * key silently change the setting.
  */
 const FOCUSABLE =
-  'button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [href], [tabindex]:not([tabindex="-1"]), [contenteditable]'
+  'button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [href], [tabindex]:not([tabindex="-1"]), [contenteditable]:not([contenteditable="false"])'
 
 function tabbables(root: HTMLElement): HTMLElement[] {
   const seen = new Set<string>()

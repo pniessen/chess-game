@@ -62,4 +62,34 @@ describe('useMatchRecords', () => {
     expect(result.current.resumeChoice).toBe('pending')
     expect(loadInProgress()?.pgn).toBe('1. d4 d5 *')
   })
+
+  // Review round 1 (Task 14), Important finding: the scoring effect's
+  // clearInProgress() was NOT gated by resumeChoice the way the autosave
+  // effect (immediately above) already is — so a DIFFERENT match finishing
+  // (a share-accept, or simply ignoring the banner and starting a new game)
+  // silently wiped the still-unresolved saved game out of storage. Scoring
+  // and history recording are about the match that ACTUALLY finished, not
+  // the stale offer, so they still happen; only the clear is deferred.
+  test('a different match finishing while a resume offer is unresolved still scores, but does not clear the saved game', () => {
+    localStorage.setItem(
+      'chess-game:in-progress',
+      JSON.stringify({
+        v: 2,
+        pgn: '1. d4 d5 *',
+        setup: { white: human, black: human, timeControl: { kind: 'untimed' } },
+        scored: false,
+        recorded: false,
+      }),
+    )
+    const cfg: MatchConfig = { white: engine, black: human, timeControl: { kind: 'untimed' } }
+    const { result } = renderHook(() => useMatchRecords(snapshotOf(SCHOLARS_MATE, cfg, true), null))
+
+    expect(result.current.resumeChoice).toBe('pending')
+    // The finished match is still scored and recorded...
+    expect(loadScore()).toEqual({ wins: 0, losses: 1, draws: 0 })
+    expect(loadHistory()).toHaveLength(1)
+    // ...but the UNRELATED saved game the resume banner is still offering
+    // survives, exactly as the banner promises.
+    expect(loadInProgress()?.pgn).toBe('1. d4 d5 *')
+  })
 })

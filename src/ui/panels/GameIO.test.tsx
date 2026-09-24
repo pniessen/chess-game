@@ -59,4 +59,40 @@ describe('GameIO — Task 14 share button', () => {
       restore()
     }
   })
+
+  // Review round 1 (Task 14) polish: MatchController mutates ONE Game
+  // object in place across moves (see game-core/game.ts) rather than
+  // replacing it, so the share URL/status must key off `game.ply`
+  // changing, not the `game` prop's identity — which a move alone never
+  // changes.
+  test('a move after Share invalidates the old confirmation and URL', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    const restore = stubClipboard({ writeText })
+    try {
+      const game = new Game()
+      const { rerender } = render(<GameIO game={game} onImport={vi.fn()} />)
+      fireEvent.click(screen.getByTestId('share-link'))
+      await screen.findByTestId('share-status')
+      const staleUrl = writeText.mock.calls[0]?.[0] as string
+      expect(new URL(staleUrl).searchParams.get('fen')).toBe(game.current().fen())
+
+      // The SAME Game instance, mutated in place — exactly what the real
+      // app hands GameIO on every move.
+      const played = game.play({ from: 'e2', to: 'e4' })
+      expect(played.ok).toBe(true)
+      rerender(<GameIO game={game} onImport={vi.fn()} />)
+
+      expect(screen.queryByTestId('share-status')).toBeNull()
+      expect(screen.queryByTestId('share-manual')).toBeNull()
+
+      // Sharing again offers the NEW position, not the stale one.
+      fireEvent.click(screen.getByTestId('share-link'))
+      await vi.waitFor(() => expect(writeText).toHaveBeenCalledTimes(2))
+      const freshUrl = writeText.mock.calls[1]?.[0] as string
+      expect(freshUrl).not.toBe(staleUrl)
+      expect(new URL(freshUrl).searchParams.get('fen')).toBe(game.current().fen())
+    } finally {
+      restore()
+    }
+  })
 })

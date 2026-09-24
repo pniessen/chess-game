@@ -63,7 +63,18 @@ test.describe('the Share button', () => {
 })
 
 test.describe('opening a shared link', () => {
-  test('reconstructs the position and the move list, under the deploy base path used in dev', async ({ page }) => {
+  // Review round 1 (Task 14) polish: this title used to claim it exercised
+  // "the deploy base path used in dev" — it doesn't. The dev server here
+  // always serves at `/` (BASE_PATH is a build-time-only env var; Vite's
+  // build workflow sets it to `/chess-game/` for GitHub Pages), so this
+  // test never actually navigates under a subpath. That's fine, because
+  // parsing a share link (`parseShareLink`/`useShareLink`) only ever reads
+  // `location.search` — a page's own query string is identical whatever
+  // path prefix it was served under. What DOES need to carry the base
+  // path is the URL `buildShareUrl` WRITES (the Share button), and that is
+  // what `src/ui/share.test.ts`'s `buildShareUrl` describe block actually
+  // exercises, with `vi.stubEnv('BASE_URL', '/chess-game/')`.
+  test('reconstructs the position and the move list from the query string', async ({ page }) => {
     const fen = 'rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2'
     await page.goto(`/?fen=${encodeURIComponent(fen)}&moves=${encodeURIComponent('e4 e5')}`)
 

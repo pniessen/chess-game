@@ -29,8 +29,19 @@ describe('useShareLink', () => {
     expect(window.location.search).toBe('')
   })
 
-  test('a malformed query never throws and is read as no share link', () => {
-    window.history.pushState({}, '', '/?fen=');
-    expect(() => renderHook(() => useShareLink())).not.toThrow()
+  // Review round 1 (Task 14) polish: this used to be named "...read as no
+  // share link" and only assert `not.toThrow()` — but an empty `fen` param
+  // is not "no share link" at all: `parseShareLink` reports it as `'error'`
+  // (see share.test.ts), and the previous assertion never actually checked
+  // that. `useShareLink` must treat an unreadable link exactly like a
+  // readable one for `resolved` — false until `resolve()` is called either
+  // way — so the error banner (App.tsx's `shareError`) has time to show.
+  test('an unreadable fen param never throws, is read as an error, and stays unresolved until resolve()', () => {
+    window.history.pushState({}, '', '/?fen=')
+    const { result } = renderHook(() => useShareLink())
+    expect(result.current.pending).toEqual({ kind: 'error', message: expect.any(String) })
+    expect(result.current.resolved).toBe(false)
+    act(() => result.current.resolve())
+    expect(result.current.resolved).toBe(true)
   })
 })

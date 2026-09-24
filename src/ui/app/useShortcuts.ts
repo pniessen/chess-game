@@ -23,8 +23,13 @@ const NAV_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'Home', 'End'])
  * `handleJump`), so the board's `cut()` animation semantics stay correct;
  * this hook never touches the controller directly. f/u/r/h/p and `?` are
  * one-key shortcuts; Escape closes the promotion picker (the one overlay
- * with no Escape handling of its own — settings, the game-end card and this
- * hook's own overlay all already close themselves, see below).
+ * with no Escape handling of its own). Settings, the game-end card and this
+ * hook's own overlay (`ShortcutsOverlay`) all close themselves — this
+ * hook does not try to close `ShortcutsOverlay` on Escape itself (review
+ * round 1, Task 13/14 polish: it used to, with `setHelpOpen(false)`
+ * directly, which skips the overlay's own focus-restore; the overlay now
+ * closes reliably on its own, including a document-level Escape fallback
+ * for when focus has ended up outside it — see ShortcutsOverlay.tsx).
  *
  * A single `document`-level listener, gated so it never fires:
  *  - while typing in an input/textarea/select/contenteditable,
@@ -34,8 +39,8 @@ const NAV_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'Home', 'End'])
  *    other shortcut still works from there,
  *  - while ANY overlay owns the keyboard (`overlayOpen`, computed by the
  *    caller from the settings popover / game-end card, or `promotionOpen`,
- *    or this hook's own shortcuts overlay) — except Escape, which this hook
- *    uses to close its own overlay or (the one gap) the promotion picker,
+ *    or this hook's own shortcuts overlay) — except Escape for the
+ *    promotion picker, the one overlay with no Escape handling of its own,
  *  - while the puzzle screen is showing instead of the game (`active`).
  */
 export function useShortcuts({
@@ -82,16 +87,13 @@ export function useShortcuts({
       if (isTypingTarget(e.target)) return
 
       if (e.key === 'Escape') {
-        if (helpOpen) {
-          setHelpOpen(false)
-          return
-        }
         if (promotionOpen) {
           e.preventDefault()
           onCancelPromotion()
         }
-        // Settings and the game-end card handle their own Escape (and stop
-        // it from ever reaching here while they're open).
+        // Settings, the game-end card and the shortcuts overlay itself all
+        // handle their own Escape (and, for the first two, stop it from
+        // ever reaching here while they're open).
         return
       }
 

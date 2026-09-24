@@ -86,7 +86,11 @@ export function StatusHeader({
       ) : null}
 
       {shareError ? (
-        <p className="resume-banner" data-testid="share-link-error">
+        // A failure, not an offer — danger-toned rather than the
+        // resume/share-conflict banners' warm "here's a choice" look
+        // (review round 1, Task 14 "consider also": surface it like a
+        // malformed PGN/FEN import, not like a prompt).
+        <p className="share-error-banner" data-testid="share-link-error">
           {shareError}
           <button data-testid="share-link-dismiss" onClick={onDismissShareError}>
             Dismiss

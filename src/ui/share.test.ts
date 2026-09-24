@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'vitest'
+import { afterEach, describe, expect, test, vi } from 'vitest'
 import { Game } from '../game-core/game'
 import { STARTING_FEN } from '../game-core/types'
 import { buildShareQuery, buildShareUrl, parseShareLink } from './share'
@@ -51,11 +51,32 @@ describe('buildShareQuery', () => {
 })
 
 describe('buildShareUrl', () => {
-  test('is absolute, under the current origin and deploy base', () => {
+  afterEach(() => vi.unstubAllEnvs())
+
+  test('is absolute, under the current origin, at the default (root) base', () => {
     const game = threeMoveGame()
     const url = buildShareUrl(game)
     expect(url.startsWith(window.location.origin)).toBe(true)
-    expect(url).toContain('?fen=')
+    expect(url).toBe(`${window.location.origin}/${buildShareQuery(game)}`)
+  })
+
+  // Review round 1 (Task 14) polish: the previous version of this test
+  // passed even with `prefixedBase` deleted from buildShareUrl entirely —
+  // it never actually exercised a non-root base. This is the same
+  // `vi.stubEnv('BASE_URL', ...)` mechanism assetUrl.test.ts uses for the
+  // identical GitHub Pages concern.
+  test('under the GitHub Pages base path, the link carries the /chess-game/ prefix', () => {
+    vi.stubEnv('BASE_URL', '/chess-game/')
+    const game = threeMoveGame()
+    const url = buildShareUrl(game)
+    expect(url).toBe(`${window.location.origin}/chess-game/${buildShareQuery(game)}`)
+  })
+
+  test('a base without a trailing slash still joins cleanly', () => {
+    vi.stubEnv('BASE_URL', '/chess-game')
+    const game = threeMoveGame()
+    const url = buildShareUrl(game)
+    expect(url).toBe(`${window.location.origin}/chess-game/${buildShareQuery(game)}`)
   })
 })
 

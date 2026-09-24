@@ -285,7 +285,8 @@ body {
 
 .engine-warning,
 .resume-banner,
-.coach-notice {
+.coach-notice,
+.share-error-banner {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -301,6 +302,16 @@ body {
   max-width: 640px;
   box-sizing: border-box;
   width: 100%;
+}
+
+/* Review round 1 (Task 14), "consider also": a malformed share link is a
+   FAILURE, not an offer — sharing `.resume-banner`'s warm/amber "here's a
+   choice" tone (as it briefly did) made it read like one. Same shape,
+   danger-toned instead, the way `.history-reset-confirm` already departs
+   from a plain button for the same reason. */
+.share-error-banner {
+  background: var(--danger-soft);
+  border-color: var(--danger);
 }
 
 /* ------------------------------------------------------------------

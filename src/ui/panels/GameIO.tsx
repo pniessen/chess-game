@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { Game } from '../../game-core/game'
 import { importFen, importPgn, type PgnHeaders } from '../../game-core/io'
 import { downloadPgn } from '../pgnFile'
@@ -22,6 +22,19 @@ export function GameIO({
   // hand rather than the button silently doing nothing.
   const [shareStatus, setShareStatus] = useState<'idle' | 'copied' | 'manual'>('idle')
   const [shareUrl, setShareUrl] = useState('')
+
+  // Review round 1 (Task 14) polish: the URL and "copied" confirmation are
+  // a snapshot of the position at the moment Share was clicked — a move
+  // (or a new game, an undo, a jump) afterwards must invalidate both,
+  // rather than leave the button silently offering a stale link. `game`
+  // catches a brand-new Game object (new game/import/load); `game.ply`
+  // catches a move/undo/redo/jump within the SAME object, since
+  // MatchController mutates one Game in place rather than replacing it.
+  useEffect(() => {
+    setShareStatus('idle')
+    setShareUrl('')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [game, game.ply])
 
   const handleExport = () => downloadPgn(game, headers)
 
