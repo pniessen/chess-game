@@ -73,16 +73,24 @@
   background-image: radial-gradient(circle at center, rgba(255, 40, 40, 0.95) 0%,
     rgba(230, 30, 30, 0.6) 35%, rgba(200, 0, 0, 0) 72%);
 }
+/* `z-index: 3` (see "Stacking order (Task 3)" below) puts the legal-move
+   dot/ring above every piece, including one mid-flight: `.legal` is applied
+   to EVERY legal destination — quiet or capture, since `highlights.captures`
+   is never populated by App.tsx/PuzzleScreen today, so `.square.capture`
+   never actually applies — meaning this dot is the thing that has to stay
+   visible on an occupied (capturable) destination, not just an empty one. */
 .square.legal::after {
   content: ''; position: absolute; width: 27%; aspect-ratio: 1;
   border-radius: 50%; background: rgba(23, 32, 48, 0.24);
   transition: transform 0.12s ease, background-color 0.12s ease;
+  z-index: 3;
 }
 .square.legal:hover::after { transform: scale(1.25); background: rgba(23, 32, 48, 0.34); }
 .square.capture::after {
   content: ''; position: absolute; inset: 0;
   border-radius: inherit;
   background: radial-gradient(circle at center, transparent 0 56%, rgba(23, 32, 48, 0.28) 58% 100%);
+  z-index: 3;
 }
 .square.legal, .square.capture { cursor: pointer; }
 .piece {
@@ -92,7 +100,7 @@
      "Stacking order (Task 3)" comment below for why that matters and what
      it is layered against. */
   position: relative;
-  z-index: 2;
+  z-index: 1;
   width: 92%; height: 92%; pointer-events: none;
   filter: drop-shadow(0 2px 1.5px rgba(0, 0, 0, 0.22));
 }
@@ -133,7 +141,7 @@
 .flight-layer {
   position: absolute;
   inset: 0;
-  z-index: 3; /* above every piece and both arrow layers — see "Stacking order (Task 3)" below */
+  z-index: 2; /* above resting pieces and the last-move arrow, below legal-move dots and the hint/review overlay — see "Stacking order (Task 3)" below */
   pointer-events: none; /* clicks and drags pass through to the squares */
 }
 .flight-piece {
@@ -184,7 +192,7 @@
   position: fixed;
   left: 0;
   top: 0;
-  z-index: 6; /* above everything else on the board — see "Stacking order (Task 3)" below */
+  z-index: 5; /* above everything else on the board — see "Stacking order (Task 3)" below */
   display: flex;
   align-items: center;
   justify-content: center;
@@ -203,42 +211,57 @@
 .drag-ghost.returning { transition: transform var(--drag-snap-ms) var(--flight-ease); }
 
 /* ------------------------------------------------------------------
-   Stacking order (Task 3)
+   Stacking order (Task 3, corrected in review-fix round 1)
 
-   Task 1's review flagged that a moving piece (flight layer, z-index 3)
+   Task 1's review flagged that a moving piece (flight layer, was z-index 3)
    passed over the hint/review overlay (board-overlay, was z-index 2) while
    the SAME piece at rest sat under it (squares had no z-index at all) —
    the same piece flickered in front of and behind an arrow depending on
-   whether it was mid-flight. Task 3 forces the question by adding a second
+   whether it was mid-flight. Task 3 forced the question by adding a second
    arrow that must sit UNDER pieces (the last-move arrow, matching how the
    .square.last-move tint already reads as "part of the square" rather than
-   "drawn on top"), while the existing hint/review arrows stay legible
-   drawn OVER pieces (they are active guidance, meant to read as pointing AT
-   a piece, and moving them would flip the meaning of the regression test
-   in hints.spec.ts that the highlighted piece must stay visible under the
-   nudge highlight).
+   "drawn on top"), while the existing hint/review arrows and legal-move
+   dots/rings stay legible drawn OVER pieces — they are active guidance
+   (pointing at a piece to move, marking a piece as the review's flagged
+   move, or marking a square as a legal destination even when an enemy
+   piece already sits there) and must never be hidden by the very piece they
+   are pointing at.
 
-   The chosen rule, applied consistently everywhere a piece can appear:
-   PIECES ARE ALWAYS ABOVE THE LAST-MOVE ARROW, AND ALWAYS BELOW THE
-   HINT/REVIEW OVERLAY — whether resting, flying, or dragged. Concretely,
-   one shared numeric pool (every element below is `position`ed but none of
-   `.board`/`.board-frame`/`.square` ever sets a z-index of its own, so none
-   of them starts a new stacking context — see MDN's stacking-context rules
-   — meaning these numbers really do compare directly against each other,
-   not just within a nested layer):
+   round 1's review caught that the first version of this got it backwards:
+   `.piece` (z-index 2) was placed ABOVE `.board-overlay` (z-index 1), so a
+   piece painted OVER its own hint highlight — verified live with
+   `document.elementsFromPoint`, and the same mechanism hid the legal-move
+   dot behind an enemy piece on a capturable square (`.square.legal::after`
+   had no z-index at all, so it stayed grouped with the plain squares, below
+   the now-promoted piece). See tests/e2e/board-stacking-order.spec.ts for
+   the elementsFromPoint regression tests this round added — real paint
+   order, not just visibility, is what caught this.
 
-     0  .last-move-layer   the new brass arrow — under everything
-     1  .board-overlay     hint/review squares + arrows — under pieces, over the last-move arrow
-     2  .piece             every resting piece (real pieces only; the FlightLayer/DragLayer
-                            piece images below live inside their own already-elevated,
-                            already-context-forming layers, so this rule cannot pull them
-                            out of place)
-     3  .flight-layer      the piece(s) of the move currently in the air
-     6  .drag-ghost         the piece under the pointer during a drag
+   The corrected rule, applied consistently everywhere a piece can appear:
+   PIECES ARE ALWAYS ABOVE THE LAST-MOVE ARROW; LEGAL-MOVE DOTS AND THE
+   HINT/REVIEW OVERLAY ARE ALWAYS ABOVE PIECES, INCLUDING A PIECE MID-FLIGHT.
+   Concretely, one shared numeric pool (every element below is `position`ed
+   but none of `.board`/`.board-frame`/`.square` ever sets a z-index of its
+   own, so none of them starts a new stacking context — see MDN's
+   stacking-context rules — meaning these numbers really do compare directly
+   against each other, not just within a nested layer):
+
+     0  .last-move-layer          the brass arrow — under everything
+     1  .piece                    every resting piece (real pieces only; the
+                                   FlightLayer/DragLayer piece images below
+                                   live inside their own already-elevated,
+                                   already-context-forming layers, so this
+                                   rule cannot pull them out of place)
+     2  .flight-layer             the piece(s) of the move currently in the air
+     3  .square.legal::after,     the legal-move dot/ring — applied to EVERY
+        .square.capture::after    legal destination, occupied or not (see the
+                                   comment on .square.legal::after above)
+     4  .board-overlay            hint/review squares + arrows
+     5  .drag-ghost               the piece under the pointer during a drag
 
    A last-move arrow and a hint arrow can therefore be on screen together
    (e.g. hinting the same reply that was just played back) and stay
-   distinguishable: different layer (0 vs 1), different colour (brass vs
+   distinguishable: different layer (0 vs 4), different colour (brass vs
    blue), different weight (thinner, lower-opacity shaft — see
    .last-move-arrow-line vs .annotation-arrow below).
    ------------------------------------------------------------------ */
@@ -286,7 +309,7 @@
   width: 100%;
   height: 100%;
   pointer-events: none; /* clicks and drags pass through to the squares */
-  z-index: 1;
+  z-index: 4; /* above pieces, flight and legal-move dots — see "Stacking order (Task 3)" above */
   border-radius: var(--board-inner-radius);
   clip-path: inset(0 round var(--board-inner-radius));
 }

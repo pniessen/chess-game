@@ -95,8 +95,9 @@ test('never blocks pointer events: a move can be played by clicking through the 
   await move(page, 'e2', 'e4')
   await expect(arrow(page)).toHaveCount(1)
 
-  // e4's own square is inside the arrow's bounding box; clicking it must
-  // still reach the square, not the SVG layer drawn under the piece there.
+  // .last-move-layer spans the whole board (inset: 0), not just the drawn
+  // line, so any click — here e7 then e5, not even on the e2-e4 arrow
+  // itself — must still reach the square beneath it, not the SVG.
   await move(page, 'e7', 'e5')
   await expect(page.getByTestId('ply-count')).toHaveText('2')
 })
