@@ -166,16 +166,19 @@ test.describe('the keyboard contract', () => {
    * with no click anywhere, so the focused input can vanish while the
    * popover is still open and leave focus on `<body>`.
    *
-   * The blur below stands in for that (driving a real engine reply into a
-   * narrow window would be a race, not a test), exactly as
-   * App.shortcuts.test.tsx stands in for a board click on the game-end
-   * card. The assertion is the real one: from `<body>`, nothing bubbles
-   * through the popover, so without the `document`-level listener in
-   * `usePopover` this goes red — Escape does nothing, and because the
-   * popover reports itself through `overlayOpen` every other shortcut is
-   * dead with it.
+   * Fix round 1 closed that at the root: `usePopover`'s `focusout` guard
+   * catches focus landing nowhere and puts it back inside the popover, so
+   * the inert state the React `onKeyDown` cannot serve no longer exists.
+   * That is the first half of this test, and it goes red if the guard is
+   * removed — `blur()` then leaves focus on `<body>` for good.
+   *
+   * The second half pins `documentEscape`, which is now belt and braces:
+   * it has to be dispatched inside the same task as the blur, because by
+   * the time Playwright hands control back the guard has already run.
+   * That is the point — there are two independent defences, and this
+   * checks both.
    */
-  test('Escape still closes it once focus has drifted out to <body>', async ({ page }) => {
+  test('focus that drifts out to <body> is recovered, and Escape closes it regardless', async ({ page }) => {
     await withoutClipboard(page)
     await page.goto('/')
     await openGameFile(page)
@@ -183,14 +186,89 @@ test.describe('the keyboard contract', () => {
     await page.getByTestId('share-url').focus()
     await expect(page.getByTestId('share-url')).toBeFocused()
 
+    // Escape delivered to `document` while focus really is on <body>,
+    // which is the window `documentEscape` exists for.
+    const closedFromBody = await page.evaluate(() => {
+      ;(document.activeElement as HTMLElement | null)?.blur()
+      const onBody = document.activeElement === document.body
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+      return { onBody, stillOpen: !!document.querySelector('[data-testid="game-file"]') }
+    })
+    expect(closedFromBody.onBody).toBe(true)
+    await expect(page.getByTestId('game-file')).toHaveCount(0)
+    await expect(page.getByTestId('game-file-toggle')).toBeFocused()
+
+    // And with no Escape at all, the guard alone recovers the drift.
+    await openGameFile(page)
+    await page.getByTestId('share-link').click()
+    await page.getByTestId('share-url').focus()
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
-    expect(await page.evaluate(() => document.activeElement === document.body)).toBe(true)
-    // Still open: nothing outside it was clicked.
-    await expect(page.getByTestId('game-file')).toBeVisible()
+    await expect(page.getByTestId('game-file')).toBeFocused()
+    await page.keyboard.press('Escape')
+    await expect(page.getByTestId('game-file')).toHaveCount(0)
+    await expect(page.getByTestId('game-file-toggle')).toBeFocused()
+  })
+
+  /**
+   * Fix round 1, the root fix behind the one above. `documentEscape`
+   * patched Escape; nothing patched Tab. The trap is a React `onKeyDown`
+   * on the popover element, so from `<body>` it is inert and Shift+Tab
+   * walks the page behind — as far as `settings-toggle`, where Enter
+   * would open a SECOND popover with a second live focus trap.
+   *
+   * `usePopover`'s `focusout` guard closes that at the root by never
+   * letting focus rest on `<body>` while a popover is open. Remove it and
+   * this goes red at the first assertion.
+   */
+  test('focus cannot walk out to the other popover once it has drifted to <body>', async ({ page }) => {
+    await withoutClipboard(page)
+    await page.goto('/')
+    await openGameFile(page)
+    await page.getByTestId('share-link').click()
+    await page.getByTestId('share-url').focus()
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
+
+    // Back inside, rather than stranded on <body> where Tab is unguarded.
+    await expect(page.getByTestId('game-file')).toBeFocused()
+
+    for (let i = 0; i < 10; i += 1) await page.keyboard.press('Shift+Tab')
+    const inside = await page.evaluate(
+      () => document.querySelector('[data-testid="game-file"]')?.contains(document.activeElement) ?? false,
+    )
+    expect(inside).toBe(true)
+    await expect(page.getByTestId('settings-toggle')).not.toBeFocused()
+    await expect(page.getByTestId('settings')).toHaveCount(0)
+  })
+
+  /**
+   * Fix round 1, item 9: verified in a real browser rather than reasoned
+   * about. The game-end card and this popover BOTH carry a
+   * `document`-level Escape listener, so one keystroke could plausibly
+   * have dismissed both, each restoring focus to its own idea of where it
+   * came from. It does not: with focus inside the popover, its React
+   * `onKeyDown` calls `stopPropagation`, and because React 17+ listens at
+   * the root container rather than at `document`, the card's listener
+   * never sees the event. One Escape per layer, innermost first.
+   */
+  test('Escape closes the popover and the game-end card one layer at a time', async ({ page }) => {
+    await page.goto('/')
+    await page.locator('[data-square="e2"]').click()
+    await page.locator('[data-square="e4"]').click()
+    await page.getByTestId('resign').click()
+    await expect(page.getByTestId('game-end-card')).toBeVisible()
+
+    await openGameFile(page)
+    await expect(page.getByTestId('game-end-card')).toBeVisible()
 
     await page.keyboard.press('Escape')
     await expect(page.getByTestId('game-file')).toHaveCount(0)
     await expect(page.getByTestId('game-file-toggle')).toBeFocused()
+    // The card is still there — it did not go down with the popover.
+    await expect(page.getByTestId('game-end-card')).toBeVisible()
+
+    await page.keyboard.press('Escape')
+    await expect(page.getByTestId('game-end-card')).toHaveCount(0)
+    await expect(page.getByTestId('new-game')).toBeFocused()
   })
 
   test('a click on the board dismisses it and plays the move', async ({ page }) => {
@@ -215,22 +293,92 @@ test.describe('two popovers are never open at once', () => {
     await expect(page.getByTestId('settings')).toHaveCount(0)
     await expect(page.getByTestId('game-file')).toBeVisible()
   })
-})
 
-test.describe('phone viewport', () => {
-  test.use({ viewport: { width: 375, height: 812 } })
-
-  test('the popover fits a 375px viewport without overflowing the page', async ({ page }) => {
+  /**
+   * The pointerdown mechanism above is only half the guarantee; this is
+   * the other half. There is no keyboard route from inside one popover to
+   * the other's trigger: the trap cycles, so Tab never gets there, and
+   * the only way out — Escape — has already closed the first one.
+   */
+  test('there is no keyboard route from one popover to the other', async ({ page }) => {
     await page.goto('/')
-    const overflow = () =>
-      page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
-    const before = await overflow()
-    await openGameFile(page)
-    expect(await overflow()).toBeLessThanOrEqual(before)
+    await page.getByTestId('game-file-toggle').focus()
+    await page.keyboard.press('Enter')
+    await expect(page.getByTestId('game-file')).toBeVisible()
 
-    const box = await page.getByTestId('game-file').boundingBox()
-    expect(box).not.toBeNull()
-    expect(box!.x).toBeGreaterThanOrEqual(0)
-    expect(box!.x + box!.width).toBeLessThanOrEqual(375)
+    // Tab all the way round the popover and past where the triggers are
+    // in document order: it never lands on Settings, and never opens it.
+    for (let i = 0; i < 9; i += 1) await page.keyboard.press('Tab')
+    await expect(page.getByTestId('settings-toggle')).not.toBeFocused()
+    await expect(page.getByTestId('settings')).toHaveCount(0)
+
+    // Escape is the only way out, and it closes Game file on the way — so
+    // by the time Settings is reachable there is nothing left to collide
+    // with.
+    await page.keyboard.press('Escape')
+    await expect(page.getByTestId('game-file')).toHaveCount(0)
+    await expect(page.getByTestId('game-file-toggle')).toBeFocused()
+
+    await page.keyboard.press('Tab')
+    await page.keyboard.press('Tab')
+    await expect(page.getByTestId('settings-toggle')).toBeFocused()
+    await page.keyboard.press('Enter')
+    await expect(page.getByTestId('settings')).toBeVisible()
+    await expect(page.getByTestId('game-file')).toHaveCount(0)
   })
 })
+
+/**
+ * Fix round 1. The phone check used to run at 375px only and cover only
+ * the Game file popover — and 375px is one of the two widths where the
+ * Settings regression this task caused happened NOT to show, which is
+ * exactly why it went undetected. Both popovers, and the widths either
+ * side: 320 (the narrowest phone still in use, where Settings went to
+ * x = -176, ~60% off-screen), 375 (the width that hid it), and 414 (where
+ * it went to x = -77).
+ */
+for (const width of [320, 375, 414]) {
+  test.describe(`phone viewport ${width}px`, () => {
+    test.use({ viewport: { width, height: 812 } })
+
+    test('both popovers open fully inside the viewport', async ({ page }) => {
+      await page.goto('/')
+      const overflowX = () =>
+        page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
+      const before = await overflowX()
+
+      for (const [trigger, popover] of [
+        ['game-file-toggle', 'game-file'],
+        ['settings-toggle', 'settings'],
+      ] as const) {
+        await page.getByTestId(trigger).click()
+        await expect(page.getByTestId(popover)).toBeVisible()
+
+        const box = await page.getByTestId(popover).boundingBox()
+        expect(box, `${popover} has no box at ${width}px`).not.toBeNull()
+        // Nothing hangs off either edge. There is no horizontal page
+        // scroll to go and find it with, so off-screen means unreachable.
+        expect(box!.x, `${popover} left edge at ${width}px`).toBeGreaterThanOrEqual(0)
+        expect(box!.x + box!.width, `${popover} right edge at ${width}px`).toBeLessThanOrEqual(width)
+        expect(await overflowX()).toBeLessThanOrEqual(before)
+
+        await page.keyboard.press('Escape')
+        await expect(page.getByTestId(popover)).toHaveCount(0)
+      }
+    })
+
+    test('the controls at the far end of the Settings popover are reachable', async ({ page }) => {
+      await page.goto('/')
+      await page.getByTestId('settings-toggle').click()
+      await expect(page.getByTestId('settings')).toBeVisible()
+      // The regression left these three past the left edge of the screen.
+      for (const id of ['appearance-dark', 'sound-toggle', 'volume']) {
+        await page.getByTestId(id).scrollIntoViewIfNeeded()
+        const box = await page.getByTestId(id).boundingBox()
+        expect(box, `${id} has no box at ${width}px`).not.toBeNull()
+        expect(box!.x, `${id} left edge at ${width}px`).toBeGreaterThanOrEqual(0)
+        expect(box!.x + box!.width, `${id} right edge at ${width}px`).toBeLessThanOrEqual(width)
+      }
+    })
+  })
+}

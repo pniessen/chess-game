@@ -1588,17 +1588,28 @@ body {
     grid-row: 2;
     justify-content: flex-start;
     margin-bottom: 12px;
-    /* Task 4: the containing block for the Game file popover here — see
-       below. Settings does not need it: it is the last item on the row and
-       so already flush with the right edge. */
+    /* Task 4: the containing block for BOTH header popovers here — see
+       below. */
     position: relative;
   }
-  /* Task 4: on a phone the row wraps and the Game file trigger is nowhere
-     near the right edge, so anchoring a 320px popover to the trigger's own
-     right edge hangs it ~190px off the left of the screen. Anchoring to
-     the status row instead — which always spans the content width — puts
-     it under the header and inside the viewport whatever the row does. */
-  .game-file-anchor { position: static; }
+  /* Task 4: on a phone the row wraps, and neither trigger can be relied on
+     to sit at the right edge of the screen — so anchoring a 320px popover
+     to a trigger's own right edge hangs most of it off the left. (Settings
+     used to be safe by being the last item on the row; adding a third
+     action ended that, and at 320px it went to x = -176, ~60% off-screen
+     with no horizontal page scroll to reach it.) Anchoring both to the
+     status row instead — which always spans the content width — puts them
+     under the header and inside the viewport whatever the row does.
+
+     `margin-left: auto` has to go with it: with `justify-content:
+     flex-start` a surviving auto margin strands `Game file` alone on its
+     own right-aligned line at 414/430px, and indents the row by 72px at
+     320px. */
+  .game-file-anchor,
+  .settings-anchor {
+    position: static;
+    margin-left: 0;
+  }
 
   .opening { max-width: 100%; }
 
