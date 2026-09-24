@@ -1,0 +1,58 @@
+# Publishes the browser game to GitHub Pages: https://pniessen.github.io/chess-game/
+#
+# A project page is served from /chess-game/, so the build runs with
+# BASE_PATH set (see vite.config.ts). Nothing here touches the coach
+# server or .env — Claude coaching needs a local server with your own API
+# key, and the app degrades to its built-in hints without it.
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Let a running deploy finish; never publish two builds at once.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+
+      # Plain `npm ci`: its postinstall (scripts/copy-engine.mjs) is what
+      # puts the Stockfish worker and its .wasm into public/engine, which
+      # is generated, not committed.
+      - run: npm ci
+
+      - run: npm run build
+        env:
+          BASE_PATH: /chess-game/
+
+      - uses: actions/configure-pages@v6
+
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5
