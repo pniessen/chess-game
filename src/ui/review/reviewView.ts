@@ -6,8 +6,31 @@ import type { GameReview } from '../../review/run'
 import { MARK } from '../../review/summary'
 import type { Annotation } from '../Board/annotations'
 
-export function reviewMarks(review: GameReview): Map<number, MoveClass> {
-  return new Map(review.moves.map((m) => [m.ply, m.classification]))
+/** A move's quality mark (Task 8): the classification MoveList's chip
+ *  colours and glyphs, plus the eval swing (mover's win-% points lost) its
+ *  tooltip reads out. Both come straight from the review — nothing here
+ *  recomputes or re-derives anything the engine wasn't already asked. */
+export interface MoveQuality {
+  classification: MoveClass
+  loss: number
+}
+
+export function reviewMarks(review: GameReview): Map<number, MoveQuality> {
+  return new Map(review.moves.map((m) => [m.ply, { classification: m.classification, loss: m.loss }]))
+}
+
+const QUALITY_LABEL: Record<MoveClass, string> = {
+  best: 'Best move',
+  ok: 'Good move',
+  inaccuracy: 'Inaccuracy',
+  mistake: 'Mistake',
+  blunder: 'Blunder',
+}
+
+/** The chip's hover tooltip: the classification plus the eval swing it was scored on. */
+export function moveQualityTitle(q: MoveQuality): string {
+  const pts = Math.round(q.loss)
+  return pts > 0 ? `${QUALITY_LABEL[q.classification]} (−${pts}% win)` : QUALITY_LABEL[q.classification]
 }
 
 /** On a flagged move: tint where it went, and an arrow for the engine's better move from the position before. */

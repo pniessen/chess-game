@@ -1,5 +1,5 @@
 import type { PlayedMove } from '../../game-core/types'
-import type { MoveClass } from '../../review/analysis'
+import { moveQualityTitle, type MoveQuality } from '../review/reviewView'
 import { MARK } from '../../review/summary'
 import { toMovePairs } from './movePairs'
 
@@ -20,8 +20,8 @@ export function MoveList({
   onJump: (ply: number) => void
   /** True while jumping to history would corrupt an in-flight engine turn. */
   disabled?: boolean
-  /** Post-game review classifications by ply. */
-  marks?: ReadonlyMap<number, MoveClass>
+  /** Post-game review classifications by ply (Task 8: quality chips). */
+  marks?: ReadonlyMap<number, MoveQuality>
 }) {
   const pairs = toMovePairs(moves)
   const jump = (ply: number) => {
@@ -29,8 +29,8 @@ export function MoveList({
   }
   const entry = (e?: { san: string; ply: number }) => {
     if (!e) return <span className="move empty">…</span>
-    const mark = marks?.get(e.ply)
-    const symbol = mark ? MARK[mark] : undefined
+    const quality = marks?.get(e.ply)
+    const symbol = quality ? MARK[quality.classification] : undefined
     return (
       <button
         className={`move ${e.ply === currentPly ? 'current' : ''}`}
@@ -39,8 +39,12 @@ export function MoveList({
         disabled={disabled}
       >
         {e.san}
-        {symbol ? (
-          <span className={`mark mark-${mark}`} data-testid={`mark-${e.ply}`} title={mark}>
+        {symbol && quality ? (
+          <span
+            className={`mark mark-${quality.classification}`}
+            data-testid={`mark-${e.ply}`}
+            title={moveQualityTitle(quality)}
+          >
             {symbol}
           </span>
         ) : null}

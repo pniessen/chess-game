@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest'
-import { currentMoveText, reviewAnnotations, reviewMarks } from './reviewView'
+import { currentMoveText, moveQualityTitle, reviewAnnotations, reviewMarks } from './reviewView'
 import type { GameReview } from '../../review/run'
 
 const review: GameReview = {
@@ -12,8 +12,19 @@ const review: GameReview = {
   ],
 }
 
-test('marks every reviewed ply', () => {
-  expect([...reviewMarks(review)]).toEqual([[1, 'best'], [2, 'mistake']])
+test('marks every reviewed ply with its classification and eval swing', () => {
+  expect([...reviewMarks(review)]).toEqual([
+    [1, { classification: 'best', loss: 0 }],
+    [2, { classification: 'mistake', loss: 22 }],
+  ])
+})
+
+// Task 8: the chip's hover tooltip — the classification, plus the eval
+// swing only when there was one (a 0-loss best move needs no "(−0% win)").
+test('moveQualityTitle names the classification, and the eval swing when there is one', () => {
+  expect(moveQualityTitle({ classification: 'best', loss: 0 })).toBe('Best move')
+  expect(moveQualityTitle({ classification: 'mistake', loss: 22 })).toBe('Mistake (−22% win)')
+  expect(moveQualityTitle({ classification: 'blunder', loss: 41.7 })).toBe('Blunder (−42% win)')
 })
 
 test('a flagged move shows where it went and an arrow for the better move', () => {

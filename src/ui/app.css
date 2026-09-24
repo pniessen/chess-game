@@ -868,12 +868,42 @@ body {
 .review-summary { white-space: pre-wrap; }
 .review-source, .review-hint { font-size: 0.85em; color: var(--color-muted); }
 .review-error { color: var(--color-error); }
-.mark { margin-left: 2px; font-weight: 700; }
-.mark-best { color: #1e874b; }
-.mark-inaccuracy { color: #9a6d00; }
-.mark-mistake { color: #c25e00; }
-.mark-blunder { color: #d0302a; }
-.move.current .mark { color: inherit; }
+/* Task 8: move-quality chips — a small coloured pill per classification,
+   next to the SAN in the move list (MoveList.tsx). Colours are redefined
+   under both dark-mode signals below, the same pattern every other themed
+   colour in this file follows (see e.g. --danger above): a flat text
+   colour (the pre-Task-8 version of `.mark`) read fine on a light surface
+   but not on a dark one, which is exactly what this fixes. `.move.current
+   .mark` keeps its own override — the current move already sits on a
+   solid brass background (see `.move.current` above), so its chip trades
+   the classification colour for a neutral pill that reads against brass
+   in both themes instead of fighting it. */
+.mark {
+  margin-left: 4px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 0.72em;
+  font-weight: 700;
+  line-height: 1.6;
+  vertical-align: 1px;
+  white-space: nowrap;
+}
+.mark-best { color: #146b3a; background: rgba(30, 135, 75, 0.16); }
+.mark-inaccuracy { color: #7a5500; background: rgba(154, 109, 0, 0.16); }
+.mark-mistake { color: #8f4400; background: rgba(194, 94, 0, 0.16); }
+.mark-blunder { color: #a3241f; background: rgba(211, 38, 30, 0.14); }
+.move.current .mark { color: var(--on-brass); background: rgba(255, 255, 255, 0.4); }
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .mark-best { color: #5fd08f; background: rgba(95, 208, 143, 0.18); }
+  :root:not([data-theme='light']) .mark-inaccuracy { color: #e6c260; background: rgba(230, 194, 96, 0.18); }
+  :root:not([data-theme='light']) .mark-mistake { color: #ffab5e; background: rgba(255, 171, 94, 0.18); }
+  :root:not([data-theme='light']) .mark-blunder { color: #ff8a80; background: rgba(255, 138, 128, 0.18); }
+}
+:root[data-theme='dark'] .mark-best { color: #5fd08f; background: rgba(95, 208, 143, 0.18); }
+:root[data-theme='dark'] .mark-inaccuracy { color: #e6c260; background: rgba(230, 194, 96, 0.18); }
+:root[data-theme='dark'] .mark-mistake { color: #ffab5e; background: rgba(255, 171, 94, 0.18); }
+:root[data-theme='dark'] .mark-blunder { color: #ff8a80; background: rgba(255, 138, 128, 0.18); }
 
 .history-list { list-style: none; margin: 0; padding: 4px 12px 12px; max-height: 420px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
 .history-entry {
