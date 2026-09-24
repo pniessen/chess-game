@@ -116,24 +116,20 @@ test('My mistakes celebrates the ring on solving, but no rating text ever appear
   )
   await page.reload()
   await openPuzzles(page)
-  // Let the rated puzzle set's own (async) fetch fully settle — and its
-  // mount effect (`useEffect(..., [set])` in PuzzleScreen.tsx) actually
-  // fire — BEFORE switching source. PuzzleScreen.tsx has a real timing
-  // trap here: that effect's closure captures `source` from the render
-  // that scheduled it, and under real scheduling (unlike this component's
-  // own synchronous state updates, which React batches together) a passive
-  // effect queued while the fetch was still pending is not guaranteed to
-  // flush before the next discrete event; if it flushes AFTER the
-  // 'mistakes' switch, it still sees the STALE `source === 'rated'` from
-  // when it was scheduled and calls `showRated` again, silently resetting
-  // `current` back to the rated puzzle (0000D) while the <select> itself
-  // stays on 'mistakes' — this is exactly what turned up on a full-suite
-  // run (never reproduced by re-running this file alone, which starts far
-  // less loaded). Waiting for the rated puzzle to be visibly on screen
-  // first closes that window: `set.kind` is already 'ready' and the mount
-  // effect has already run its one and only time by the time we switch.
-  // (This is a pre-existing PuzzleScreen.tsx race, not something Task 7/8
-  // — presentation-only — should be fixing here; flagged separately.)
+  // Historical note, kept because it explains this wait: PuzzleScreen.tsx's
+  // set-arrival effect (`useEffect(..., [set])`) used to close over
+  // `source` instead of reading a live ref, so switching to My mistakes
+  // while the rated puzzle set's fetch was still pending could — once that
+  // fetch resolved — silently reset `current` back to the rated puzzle
+  // (0000D) while the <select> itself stayed on 'mistakes', if the
+  // effect's flush landed after the switch. That is now fixed at the
+  // source (see PuzzleScreen.tsx's set-arrival effect and
+  // PuzzleScreen.race.test.tsx). This wait — for the rated puzzle to be
+  // visibly on screen before switching — is no longer required for
+  // correctness, but is kept anyway: it is what actually turned up the bug
+  // on a full-suite run (never reproduced re-running this file alone,
+  // which starts far less loaded) and remains a reasonable, low-cost
+  // guard against unrelated timing flakiness in this same screen.
   await expect(page.getByTestId('puzzle-id')).toHaveText('0000D')
   await page.getByTestId('puzzle-source').selectOption('mistakes')
   // Wait on something only THIS seeded mistake puzzle can satisfy — its

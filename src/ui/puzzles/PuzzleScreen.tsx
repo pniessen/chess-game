@@ -77,6 +77,15 @@ export function PuzzleScreen({
   const loadRef = useRef(loadPuzzles)
   const randomRef = useRef(random)
   randomRef.current = random
+  // Kept live every render (same pattern as randomRef above), so the
+  // set-arrival effect below — which intentionally does NOT re-run on every
+  // source/theme change (see its own comment) — can still always read what
+  // the user is ACTUALLY on right now, not whatever `source`/`theme` were
+  // at the render that last scheduled it.
+  const sourceRef = useRef(source)
+  sourceRef.current = source
+  const themeRef = useRef(theme)
+  themeRef.current = theme
 
   // Fetched once per open (the loader caches; a failure is retried next time).
   useEffect(() => {
@@ -138,11 +147,32 @@ export function PuzzleScreen({
     [nextKey],
   )
 
-  // The first rated puzzle, once the set arrives (if the user is still on Rated).
+  // The first rated puzzle, once the set arrives (if the user is still on
+  // Rated). Deliberately keyed on `[set]` alone — this must fire exactly
+  // once, when the fetch resolves, not on every later source/theme change
+  // (those are each already handled by their own call site: changeSource,
+  // handleTheme). But that means it can run at an arbitrary later time
+  // relative to the render that scheduled it — a passive effect is not
+  // guaranteed to flush before the very next discrete event — so reading
+  // `source`/`theme` from the closure here would silently act on whatever
+  // they were AT THAT EARLIER RENDER, not on what the user is actually on
+  // when the effect body runs. A real case: open Puzzles, switch to My
+  // mistakes before puzzles.json has finished loading — when it resolves,
+  // this effect used to see the closure's stale `source === 'rated'` and
+  // call showRated, silently overwriting the mistakes puzzle the user
+  // asked for even though the dropdown still read "My mistakes" — reported
+  // from a real browser, and the suspected root cause of a flaky e2e test
+  // (tests/e2e/puzzle-celebration.spec.ts's "My mistakes..." test, flaky
+  // only under full-suite CPU contention). `sourceRef`/`themeRef` (kept
+  // live every render, just above) fix that: they always read the CURRENT
+  // source/theme at the moment the set actually arrives, never a frozen
+  // closure. See PuzzleScreen.race.test.tsx for the full account,
+  // including why that test cannot itself force the pre-fix code to fail
+  // in this test harness — the fix is kept on the strength of the direct
+  // real-browser report, not a red/green unit test.
   useEffect(() => {
-    if (set.kind === 'ready' && source === 'rated') showRated(set.puzzles, theme, null)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [set])
+    if (set.kind === 'ready' && sourceRef.current === 'rated') showRated(set.puzzles, themeRef.current, null)
+  }, [set, showRated])
 
   const spec = useMemo(
     () =>
