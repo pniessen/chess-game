@@ -77,6 +77,58 @@ describe('useEndCard', () => {
     expect(result.current.open).toBe(false)
   })
 
+  // Review fix round 1. Red if taking a LOADED finish back and re-reaching
+  // it reads as a live transition: `reset()` alone leaves the hook with
+  // nothing seen, so the undo supplies the "unfinished" half of a
+  // transition the redo then completes.
+  test('a game that arrived finished raises nothing when it is taken back and re-reached', () => {
+    const built = gameFromSan(['e4', 'e5', 'Bc4', 'Nc6', 'Qh5', 'Nf6', 'Qxf7#'])
+    if (!built.ok) throw new Error(built.error)
+    const game = built.game
+    const { result, rerender } = renderHook(({ s }) => useEndCard(s), {
+      initialProps: { s: finished(game) },
+    })
+    expect(result.current.open).toBe(false)
+
+    act(() => {
+      game.undo()
+    })
+    rerender({ s: live(game) })
+    act(() => {
+      game.redo()
+    })
+    rerender({ s: finished(game) })
+    expect(result.current.open).toBe(false)
+  })
+
+  // Same rule, the other way out: a loaded game is a loaded game however
+  // the play continues — `loadMatch` has already decided the history will
+  // not record any of it.
+  test('a different line played on from a loaded finish raises nothing either', () => {
+    const built = gameFromSan(['e4', 'e5', 'Bc4', 'Nc6', 'Qh5', 'Nf6', 'Qxf7#'])
+    if (!built.ok) throw new Error(built.error)
+    const game = built.game
+    const { result, rerender } = renderHook(({ s }) => useEndCard(s), {
+      initialProps: { s: finished(game) },
+    })
+
+    act(() => {
+      game.undo()
+    })
+    rerender({ s: live(game) })
+    act(() => {
+      game.play({ from: 'b1', to: 'c3' })
+      game.play({ from: 'f8', to: 'e7' })
+    })
+    rerender({ s: live(game) })
+    act(() => {
+      game.play({ from: 'h5', to: 'f7' })
+    })
+    expect(game.status().kind).toBe('checkmate')
+    rerender({ s: finished(game) })
+    expect(result.current.open).toBe(false)
+  })
+
   // Red if `reset()` (called from startMatch/loadMatch) stops clearing what
   // the hook had seen — the belt to the game-id braces above, and what makes
   // `handleReplay`'s load()-then-finishAs() safe even on one Game object.

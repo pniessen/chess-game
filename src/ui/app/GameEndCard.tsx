@@ -14,6 +14,12 @@ const FOCUSABLE = 'button:not(:disabled), [href], [tabindex]:not([tabindex="-1"]
  * Focus moves to the card itself (not its first button) so a screen reader
  * reads the headline before the actions, Tab cycles inside it, Escape
  * dismisses, and every exit puts focus back where it came from.
+ *
+ * `aria-modal` is deliberately NOT set (review fix round 1). It would claim
+ * an inertness this card does not have — there is no backdrop and the board
+ * behind stays mouse-interactive — and it would hide the final position
+ * from a screen reader until the card was dismissed. The focus trap is what
+ * keeps the keyboard inside it.
  */
 export function GameEndCard({
   headline,
@@ -116,7 +122,6 @@ export function GameEndCard({
       className="game-end-card"
       data-testid="game-end-card"
       role="dialog"
-      aria-modal="true"
       aria-labelledby="game-end-headline"
       tabIndex={-1}
       ref={cardRef}

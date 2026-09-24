@@ -41,6 +41,12 @@ export interface EndCardState {
  *    render and this effect only ever sees the finished end state — with no
  *    previous record to transition from.
  *
+ * A match that ARRIVES finished is remembered by game id and never raises a
+ * card again, for any finish reached on it afterwards — taking a replayed
+ * mate back and re-reaching it, or playing on from it into a different one,
+ * are still moves inside a loaded game, which `loadMatch` has already
+ * decided the history will not record.
+ *
  * `shownRef` keys the card on `reviewKeyOf` (game id + the live move list),
  * so one finish shows one card: dismissing, undoing and redoing back onto
  * the same mate does not pop it again, exactly as that sequence does not
@@ -52,6 +58,17 @@ export function useEndCard(snapshot: MatchSnapshot): EndCardState {
   const [open, setOpen] = useState(false)
   const seenRef = useRef<{ id: number; finished: boolean } | null>(null)
   const shownRef = useRef<string | null>(null)
+  /**
+   * The game id of a match that ARRIVED finished (an import, a replay, a
+   * resumed save that was already over). Review fix round 1: without this,
+   * "Undo, Redo" on a replayed game read as a live transition and raised a
+   * card for a game that was loaded, not played — and, since `loadMatch`
+   * leaves `recordedRef` true for the whole of that load, one the history
+   * will never record. A finish on such a game is never live, however many
+   * times it is taken back and re-reached, or whatever line is played on
+   * from it.
+   */
+  const loadedFinishedRef = useRef<number | null>(null)
 
   useEffect(() => {
     const id = gameIdOf(game)
@@ -64,7 +81,16 @@ export function useEndCard(snapshot: MatchSnapshot): EndCardState {
       setOpen(false)
       return
     }
-    if (!seen || seen.id !== id || seen.finished) return
+    if (!seen || seen.id !== id) {
+      // The FIRST phase observed for this match is already 'finished', so
+      // the match was loaded that way. `shownRef` is seeded as well as the
+      // id being remembered, so that even a single guard left standing
+      // covers the Undo/Redo round trip back onto this very finish.
+      loadedFinishedRef.current = id
+      shownRef.current = reviewKeyOf(game)
+      return
+    }
+    if (seen.finished || loadedFinishedRef.current === id) return
     const key = reviewKeyOf(game)
     if (shownRef.current === key) return
     shownRef.current = key
@@ -75,6 +101,7 @@ export function useEndCard(snapshot: MatchSnapshot): EndCardState {
   const reset = useCallback(() => {
     seenRef.current = null
     shownRef.current = null
+    loadedFinishedRef.current = null
     setOpen(false)
   }, [])
 

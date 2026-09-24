@@ -42,6 +42,9 @@ test('a live checkmate raises the card, with the header’s own result text', as
   const card = page.getByTestId('game-end-card')
   await expect(card).toBeVisible()
   await expect(card).toHaveAttribute('role', 'dialog')
+  // No backdrop and a board that stays interactive behind it: the card must
+  // not claim to be modal (review fix round 1).
+  expect(await card.evaluate((el) => el.hasAttribute('aria-modal'))).toBe(false)
   await expect(card).toHaveAttribute('aria-labelledby', 'game-end-headline')
   await expect(page.getByTestId('game-end-headline')).toHaveText('Checkmate — White wins')
   await expect(page.getByTestId('game-end-headline')).toHaveAttribute('aria-live', 'polite')
@@ -120,6 +123,38 @@ test('replaying a finished game from history raises no card', async ({ page }) =
   await expect(page.getByTestId('history-entry')).toHaveCount(1)
 })
 
+// Review fix round 1. Red if Undo then Redo on a replayed game reads as a
+// live transition and raises a card for a game that was loaded, not played.
+test('no card after Undo, Redo on a game replayed from history', async ({ page }) => {
+  await play(page, SCHOLARS_MATE)
+  await page.getByTestId('game-end-dismiss').click()
+  await page.getByTestId('tab-history').click()
+  await page.getByTestId('history-entry').first().getByRole('button', { name: 'Replay' }).click()
+  await expect(page.getByTestId('game-end-card')).toHaveCount(0)
+
+  await page.getByTestId('undo').click()
+  await expect(page.getByTestId('ply-count')).toHaveText('6')
+  await page.getByTestId('redo').click()
+  await expect(page.getByTestId('result')).toContainText(/checkmate/i)
+  await expect(page.getByTestId('game-end-card')).toHaveCount(0)
+  await page.getByTestId('tab-history').click()
+  await expect(page.getByTestId('history-entry')).toHaveCount(1)
+})
+
+// Review fix round 1. Red if the card is left open behind the puzzle
+// screen: coming back remounts it and it steals focus all over again.
+test('entering puzzles closes the card, and leaving does not bring it back', async ({ page }) => {
+  await play(page, SCHOLARS_MATE)
+  await expect(page.getByTestId('game-end-card')).toBeVisible()
+
+  await page.getByTestId('open-puzzles').click()
+  await expect(page.getByTestId('puzzle-screen')).toBeVisible()
+  await page.getByTestId('puzzle-exit').click()
+
+  await expect(page.getByTestId('result')).toContainText(/checkmate/i)
+  await expect(page.getByTestId('game-end-card')).toHaveCount(0)
+})
+
 // Red if focus stops moving into the card, stops being trapped, or Escape
 // stops dismissing it.
 test('focus is trapped in the card, and Escape dismisses it', async ({ page }) => {
@@ -159,6 +194,9 @@ test('Rematch starts a new game with the same setup, ignoring the panel', async 
   await expect(page.getByTestId('ply-count')).toHaveText('0')
   await expect(page.getByTestId('result')).toHaveText('')
   await expect(page.getByTestId('clock-w')).toHaveText(/^(10:00|9:5\d)$/)
+  // …and the panel now says what is actually being played, so the NEXT New
+  // game cannot silently use the stale choice (review fix round 1).
+  await expect(page.getByTestId('time-control')).toHaveValue('rapid-10-5')
 })
 
 // Red if "Review game" stops running the existing review flow.

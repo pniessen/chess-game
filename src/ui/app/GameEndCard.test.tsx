@@ -62,6 +62,9 @@ describe('the game-end card', () => {
 
     const card = screen.getByTestId('game-end-card')
     expect(card).toHaveAttribute('role', 'dialog')
+    // No backdrop, and the board behind stays interactive, so the card must
+    // not claim to be modal (review fix round 1).
+    expect(card).not.toHaveAttribute('aria-modal')
     expect(screen.getByTestId('game-end-headline')).toHaveTextContent('Checkmate — White wins')
     expect(screen.getByTestId('game-end-headline')).toHaveTextContent(
       screen.getByTestId('result').textContent ?? '',
@@ -120,6 +123,26 @@ describe('the game-end card', () => {
     fireEvent.click(screen.getAllByRole('button', { name: 'Replay' })[0]!)
 
     expect(screen.getByTestId('result')).toHaveTextContent('Black resigns')
+    expect(screen.queryByTestId('game-end-card')).not.toBeInTheDocument()
+    expect(loadHistory()).toHaveLength(1)
+  })
+
+  // Review fix round 1. Red if Undo then Redo on a replayed game reads as a
+  // live transition: it raises a card for a game that was loaded, not
+  // played, and one `loadMatch` has already decided never to record.
+  test('never appears after Undo, Redo on a replayed game', () => {
+    const { container } = render(<App />)
+    playMate(container)
+    fireEvent.click(screen.getByTestId('game-end-dismiss'))
+    fireEvent.click(screen.getByTestId('tab-history'))
+    fireEvent.click(screen.getAllByRole('button', { name: 'Replay' })[0]!)
+    expect(screen.queryByTestId('game-end-card')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByTestId('undo'))
+    expect(screen.getByTestId('result')).toBeEmptyDOMElement()
+    fireEvent.click(screen.getByTestId('redo'))
+
+    expect(screen.getByTestId('result')).toHaveTextContent(/checkmate/i)
     expect(screen.queryByTestId('game-end-card')).not.toBeInTheDocument()
     expect(loadHistory()).toHaveLength(1)
   })

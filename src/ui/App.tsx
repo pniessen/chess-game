@@ -156,6 +156,12 @@ function AppInner({
     setHistory: records.setHistory,
   })
 
+  // The result banner text and whether this game can be reviewed: read by
+  // the status header, the Review tab and the game-end card, so they are
+  // computed once and cannot drift apart.
+  const result = describeResult(snapshot.phase, displayedStatus)
+  const canReview = engineAvailable && snapshot.phase.kind === 'finished' && game.moves.length > 0
+
   // Rendered INSTEAD of the game UI, after every hook above, so hook order
   // never changes. The match stays in the controller (paused) meanwhile.
   if (puzzleMode.screen === 'puzzles') {
@@ -176,7 +182,7 @@ function AppInner({
         onResumeAccept={lifecycle.handleResumeAccept}
         onResumeDecline={lifecycle.handleResumeDecline}
         turn={position.turn()}
-        result={describeResult(snapshot.phase, displayedStatus)}
+        result={result}
         engineStatus={engineStatus}
         opening={opening}
         coachState={coachState}
@@ -206,9 +212,9 @@ function AppInner({
             />
             {endCard.open ? (
               <GameEndCard
-                headline={describeResult(snapshot.phase, displayedStatus)}
+                headline={result}
                 opening={finalOpeningName}
-                canReview={engineAvailable && game.moves.length > 0}
+                canReview={canReview}
                 onRematch={lifecycle.handleRematch}
                 onReview={() => {
                   setTab('review')
@@ -280,7 +286,13 @@ function AppInner({
             onTimeControlChange={choices.setTimeControlId}
             onColorChange={choices.setColor}
             onStart={lifecycle.handleNewGame}
-            onPuzzles={puzzleMode.enter}
+            onPuzzles={() => {
+              // The puzzle screen renders INSTEAD of the game UI; leaving a
+              // card open behind it would remount it — and re-steal focus —
+              // on the way back.
+              endCard.dismiss()
+              puzzleMode.enter()
+            }}
           />
           <GameIO game={game} onImport={lifecycle.handleImport} />
           <SettingsPanel settings={settings} onChange={updateSettings} />
@@ -300,7 +312,7 @@ function AppInner({
             explorer={{ book, unavailable: bookFailed, current: opening, onStart: lifecycle.handleStartOpening }}
             review={{
               state: review.state,
-              canReview: engineAvailable && snapshot.phase.kind === 'finished' && game.moves.length > 0,
+              canReview,
               currentText: reviewed ? currentMoveText(reviewed, game.ply) : '',
               onStart: handleReview,
               onCancel: review.cancel,

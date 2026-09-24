@@ -6,7 +6,7 @@ import type { MatchConfig } from '../../match/types'
 import type { OpeningEntry } from '../../openings/book'
 import { clearInProgress, type HistoryEntry, type Level, type Settings } from '../../storage/storage'
 import type { Mode } from '../panels/NewGame'
-import { planResume } from '../resume'
+import { planResume, setupOf } from '../resume'
 import { reviewKeyOf } from '../gameKey'
 import { buildConfig, timeControlFor } from './matchConfig'
 import type { MatchRecords } from './useMatchRecords'
@@ -71,10 +71,27 @@ export function useMatchLifecycle({
    * read back off the controller rather than off the New game panel, whose
    * selects the user may have changed while the game was running. Same
    * seats (so the same colours and the same engine level), same time
-   * control, same speed, same starting position; the board is not flipped.
+   * control, same speed, same starting position; the board is not flipped,
+   * because a rematch keeps the colours you were playing.
+   *
+   * Routed through `planResume`, which is exactly the job to be done here:
+   * turn a setup back into a config to play, DEGRADING an engine seat to a
+   * human one when there is no engine (review fix round 1 — without this a
+   * rematch after the worker died started a match with a seat nothing could
+   * fill, and the board simply waited), and hand back what the New game
+   * panel should say, so the panel cannot drift out of step with the
+   * running match and silently feed stale values to the NEXT new game.
    */
   const handleRematch = () => {
-    startMatch(controller.snapshot().config)
+    const { config } = controller.snapshot()
+    const plan = planResume(setupOf(config), engineAvailable, timeControlFor(timeControlId))
+    // planResume works from a stored setup, which carries no start
+    // position; a rematch of a game that began from one starts there again.
+    startMatch({ ...plan.config, ...(config.startFen !== undefined ? { startFen: config.startFen } : {}) })
+    setMode(plan.mode)
+    if (plan.level !== null) setLevel(plan.level)
+    if (plan.humanColor !== null) setColor(plan.humanColor)
+    if (plan.timeControlId !== null) setTimeControlId(plan.timeControlId)
   }
 
   const handleNewGame = () => {
