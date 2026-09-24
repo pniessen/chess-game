@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { coachOffline } from './helpers'
+import { coachOffline, importGame } from './helpers'
 
 /**
  * Task 9: hovering or focusing a move in the move list shows a small board
@@ -133,9 +133,11 @@ test('the preview never overflows a short viewport, even at the very bottom of a
     '8. a3 a6 9. Rb1 Rb8 10. b4 b5 11. cxb5 axb5 12. bxc5 dxc5 13. Bb2 Bb7 ' +
     '14. Qc2 Qc7 15. Rfd1 Rfd8'
 
-  await page.getByTestId('import-text').fill(moves)
-  await page.getByTestId('import-submit').click()
-  await expect(page.getByTestId('import-error')).toHaveText('')
+  await importGame(page, moves)
+  // Task 4: `importGame` waits for the Game file popover to close, which
+  // only happens on a clean parse — that IS the "no import error" check
+  // this line used to make against the (now popover-bound) error slot.
+  await expect(page.getByTestId('import-error')).toHaveCount(0)
 
   await page.getByTestId('tab-moves').click()
   const lastMove = page.getByTestId('move-29') // ply 29: move 15's white Rfd1

@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { coachOffline, openPuzzles, pinRandom, servePuzzles } from './helpers'
+import { coachOffline, importGame, openPuzzles, pinRandom, servePuzzles } from './helpers'
 
 /**
  * Task 1: pieces slide instead of snapping.
@@ -121,8 +121,7 @@ test('castling flies the king and the rook together', async ({ page }) => {
 test('a promotion slides the pawn and leaves the new piece on the square', async ({ page }) => {
   await twoPlayer(page)
   // A White pawn one step from promoting, with a rook to take on b8.
-  await page.getByTestId('import-text').fill('1r5k/P7/8/8/8/8/8/K7 w - - 0 1')
-  await page.getByTestId('import-submit').click()
+  await importGame(page, '1r5k/P7/8/8/8/8/8/K7 w - - 0 1')
   await expect(page.locator('[data-square="a7"] [data-piece="wP"]')).toBeVisible()
 
   await watchFlights(page)

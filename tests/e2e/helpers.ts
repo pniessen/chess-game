@@ -78,3 +78,31 @@ export async function openPuzzles(page: Page): Promise<void> {
   await page.getByTestId('open-puzzles').click()
   await expect(page.getByTestId('puzzle-screen')).toBeVisible()
 }
+
+/**
+ * Task 4 (above the fold): Export PGN / Share position / Import moved from
+ * a card under the board into the `Game file` popover on the status row,
+ * so a spec that uses any of them has to open it first. `openGameFile`
+ * leaves it open; `withGameFile` opens it, runs the body, and closes it
+ * again with Escape; `importGame` does the whole import, which closes the
+ * popover by itself on success.
+ */
+export async function openGameFile(page: Page): Promise<void> {
+  await page.getByTestId('game-file-toggle').click()
+  await expect(page.getByTestId('game-file')).toBeVisible()
+}
+
+export async function withGameFile(page: Page, body: () => Promise<void>): Promise<void> {
+  await openGameFile(page)
+  await body()
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('game-file')).toHaveCount(0)
+}
+
+/** Paste a PGN or single-line FEN and import it. The popover closes on success. */
+export async function importGame(page: Page, text: string): Promise<void> {
+  await openGameFile(page)
+  await page.getByTestId('import-text').fill(text)
+  await page.getByTestId('import-submit').click()
+  await expect(page.getByTestId('game-file')).toHaveCount(0)
+}

@@ -87,7 +87,7 @@ export function GameIO({
   }
 
   return (
-    <div className="game-io">
+    <div className="game-file-body">
       <button data-testid="export-pgn" onClick={handleExport}>
         Export PGN
       </button>

@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { coachOffline } from './helpers'
+import { coachOffline, openGameFile } from './helpers'
 
 /**
  * Task 14: the shareable position link.
@@ -39,6 +39,7 @@ test.describe('the Share button', () => {
     await move(page, 'e2', 'e4')
     await move(page, 'e7', 'e5')
 
+    await openGameFile(page)
     await page.getByTestId('share-link').click()
     await expect(page.getByTestId('share-status')).toBeVisible()
     const url = await page.evaluate(() => navigator.clipboard.readText())
@@ -55,6 +56,7 @@ test.describe('the Share button', () => {
       })
     })
     await page.goto('/')
+    await openGameFile(page)
     await page.getByTestId('share-link').click()
     const box = page.getByTestId('share-manual')
     await expect(box).toBeVisible()
@@ -165,6 +167,7 @@ test.describe('phone viewport', () => {
       page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
     const before = await pageOverflow()
 
+    await openGameFile(page)
     await page.getByTestId('share-link').click()
     await expect(page.getByTestId('share-manual')).toBeVisible()
     expect(await pageOverflow()).toBeLessThanOrEqual(before)

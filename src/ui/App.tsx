@@ -12,7 +12,7 @@ import { Clocks } from './panels/Clocks'
 import { Controls } from './panels/Controls'
 import { Scoreboard } from './panels/Scoreboard'
 import { NewGame } from './panels/NewGame'
-import { GameIO } from './panels/GameIO'
+import { GameFilePopover } from './panels/GameFilePopover'
 import { SettingsPopover } from './panels/SettingsPopover'
 import { currentMoveText, reviewAnnotations } from './review/reviewView'
 import { PuzzleScreen } from './puzzles/PuzzleScreen'
@@ -93,6 +93,14 @@ function AppInner({
   // Reported up by SettingsPopover's onOpenChange, purely so the keyboard
   // shortcuts hook knows it owns the keyboard — App never reads inside it.
   const [settingsOpen, setSettingsOpen] = useState(false)
+  // Task 4: the same, for the Game file popover. Note that App does NOT
+  // arbitrate which of the two is open: each popover already dismisses
+  // itself on a pointerdown outside it, and the OTHER popover's trigger is
+  // outside it, so pressing one closes the other before its own click
+  // lands. Lifting the open state here to enforce that would have meant
+  // making SettingsPopover controlled — a change to a component this task
+  // is meant to leave alone — to reproduce a guarantee that already holds.
+  const [gameFileOpen, setGameFileOpen] = useState(false)
 
   const { engineHealth, engineAvailable } = useEngineHealth(engine, engineConstructed)
   // "Loading" (the very first handshake) and "restarting" (a later one,
@@ -233,15 +241,18 @@ function AppInner({
   }
 
   // Task 13: the app-wide keyboard shortcuts. `overlayOpen` is the settings
-  // popover (whose own open state this reports up via onOpenChange) — a
-  // true modal for this hook's purposes. The game-end card is passed
+  // or Game file popover (each reports its own open state up via
+  // onOpenChange) — a true modal for this hook's purposes. `isTypingTarget`
+  // would already spare the Game file textarea, but a popover that owns the
+  // keyboard has to report itself, or the letter shortcuts stay live under
+  // it. The game-end card is passed
   // separately as `cardOpen`: it is non-modal by design (see GameEndCard's
   // doc comment), so useShortcuts lets the navigation keys through while it
   // is open and blocks only the rest. The promotion picker and this hook's
   // own shortcuts overlay are passed separately too (see useShortcuts).
   const shortcuts = useShortcuts({
     active: puzzleMode.screen === 'game',
-    overlayOpen: settingsOpen,
+    overlayOpen: settingsOpen || gameFileOpen,
     cardOpen: endCard.open,
     promotionOpen: selection.kind === 'awaiting-promotion',
     hintDisabled,
@@ -291,6 +302,11 @@ function AppInner({
         onDismissNotice={() => coach.dismissNotice()}
         actions={
           <>
+            <GameFilePopover
+              game={game}
+              onImport={lifecycle.handleImport}
+              onOpenChange={setGameFileOpen}
+            />
             <button
               type="button"
               className="shortcuts-trigger"
@@ -398,7 +414,6 @@ function AppInner({
               pieceSet={settings.pieceSetId}
             />
           ) : null}
-          <GameIO game={game} onImport={lifecycle.handleImport} />
         </div>
 
         <div className="right-column">

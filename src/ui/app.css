@@ -64,6 +64,7 @@
   --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%23536074' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   /* Masked to `currentColor` where it is used, so it needs no dark variant. */
   --icon-sliders: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.6' stroke-linecap='round'%3E%3Cpath d='M2 4.5h4.5M11.5 4.5H14M2 11.5h2.5M9.5 11.5H14'/%3E%3Ccircle cx='9' cy='4.5' r='2'/%3E%3Ccircle cx='7' cy='11.5' r='2'/%3E%3C/svg%3E");
+  --icon-file: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M9 1.75H4.25A1.25 1.25 0 0 0 3 3v10a1.25 1.25 0 0 0 1.25 1.25h7.5A1.25 1.25 0 0 0 13 13V5.75Z'/%3E%3Cpath d='M9 1.75V5.75H13'/%3E%3Cpath d='M5.75 9h4.5M5.75 11.25h3'/%3E%3C/svg%3E");
 
   --radius-sm: 8px;
   --radius: 12px;
@@ -392,8 +393,7 @@ body {
 .scoreboard,
 .tabs,
 .controls,
-.new-game,
-.game-io {
+.new-game {
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius);
@@ -934,24 +934,27 @@ body {
 }
 .new-game-actions button { flex: 1 1 0; padding-block: 9px; }
 
-.game-io {
+/* Task 4: GameIO's own wrapper, now the body of the Game file popover
+   rather than a card of its own — so no surface, border or shadow here;
+   `.game-file-popover` supplies all of that. */
+.game-file-body {
   display: flex;
   flex-direction: column;
   gap: 8px;
   width: 100%;
-  max-width: 640px;
-  padding: 14px;
 }
-.game-io > button { align-self: flex-start; }
+.game-file-body > button { align-self: flex-start; }
 
-.game-io .import {
+.game-file-body .import {
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
-.game-io .import > button { align-self: flex-start; }
+.game-file-body .import > button { align-self: flex-start; }
 
-.game-io textarea {
+.game-file-body textarea {
+  width: 100%;
+  box-sizing: border-box;
   min-height: 70px;
 }
 
@@ -1471,6 +1474,68 @@ body {
 }
 
 /* ------------------------------------------------------------------
+   Game file popover (Task 4, above the fold)
+
+   Export PGN / Share position / Import, lifted out of the board column.
+   Same shell and same tier as settings (z-index 30) — see
+   `.settings-popover` above for the full stacking order — and, like it,
+   NOT a modal: no backdrop, no `aria-modal`, the game behind stays live.
+   ------------------------------------------------------------------ */
+.game-file-anchor {
+  position: relative;
+  margin-left: auto;
+}
+/* `.settings-anchor` carries the same `margin-left: auto`; in a flex row
+   only the first of them takes up the slack, so this one pushes the whole
+   trio right and settings then sits flush against its neighbours. */
+.status-row .game-file-anchor ~ .settings-anchor { margin-left: 0; }
+
+.app .game-file-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  background: var(--surface);
+}
+.game-file-icon {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  background: currentColor;
+  -webkit-mask: var(--icon-file) center / contain no-repeat;
+  mask: var(--icon-file) center / contain no-repeat;
+}
+
+.game-file-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 30;
+  box-sizing: border-box;
+  width: 320px;
+  max-width: calc(100vw - 24px);
+  max-height: min(70vh, 560px);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  text-align: left;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card), 0 18px 40px -16px rgba(23, 32, 48, 0.35);
+  animation: settings-pop-in 140ms ease-out;
+}
+.game-file-popover:focus { outline: none; }
+
+.game-file-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+/* ------------------------------------------------------------------
    Task 14: sharing the current position
    ------------------------------------------------------------------ */
 .share-game {
@@ -1523,7 +1588,18 @@ body {
     grid-row: 2;
     justify-content: flex-start;
     margin-bottom: 12px;
+    /* Task 4: the containing block for the Game file popover here — see
+       below. Settings does not need it: it is the last item on the row and
+       so already flush with the right edge. */
+    position: relative;
   }
+  /* Task 4: on a phone the row wraps and the Game file trigger is nowhere
+     near the right edge, so anchoring a 320px popover to the trigger's own
+     right edge hangs it ~190px off the left of the screen. Anchoring to
+     the status row instead — which always spans the content width — puts
+     it under the header and inside the viewport whatever the row does. */
+  .game-file-anchor { position: static; }
+
   .opening { max-width: 100%; }
 
   .layout {
@@ -1547,8 +1623,6 @@ body {
      `.layout` flow. No override needed here now: default order (0) on
      both .right-column children preserves DOM order. */
   .right-column { order: 4; grid-area: auto; }
-  .game-io { order: 6; }
-  .game-io { max-width: none; }
 
   .clocks { flex-direction: row; }
   .clocks .clock { flex: 1 1 0; min-width: 0; padding: 10px 12px; }
