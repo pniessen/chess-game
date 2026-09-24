@@ -398,6 +398,15 @@ function AppInner({
               pieceSet={settings.pieceSetId}
             />
           ) : null}
+          <GameIO game={game} onImport={lifecycle.handleImport} />
+        </div>
+
+        <div className="right-column">
+          {/* Task 3: moved out of .board-column, below a 610px board, into
+              the right column where it fits above the tabs. Level and time
+              control stay here too — see SettingsPopover's doc comment for
+              why they belong next to the button that starts the next game,
+              not in a settings popover. */}
           <NewGame
             mode={choices.mode}
             level={choices.level}
@@ -411,10 +420,6 @@ function AppInner({
             onStart={lifecycle.handleNewGame}
             onPuzzles={openPuzzles}
           />
-          <GameIO game={game} onImport={lifecycle.handleImport} />
-        </div>
-
-        <div className="right-column">
           <RightTabs
             active={tab}
             onChange={setTab}

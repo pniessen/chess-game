@@ -149,3 +149,69 @@ test('the hint text filling in from empty does not move the board or resize the 
   expect(await boardDocumentTop()).toBe(topBefore)
   expect(await controlsHeight()).toBe(heightBefore)
 })
+
+/**
+ * Task 3: NewGame moved out of .board-column (below a 610px board, entirely
+ * below the fold) into .right-column, above <RightTabs>, laid out as a
+ * single-column stack of labelled selects for the 280px column (a 2x2 grid
+ * was measured and rejected — see task-3-report.md — "Engine vs engine" and
+ * "Classical 30+0" visibly clip in a ~118px-wide grid cell even though a
+ * <select>'s own scrollWidth never reports it, which is why this file
+ * checks both the DOM metric the brief asks for AND relies on the report's
+ * screenshots for the visual signal that metric can't catch).
+ *
+ * Red before this task: with NewGame still under the board, `mode`,
+ * `level`, `color`, `time-control`, `new-game` and `open-puzzles` all sit
+ * well past y=800 at 1440x800 (the same fold `.board-column`'s Controls
+ * used to be stuck behind — see the Task 2 test above) — verified live
+ * before this task's change.
+ */
+test('at 1440x800, every New game control is inside the viewport and no select is clipped', async ({
+  page,
+}) => {
+  await coachOffline(page)
+  await page.setViewportSize({ width: 1440, height: 800 })
+  await page.goto('/')
+
+  for (const id of ['mode', 'level', 'color', 'time-control', 'new-game', 'open-puzzles']) {
+    const box = await page.getByTestId(id).boundingBox()
+    if (!box) throw new Error(`[data-testid="${id}"] has no bounding box`)
+    expect(box.y, `${id}.y`).toBeGreaterThanOrEqual(0)
+    expect(box.x, `${id}.x`).toBeGreaterThanOrEqual(0)
+    expect(box.y + box.height, `${id} bottom edge`).toBeLessThanOrEqual(800)
+    expect(box.x + box.width, `${id} right edge`).toBeLessThanOrEqual(1440)
+  }
+
+  for (const id of ['mode', 'level', 'color', 'time-control']) {
+    const overflow = await page.getByTestId(id).evaluate((el: HTMLSelectElement) => el.scrollWidth > el.clientWidth)
+    expect(overflow, `${id} clipped (scrollWidth > clientWidth)`).toBe(false)
+  }
+})
+
+// Red before this task: NewGame rendered inside .board-column, after the
+// board and before .game-io, so it came AFTER the tabs in document order
+// too (.right-column, with only RightTabs in it, preceded .board-column's
+// trailing children in the DOM). Asserting NewGame's card precedes .tabs
+// pins the "above <RightTabs>" placement the brief calls for, independent
+// of the viewport-rect check above (which would pass even if the two
+// swapped position, since both are still on-screen either way).
+test('the New game card is above the tabs in the right column', async ({ page }) => {
+  await coachOffline(page)
+  await page.setViewportSize({ width: 1440, height: 800 })
+  await page.goto('/')
+  // page.goto only waits for `load`, not for React's first render — the
+  // evaluate below reads the DOM directly (no locator auto-wait), so it
+  // needs its own wait for the app to have mounted.
+  await page.getByTestId('mode').waitFor()
+
+  const order = await page.evaluate(() => {
+    const rightColumn = document.querySelector('.right-column')
+    if (!rightColumn) return null
+    const newGame = rightColumn.querySelector('.new-game')
+    const tabs = rightColumn.querySelector('.tabs')
+    if (!newGame || !tabs) return null
+    // DOCUMENT_POSITION_FOLLOWING (4) means `tabs` comes after `newGame`.
+    return Boolean(newGame.compareDocumentPosition(tabs) & Node.DOCUMENT_POSITION_FOLLOWING)
+  })
+  expect(order).toBe(true)
+})

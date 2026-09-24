@@ -894,27 +894,45 @@ body {
   padding-top: 0;
 }
 
+/* Task 3: moved from under the board (a 640px-wide row of shrink-wrapped
+   labels) into the 280px .right-column, above .tabs. A 2x2 grid of selects
+   was tried first and measured against a single-column stack, both live in
+   a real browser: at 280px (minus this card's own padding) a 2-up grid
+   gives each select ~118px of content width. A closed <select>'s
+   scrollWidth never exceeds its clientWidth in Chromium regardless of
+   content (the selected option isn't laid out as measurable overflow), so
+   that metric alone reads as "fine" for both layouts — but visually, in
+   the grid, "Engine vs engine" (mode) renders as "Engine vs engi" and
+   "Strong club (~1800)" (level) as "Strong club (~" with no ellipsis, cut
+   mid-word. The single-column stack below gives every select the full
+   ~248px content width, which fits every option in every select (those
+   two longest included) with room to spare — see task-3-report.md for the
+   full measurements and screenshots. */
 .new-game {
   display: flex;
-  gap: 12px;
-  flex-wrap: wrap;
-  align-items: flex-end;
+  flex-direction: column;
+  gap: 10px;
   width: 100%;
-  max-width: 640px;
   padding: 14px;
 }
 
 .new-game label {
   display: flex;
   flex-direction: column;
-  flex: 1 1 110px;
+  width: 100%;
   font-size: 0.8em;
   font-weight: 600;
   color: var(--muted);
   gap: 4px;
 }
-.new-game label select { font-size: 1.15em; }
-.new-game button[data-testid='new-game'] { flex: 1 1 120px; padding-block: 9px; }
+.new-game label select { width: 100%; }
+
+.new-game-actions {
+  display: flex;
+  gap: 8px;
+  padding-top: 2px;
+}
+.new-game-actions button { flex: 1 1 0; padding-block: 9px; }
 
 .game-io {
   display: flex;
@@ -1521,10 +1539,16 @@ body {
      same visual slot (between the left column and the right column's
      tabs) this used to reach with an explicit `order: 3`. */
   .left-column { order: 2; grid-area: auto; }
+  /* Task 3: .new-game now nests inside .right-column (order 4) instead of
+     being a flattened .board-column child ordered on its own — it renders
+     before .tabs there in DOM order already (see App.tsx), which is the
+     same visual slot (above the tabs) this used to reach with an explicit
+     `order: 5` when it was a sibling of .board-row in the flattened
+     `.layout` flow. No override needed here now: default order (0) on
+     both .right-column children preserves DOM order. */
   .right-column { order: 4; grid-area: auto; }
-  .new-game { order: 5; }
   .game-io { order: 6; }
-  .new-game, .game-io { max-width: none; }
+  .game-io { max-width: none; }
 
   .clocks { flex-direction: row; }
   .clocks .clock { flex: 1 1 0; min-width: 0; padding: 10px 12px; }
