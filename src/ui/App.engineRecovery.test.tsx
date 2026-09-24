@@ -70,7 +70,10 @@ describe('engine recovery in the app', () => {
     // StrictMode's mount/cleanup/mount leaves exactly one live worker.
     expect(alive()).toHaveLength(1)
     const first = alive()[0]!
-    act(() => {
+    // Task 5: this settles useEngineLoading's initial promise (a
+    // microtask), which — unlike everything else in this test up to here —
+    // a plain sync act() does not wait out.
+    await act(async () => {
       first.emit('readyok')
     })
 
@@ -126,5 +129,39 @@ describe('engine recovery in the app', () => {
     expect(alive()).toHaveLength(0)
     expect(screen.getByText('The chess engine is unavailable — playing in two-player mode only.')).toBeTruthy()
     expect(screen.queryByTestId('engine-status')).toBeNull()
+  })
+
+  // Task 5: the very first handshake, before the app has ever seen a crash.
+  test('before the first handshake, the status area and the Hint button show loading — and it clears', async () => {
+    render(<App />)
+    expect(alive()).toHaveLength(1)
+
+    expect(screen.getByTestId('engine-status')).toHaveTextContent('Loading engine…')
+    const hint = screen.getByTestId('hint')
+    expect(hint).toBeDisabled()
+    expect(hint.className).toContain('hint-loading')
+
+    await act(async () => {
+      alive()[0]!.emit('readyok')
+    })
+
+    expect(screen.queryByTestId('engine-status')).toBeNull()
+    expect(hint.className).not.toContain('hint-loading')
+    // Two-player, White to move, live: nothing else disables it once ready.
+    expect(hint).toBeEnabled()
+  })
+
+  // Task 5: a worker that dies before its first handshake ever finishes —
+  // "loading" must hand off to "restarting" (via useEngineHealth), not get
+  // stuck claiming "loading" forever or show both at once.
+  test('a worker dying mid-handshake shows "Engine restarting…", not a stuck "Loading engine…"', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    render(<App />)
+    expect(screen.getByTestId('engine-status')).toHaveTextContent('Loading engine…')
+
+    await act(async () => {
+      alive()[0]!.emitError({ message: 'killed before ready' })
+    })
+    expect(screen.getByTestId('engine-status')).toHaveTextContent('Engine restarting…')
   })
 })

@@ -248,12 +248,34 @@ body {
 }
 
 .engine-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font-size: 0.8em;
   padding: 3px 10px;
   border-radius: 999px;
   border: 1px solid var(--color-warning-border);
   background: var(--color-warning-bg);
   color: var(--color-fg);
+}
+/* Task 5: a small knight spinner — the same glyph, spinning, used both here
+   (the status area, while Stockfish is loading or a replacement worker is
+   handshaking) and on the Hint button below. Pure CSS generated content, so
+   it never becomes part of either element's text (data-testid="hint"'s
+   label, and this row's own text, both stay exactly what they say). */
+.engine-spinner {
+  display: inline-block;
+  width: 1em;
+  line-height: 1;
+}
+.engine-spinner::before,
+.hint-row button[data-testid='hint'].hint-loading::before {
+  content: '♞';
+  display: inline-block;
+  animation: engine-spin 1s linear infinite;
+}
+@keyframes engine-spin {
+  to { transform: rotate(360deg); }
 }
 
 .engine-warning,
@@ -704,6 +726,13 @@ body {
   align-items: flex-start;
   padding-top: 10px;
   border-top: 1px solid var(--line);
+}
+/* A loading Hint button reads as "busy", not "broken": still visibly a
+   button (icon + label), rather than a plain greyed-out disabled state. */
+.hint-row button[data-testid='hint'].hint-loading {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .hint-text {

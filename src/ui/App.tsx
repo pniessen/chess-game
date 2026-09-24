@@ -26,6 +26,7 @@ import { useSettings } from './app/useSettings'
 import { useMoveSounds, useSoundPlayer } from './app/useSound'
 import { useCoachClient } from './app/useCoachClient'
 import { useEngineHealth } from './app/useEngineHealth'
+import { useEngineLoading } from './app/useEngineLoading'
 import { useEngineAnalysis } from './app/useEngineAnalysis'
 import { useOpenings } from './app/useOpenings'
 import { useMatchRecords } from './app/useMatchRecords'
@@ -82,6 +83,24 @@ function AppInner({
   const [tab, setTab] = useState<RightTab>('moves')
 
   const { engineHealth, engineAvailable } = useEngineHealth(engine, engineConstructed)
+  // "Loading" (the very first handshake) and "restarting" (a later one,
+  // after a crash) never overlap — see useEngineLoading — so this is a
+  // simple, mutually-exclusive union for the status area and the Hint
+  // button to key off of.
+  const engineLoading = useEngineLoading(engine)
+  // Once the restart budget is spent, the existing "engine unavailable"
+  // banner already owns this message — loading/restarting must not show
+  // alongside (or instead of) it, however the settle of the loading
+  // promise above happens to be timed relative to the health update that
+  // declared the engine dead.
+  const engineStatus: 'ok' | 'loading' | 'restarting' = !engineAvailable
+    ? 'ok'
+    : engineLoading
+      ? 'loading'
+      : engineHealth.kind === 'restarting'
+        ? 'restarting'
+        : 'ok'
+  const engineWarmingUp = engineStatus !== 'ok'
 
   // Stable, so the clock display's polling effect isn't torn down and
   // rebuilt on every App render.
@@ -150,7 +169,7 @@ function AppInner({
         onResumeDecline={lifecycle.handleResumeDecline}
         turn={position.turn()}
         result={describeResult(snapshot.phase, displayedStatus)}
-        engineRestarting={engineHealth.kind === 'restarting'}
+        engineStatus={engineStatus}
         opening={opening}
         coachState={coachState}
         onDismissNotice={() => coach.dismissNotice()}
@@ -204,7 +223,9 @@ function AppInner({
                 snapshot.phase.kind !== 'awaiting-human' ||
                 !game.isViewingLive() ||
                 hints.pending ||
-                hints.exhausted,
+                hints.exhausted ||
+                engineWarmingUp,
+              loading: engineWarmingUp,
             }}
             onUndo={input.handleUndo}
             onRedo={input.handleRedo}

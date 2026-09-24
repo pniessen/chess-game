@@ -14,7 +14,7 @@ export function StatusHeader({
   onResumeDecline,
   turn,
   result,
-  engineRestarting,
+  engineStatus,
   opening,
   coachState,
   onDismissNotice,
@@ -27,7 +27,8 @@ export function StatusHeader({
   turn: Color
   /** The result banner text (describeResult). */
   result: string
-  engineRestarting: boolean
+  /** 'loading': the first handshake hasn't settled. 'restarting': a later one, after a crash. */
+  engineStatus: 'ok' | 'loading' | 'restarting'
   /** The opening of the displayed position. */
   opening: OpeningEntry | null
   coachState: CoachSnapshot
@@ -58,9 +59,10 @@ export function StatusHeader({
         <p className="result" data-testid="result">
           {result}
         </p>
-        {engineRestarting ? (
+        {engineStatus !== 'ok' ? (
           <p className="engine-status" role="status" data-testid="engine-status">
-            Engine restarting…
+            <span className="engine-spinner" aria-hidden="true" />
+            {engineStatus === 'loading' ? 'Loading engine…' : 'Engine restarting…'}
           </p>
         ) : null}
         <p className="opening" data-testid="opening" title={opening ? `${opening.eco} ${opening.name}` : undefined}>

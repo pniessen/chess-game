@@ -24,7 +24,7 @@ export function Controls({
   canRedo: boolean
   canResign: boolean
   speed: number
-  hint: { label: string; text: string; disabled: boolean }
+  hint: { label: string; text: string; disabled: boolean; loading?: boolean }
   onUndo: () => void
   onRedo: () => void
   onFlip: () => void
@@ -85,7 +85,12 @@ export function Controls({
         </label>
       </div>
       <div className="controls-row hint-row">
-        <button data-testid="hint" onClick={onHint} disabled={hint.disabled}>
+        <button
+          data-testid="hint"
+          className={hint.loading ? 'hint-loading' : undefined}
+          onClick={onHint}
+          disabled={hint.disabled}
+        >
           {hint.label}
         </button>
         <span className="hint-text" data-testid="hint-text" aria-live="polite">
