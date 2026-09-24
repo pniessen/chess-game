@@ -53,8 +53,23 @@ export function SettingsPopover({
 }) {
   // Task 4: the trap, the focus dance and the outside-click dismissal now
   // live in `usePopover`, lifted out of this file verbatim so the Game file
-  // popover could reuse them. `documentEscape` stays off here, which is the
-  // behaviour this component shipped with.
+  // popover could reuse them.
+  //
+  // `documentEscape` stays OFF here, and the reason is concrete, not just
+  // "that is how Task 12 shipped": NOTHING below is conditionally
+  // rendered. Every control in this popover — every radio, the sound
+  // checkbox, the volume slider, the eval switch, Done — is mounted for
+  // as long as the popover is, whatever the game behind it does. So the
+  // focusable element under the user's focus can never be torn out from
+  // under them, focus can never fall to `<body>`, and the popover's own
+  // `onKeyDown` always sees Escape. (Verified in round 1 review: a full
+  // engine-vs-engine game played to checkmate with this open never once
+  // moved focus out, not even when the game-end card appeared.)
+  //
+  // If you ever add content here that renders conditionally — a "saved"
+  // confirmation, a reset-confirm step, anything that can appear and
+  // vanish — that reasoning dies with it. Pass `documentEscape: true`
+  // when you do; `GameFilePopover` has the long version of why.
   const { open, toggle, close, triggerRef, popRef, handleKeyDown } = usePopover({ onOpenChange })
 
   const volumePercent = Math.round(settings.volume * 100)

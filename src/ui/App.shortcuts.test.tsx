@@ -1,12 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
-
-/** Task 4: import lives in the `Game file` header popover now — open it first. */
-function importGame(text: string) {
-  fireEvent.click(screen.getByTestId('game-file-toggle'))
-  fireEvent.change(screen.getByTestId('import-text'), { target: { value: text } })
-  fireEvent.click(screen.getByTestId('import-submit'))
-}
+import { importGame } from './testHelpers'
 
 /**
  * Task 13: the app-wide keyboard shortcuts, through the whole App. A

@@ -2,13 +2,7 @@ import { StrictMode } from 'react'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { loadHistory, loadScore } from '../../storage/storage'
-
-/** Task 4: import lives in the `Game file` header popover now — open it first. */
-function importGame(text: string) {
-  fireEvent.click(screen.getByTestId('game-file-toggle'))
-  fireEvent.change(screen.getByTestId('import-text'), { target: { value: text } })
-  fireEvent.click(screen.getByTestId('import-submit'))
-}
+import { importGame } from '../testHelpers'
 
 /**
  * Task 6: the game-end card, through the whole App.

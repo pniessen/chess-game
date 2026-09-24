@@ -160,6 +160,42 @@ describe('keyboard', () => {
     expect(trigger).toHaveFocus()
   })
 
+  /**
+   * Fix round 1, the root fix behind that one. Escape was only half the
+   * problem: the Tab trap is a React `onKeyDown` on the popover element,
+   * so from `<body>` it is inert and Tab walks the page behind — as far
+   * as the OTHER popover's trigger, which would leave two live focus
+   * traps open at once. The guard in `usePopover` never lets focus rest
+   * on `<body>` in the first place.
+   *
+   * Remove that `focusout` effect and this is the test that goes red.
+   */
+  test('focus that drifts to <body> is pulled straight back into the popover', async () => {
+    const { trigger } = renderPopover()
+    press(trigger)
+    const pop = screen.getByTestId('game-file')
+
+    pop.blur()
+    expect(document.body).toHaveFocus()
+
+    // The guard runs in a microtask, once the browser has settled.
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(pop).toHaveFocus()
+    expect(screen.getByTestId('game-file')).toBeInTheDocument()
+  })
+
+  test('the guard does not fight a popover on its way out', async () => {
+    const { trigger } = renderPopover()
+    press(trigger)
+    fireEvent.keyDown(screen.getByTestId('game-file'), { key: 'Escape' })
+
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(screen.queryByTestId('game-file')).toBeNull()
+    // Not dragged back into a popover that no longer exists, and not left
+    // stranded on <body> either.
+    expect(trigger).toHaveFocus()
+  })
+
   test('the document-level listener is torn down with the popover', () => {
     const remove = vi.spyOn(document, 'removeEventListener')
     const { trigger } = renderPopover()

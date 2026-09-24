@@ -1,13 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, test } from 'vitest'
 import { App } from './App'
-
-/** Task 4: import lives in the `Game file` header popover now — open it first. */
-function importGame(text: string) {
-  fireEvent.click(screen.getByTestId('game-file-toggle'))
-  fireEvent.change(screen.getByTestId('import-text'), { target: { value: text } })
-  fireEvent.click(screen.getByTestId('import-submit'))
-}
+import { importGame } from './testHelpers'
 
 // Deviation from the brief: the brief used a bare `el.click()` here. As
 // App.test.tsx already found, under this repo's React 19 + jsdom, a raw

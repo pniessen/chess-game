@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { App } from './App'
 import { exportPgn, gameFromSan } from '../game-core/io'
 import { loadHistory } from '../storage/storage'
+import { importGame } from './testHelpers'
 
 // Deviation from the brief: the brief used a bare `el.click()` here. Under
 // this repo's actual React 19 + jsdom, a raw click's state update is not
@@ -13,18 +14,6 @@ import { loadHistory } from '../storage/storage'
 function clickSquare(container: HTMLElement, square: string) {
   const el = container.querySelector(`[data-square="${square}"]`) as HTMLElement
   fireEvent.click(el)
-}
-
-/**
- * Task 4: Export/Share/Import moved into the `Game file` header popover,
- * so a test that imports has to open it first. A SUCCESSFUL import closes
- * the popover again (and returns focus to the trigger); a failed one
- * leaves it open with `import-error` filled in.
- */
-function importGame(text: string) {
-  fireEvent.click(screen.getByTestId('game-file-toggle'))
-  fireEvent.change(screen.getByTestId('import-text'), { target: { value: text } })
-  fireEvent.click(screen.getByTestId('import-submit'))
 }
 
 describe('App (two-player)', () => {

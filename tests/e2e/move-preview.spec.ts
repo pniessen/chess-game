@@ -134,10 +134,6 @@ test('the preview never overflows a short viewport, even at the very bottom of a
     '14. Qc2 Qc7 15. Rfd1 Rfd8'
 
   await importGame(page, moves)
-  // Task 4: `importGame` waits for the Game file popover to close, which
-  // only happens on a clean parse — that IS the "no import error" check
-  // this line used to make against the (now popover-bound) error slot.
-  await expect(page.getByTestId('import-error')).toHaveCount(0)
 
   await page.getByTestId('tab-moves').click()
   const lastMove = page.getByTestId('move-29') // ply 29: move 15's white Rfd1

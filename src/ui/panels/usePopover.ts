@@ -55,14 +55,26 @@ export function usePopover({
    * Also listen for Escape at `document` level while open, so it still
    * closes when focus has drifted out of the popover without closing it
    * (see `GameFilePopover`'s doc comment for the case that reaches this).
-   * Off by default, so `SettingsPopover` keeps exactly the behaviour it
-   * shipped with in Task 12.
+   *
+   * Belt and braces since the focus guard above: with focus never allowed
+   * to rest on `<body>`, the React `onKeyDown` should always see the
+   * keystroke. It stays on for the popover whose contents unmount under
+   * it, because that is the one with something to be wrong about.
+   *
+   * Off by default. `SettingsPopover` leaves it off and is safe doing so
+   * for a concrete reason, not merely for continuity — see its own note.
    */
   documentEscape?: boolean
 } = {}): Popover {
   const [open, setOpenState] = useState(false)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const popRef = useRef<HTMLDivElement>(null)
+  // Set the instant `close` is called, cleared when the popover next
+  // opens. The focus guard below reads it so that it never fights a
+  // popover on its way out: `close` may move focus to the trigger, or
+  // deliberately leave it where it is, and either way React has not
+  // unmounted the popover yet.
+  const closingRef = useRef(false)
 
   const setOpen = useCallback(
     (next: boolean) => {
@@ -74,6 +86,7 @@ export function usePopover({
 
   const close = useCallback(
     (restoreFocus: boolean) => {
+      closingRef.current = true
       setOpen(false)
       if (restoreFocus) triggerRef.current?.focus({ preventScroll: true })
     },
@@ -85,7 +98,65 @@ export function usePopover({
   // Focus the popover itself (not its first control) so a screen reader
   // announces its label before reading the contents.
   useEffect(() => {
-    if (open) popRef.current?.focus({ preventScroll: true })
+    if (!open) return
+    closingRef.current = false
+    popRef.current?.focus({ preventScroll: true })
+  }, [open])
+
+  /**
+   * Fix round 1: keep focus from ever resting on `<body>` while the
+   * popover is open.
+   *
+   * The Tab trap is a React `onKeyDown` on the popover element, so it is
+   * completely inert the moment focus is not inside the popover — and
+   * focus CAN leave without the popover closing, because the contents
+   * unmount underneath it (GameIO's `share-manual` box, torn down by an
+   * engine move). In that state Tab walks the page behind and can reach
+   * the OTHER popover's trigger, which opens a second popover with a
+   * second live focus trap. Chromium and Firefox both happen to resume
+   * tab navigation adjacent to the removed node and land back inside, but
+   * that is their focus-navigation policy, not a guarantee this code
+   * makes, and it is not something to rely on.
+   *
+   * Pulling focus back to the popover whenever it lands on `<body>` shuts
+   * that down at the root: there is no inert state left for Tab (or
+   * Escape) to slip through. `documentEscape` is then belt and braces
+   * rather than the only line of defence, and it stays.
+   *
+   * `focusout` bubbles, so one listener on the popover covers everything
+   * inside it. Two conditions have to hold before it acts, and both
+   * matter:
+   *
+   *  - `relatedTarget === null`. On an ordinary move — a Tab, a click on
+   *    the next control — `relatedTarget` is the element about to receive
+   *    focus, and there is nothing to fix. Only a `focusout` going
+   *    NOWHERE is the case this guard is for. Checking
+   *    `document.activeElement` instead is not enough: the browser
+   *    dispatches `focusout` before `focusin`, and it runs a microtask
+   *    checkpoint between the two, so a microtask queued here sees
+   *    `document.activeElement === document.body` in the middle of a
+   *    perfectly normal Tab and would drag focus straight back.
+   *  - and then, in that microtask, `<body>` really does still hold
+   *    focus — `blur()` and a removed node both land there, but a
+   *    `relatedTarget`-less `focusout` can still be followed by the
+   *    browser placing focus itself.
+   */
+  useEffect(() => {
+    if (!open) return
+    const pop = popRef.current
+    if (!pop) return
+    const onFocusOut = (e: FocusEvent) => {
+      // Focus is on its way to a real element: let it go.
+      if (e.relatedTarget !== null) return
+      queueMicrotask(() => {
+        // Never yank focus back into a popover that is closing or gone:
+        // `close` has its own opinion about where focus belongs.
+        if (closingRef.current || !pop.isConnected) return
+        if (document.activeElement === document.body) pop.focus({ preventScroll: true })
+      })
+    }
+    pop.addEventListener('focusout', onFocusOut)
+    return () => pop.removeEventListener('focusout', onFocusOut)
   }, [open])
 
   // A click anywhere else dismisses it, WITHOUT swallowing that click: the

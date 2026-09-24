@@ -11,10 +11,6 @@ test('dragging a pawn onto a promotion square raises the picker', async ({ page 
   // A White pawn one step from promotion, kings placed so the position is
   // legal. Drag mechanics, not chess logic, are under test here.
   await importGame(page, '8/P7/8/8/8/8/8/K6k w - - 0 1')
-  // Task 4: `importGame` waits for the Game file popover to close, which
-  // only happens on a clean parse — that IS the "no import error" check
-  // this line used to make against the (now popover-bound) error slot.
-  await expect(page.getByTestId('import-error')).toHaveCount(0)
   await expect(page.locator('[data-square="a7"] [data-piece="wP"]')).toBeVisible()
 
   const from = page.locator('[data-square="a7"]')
