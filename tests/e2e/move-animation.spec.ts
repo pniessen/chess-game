@@ -160,6 +160,88 @@ test('browsing the move list cuts, it never animates', async ({ page }) => {
   await expectSettled(page)
 })
 
+// Task 1 review finding: App.tsx's onResume/onStep both call input.cut()
+// before telling the controller to resume/step, so a display browsed to an
+// earlier position snaps straight back to the live one instead of being
+// treated as a "move" to animate. Neither line had a test at any level —
+// deleting either one stayed green.
+test('resuming from a browsed position cuts — it never animates a flyer', async ({ page }) => {
+  await pinRandom(page)
+  await coachOffline(page)
+  await page.goto('/')
+  await page.getByTestId('mode').selectOption('zero-player')
+  await page.getByTestId('level').selectOption('1')
+  await page.getByTestId('new-game').click()
+  await page.getByTestId('speed').fill('0')
+
+  const plies = page.getByTestId('ply-count')
+  await expect(plies).toHaveText(/^([4-9]|\d\d+)$/, { timeout: 45_000 })
+
+  await page.getByTestId('pause').click()
+  await expect(page.getByTestId('pause')).toHaveText('Resume')
+  const atPause = Number(await plies.textContent())
+
+  // Slow the engine right down before resuming: what is under test is the
+  // RESUME itself, not whatever real move comes after it, so that move
+  // must not be able to land (and legitimately animate) before this test
+  // gets to look.
+  await page.getByTestId('speed').fill('2000')
+
+  // Browse to the second-to-last move — one ply behind live, so display
+  // and live genuinely diverge before Resume.
+  const browsed = page.getByTestId(`move-${atPause - 1}`)
+  await browsed.click()
+  await expect(browsed).toHaveClass(/current/)
+
+  await watchFlights(page)
+  await page.getByTestId('pause').click() // Resume
+  await expect(page.getByTestId('pause')).toHaveText('Pause')
+
+  expect((await readFlights(page)).flyers).toEqual([])
+  await expectSettled(page)
+})
+
+// The same finding, for Step: it shares the same input.cut() call and is
+// just as uncovered on its own.
+test('stepping from a browsed position cuts — it never animates a flyer', async ({ page }) => {
+  await pinRandom(page)
+  await coachOffline(page)
+  await page.goto('/')
+  await page.getByTestId('mode').selectOption('zero-player')
+  await page.getByTestId('level').selectOption('1')
+  await page.getByTestId('new-game').click()
+  await page.getByTestId('speed').fill('0')
+
+  const plies = page.getByTestId('ply-count')
+  await expect(plies).toHaveText(/^([4-9]|\d\d+)$/, { timeout: 45_000 })
+
+  await page.getByTestId('pause').click()
+  await expect(page.getByTestId('pause')).toHaveText('Resume')
+  const atPause = Number(await plies.textContent())
+
+  await page.getByTestId('speed').fill('2000')
+
+  const browsed = page.getByTestId(`move-${atPause - 1}`)
+  await browsed.click()
+  await expect(browsed).toHaveClass(/current/)
+
+  await watchFlights(page)
+  await page.getByTestId('step').click()
+  // step() also cuts synchronously (viewLive(), inside the same call that
+  // starts the engine "thinking") — the Pause/Resume button flipping back
+  // to 'Pause' is that same synchronous transition, and happens well before
+  // the slowed-down engine's move can land. Checking now, rather than after
+  // waiting for the ply count to advance, is what keeps this assertion
+  // about the cut and not about whatever real move follows it.
+  await expect(page.getByTestId('pause')).toHaveText('Pause')
+
+  expect((await readFlights(page)).flyers).toEqual([])
+
+  // The single stepped move still lands (and still animates) once its
+  // delay elapses — Step itself is not broken by any of the above.
+  await expect(plies).toHaveText(String(atPause + 1), { timeout: 20_000 })
+})
+
 // Red if undo or redo starts animating.
 test('undo and redo cut', async ({ page }) => {
   await twoPlayer(page)

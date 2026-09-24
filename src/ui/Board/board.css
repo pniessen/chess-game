@@ -32,6 +32,11 @@
      which is what clears the state once the piece has landed. */
   --flight-ms: 200ms;
   --flight-ease: cubic-bezier(0.22, 0.68, 0.32, 1);
+  /* How long an illegal drop's ghost takes to slide back to its origin
+     before disappearing. Kept in step with SNAP_BACK_MS in useDragMove.ts,
+     which is what removes the ghost once it has arrived (both are read by
+     the same board.css/JS sync test as --flight-ms/FLIGHT_MS). */
+  --drag-snap-ms: 160ms;
 }
 .coords {
   display: flex;
@@ -85,6 +90,19 @@
   filter: drop-shadow(0 2px 1.5px rgba(0, 0, 0, 0.22));
 }
 .square.dragging .piece { opacity: 0.35; }
+/* The square under the pointer while dragging — a ring, not a fill, so it
+   reads clearly over any square colour or theme and never hides what is
+   drawn on top of the square itself. `::before` (the highlights above use
+   `::after`) so the ring can coexist with `.legal`/`.capture` without a
+   selector fight over the same pseudo-element. */
+.square.drag-target::before {
+  content: '';
+  position: absolute;
+  inset: 3px;
+  border-radius: 6px;
+  box-shadow: inset 0 0 0 3px var(--brass, #d9a441);
+  pointer-events: none;
+}
 
 /* ------------------------------------------------------------------
    Moving pieces (Task 1)
@@ -112,13 +130,13 @@
   justify-content: center;
   will-change: transform;
 }
-/* Laid out on its destination square; --fx/--fy (set inline, in squares)
-   offset it back to where it started. */
+/* Laid out on its destination square; --flight-x/--flight-y (set inline, in
+   squares) offset it back to where it started. */
 .flight-piece.flight-mover { animation: flight-slide var(--flight-ms) var(--flight-ease) forwards; }
 .flight-piece.flight-captured { animation: flight-capture var(--flight-ms) ease-out forwards; }
 
 @keyframes flight-slide {
-  from { transform: translate(calc(var(--fx) * 100%), calc(var(--fy) * 100%)); opacity: 1; }
+  from { transform: translate(calc(var(--flight-x) * 100%), calc(var(--flight-y) * 100%)); opacity: 1; }
   99% { transform: none; opacity: 1; }
   /* Hands over to the real piece underneath on the very last frame, so a
      promotion swaps to its new piece exactly as the pawn lands. */
@@ -133,6 +151,41 @@
    so the moment it ends (or is removed) the piece is simply visible. */
 .square.arriving .piece { animation: piece-arrive var(--flight-ms) step-end; }
 @keyframes piece-arrive { from { opacity: 0; } }
+
+/* ------------------------------------------------------------------
+   Drag polish (Task 2)
+
+   The dragged piece is a ghost that follows the pointer above everything
+   else on the board; the real piece stays put underneath, faded (see
+   .square.dragging above). Dropping this layer at any instant — a legal
+   drop (the move-flight animation above takes over), a snap-back finishing,
+   an unmount — leaves a correct board, the same contract flight-layer
+   keeps. `position: fixed` lets DragLayer use viewport coordinates
+   directly; nothing between here and the viewport sets a `transform`,
+   `filter`, `perspective` or `contain` that would give fixed positioning a
+   different containing block.
+   ------------------------------------------------------------------ */
+.drag-ghost {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 6; /* above the flight layer and the annotation overlay */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none; /* useDragMove's elementFromPoint must see through it */
+}
+.drag-ghost .piece {
+  /* A heavier shadow than the resting .piece rule while lifted — dropped
+     entirely (rather than layered on top of it) so there is exactly one
+     drop-shadow in play at a time. */
+  filter: drop-shadow(0 2px 1.5px rgba(0, 0, 0, 0.22));
+}
+.drag-ghost.dragging .piece { filter: drop-shadow(0 10px 16px rgba(0, 0, 0, 0.38)); }
+/* Only the snap-back is an eased transition; the live drag itself follows
+   the pointer 1:1, one state update per pointermove, with no transition of
+   its own (see DragLayer — the lift's scale is set inline, unconditionally). */
+.drag-ghost.returning { transition: transform var(--drag-snap-ms) var(--flight-ease); }
 
 .board-overlay {
   position: absolute;
@@ -222,4 +275,8 @@
      real piece is never held back. */
   .flight-layer { display: none; }
   .flight-piece.flight-mover, .flight-piece.flight-captured, .square.arriving .piece { animation: none; }
+  /* The ghost still follows the pointer 1:1 (direct manipulation, not a
+     timed animation — see DragLayer), but its snap-back eases nowhere:
+     the ghost jumps straight to the origin square and disappears. */
+  .drag-ghost.returning { transition: none; }
 }

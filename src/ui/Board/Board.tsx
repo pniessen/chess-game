@@ -5,6 +5,7 @@ import type { Position } from '../../game-core/position'
 import type { Color, PieceSymbol, PlayedMove, Square as SquareName } from '../../game-core/types'
 import type { Annotation } from './annotations'
 import { BoardOverlay } from './BoardOverlay'
+import { DragLayer } from './DragLayer'
 import { FlightLayer } from './FlightLayer'
 import { Piece } from './Piece'
 import { Square } from './Square'
@@ -12,6 +13,7 @@ import { filesInOrder, ranksInOrder, squaresInOrder } from './squares'
 import { useDragMove } from './useDragMove'
 import { useMoveFlight } from './useMoveFlight'
 import { boardTheme } from '../themes'
+import { pieceCode } from '../pieceSets'
 import './board.css'
 
 export interface Highlights {
@@ -119,6 +121,11 @@ export function Board({
   const flight = useMoveFlight({ fen: position.fen(), pieces, orientation, lastPlayed, cutKey })
   const arriving = new Set(flight?.arriving ?? [])
 
+  // The piece under the drag ghost — still on `from` in `pieces`, since no
+  // move has happened yet (a legal drop clears `drag` in the very same
+  // commit the new position arrives in; see useDragMove's `up`).
+  const dragPiece = drag ? pieces.get(drag.from) : undefined
+
   return (
     <div
       className={`board-frame ${orientation}`}
@@ -151,6 +158,7 @@ export function Board({
           if (highlights.check === name) classes.push('check')
           if (draggingSquare === name) classes.push('dragging')
           if (arriving.has(name)) classes.push('arriving')
+          if (drag?.over === name) classes.push('drag-target')
           const piece = pieces.get(name)
           return (
             <Square key={name} name={name} classes={classes} onClick={handleSquareClick}>
@@ -170,6 +178,13 @@ export function Board({
         })}
         <BoardOverlay annotations={annotations} orientation={orientation} />
         {flight ? <FlightLayer flight={flight} orientation={orientation} pieceSet={pieceSet} /> : null}
+        {drag && dragPiece ? (
+          <DragLayer
+            drag={drag}
+            code={pieceCode(dragPiece.color, dragPiece.type)}
+            pieceSet={pieceSet}
+          />
+        ) : null}
       </div>
       <div className="coords coords-files" aria-hidden="true">
         {filesInOrder(orientation).map((f) => (

@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest'
-import { exceedsDragThreshold, shouldSuppressClick, squareFromElement } from './useDragMove'
+import { Position } from '../../game-core/position'
+import { exceedsDragThreshold, isLegalDrop, shouldSuppressClick, squareFromElement } from './useDragMove'
 
 describe('exceedsDragThreshold', () => {
   test('a tiny movement is a click, not a drag', () => {
@@ -50,5 +51,37 @@ describe('shouldSuppressClick', () => {
 
   test('does not suppress when the release lands off the board', () => {
     expect(shouldSuppressClick(null)).toBe(false)
+  })
+})
+
+// Task 2: the drag ghost's fate (instant handoff to the move animation vs.
+// a snap-back) is decided by this pure prediction of what reduceSelection
+// is about to do with the same two squares — see useDragMove's `up`.
+describe('isLegalDrop', () => {
+  const start = new Position()
+
+  test('a legal destination for the piece on `from`', () => {
+    expect(isLegalDrop(start, 'e2', 'e4')).toBe(true)
+  })
+
+  test('a square the piece cannot reach', () => {
+    expect(isLegalDrop(start, 'e2', 'e5')).toBe(false)
+  })
+
+  test('dropping back on the origin square is not a "legal drop"', () => {
+    expect(isLegalDrop(start, 'e2', 'e2')).toBe(false)
+  })
+
+  test('releasing off the board (`to` is null) is not a "legal drop"', () => {
+    expect(isLegalDrop(start, 'e2', null)).toBe(false)
+  })
+
+  test('a square occupied by the mover\'s own piece is never legal', () => {
+    expect(isLegalDrop(start, 'e2', 'd2')).toBe(false)
+  })
+
+  test('a promotion push counts as legal — the picker opens, the ghost still hands off', () => {
+    const nearPromotion = new Position('8/P6k/8/8/8/8/8/7K w - - 0 1')
+    expect(isLegalDrop(nearPromotion, 'a7', 'a8')).toBe(true)
   })
 })

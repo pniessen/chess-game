@@ -42,8 +42,8 @@ export function FlightLayer({
                 // by the animation, so the resting state is always correct.
                 left: `${end.col * 12.5}%`,
                 top: `${end.row * 12.5}%`,
-                '--fx': String(start.col - end.col),
-                '--fy': String(start.row - end.row),
+                '--flight-x': String(start.col - end.col),
+                '--flight-y': String(start.row - end.row),
               } as CSSProperties
             }
           >
