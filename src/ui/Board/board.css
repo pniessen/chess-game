@@ -38,6 +38,28 @@
      the same board.css/JS sync test as --flight-ms/FLIGHT_MS). */
   --drag-snap-ms: 160ms;
 }
+/* One short shake on checkmate (Task 4) — applied whenever the displayed
+   position is checkmate (see highlightsFor/Board.tsx), so it plays once
+   when mate lands and replays if you browse back to that position later.
+   `transform` only (no layout thrash), well inside the 600ms celebration
+   budget. Known, accepted edge case: `.drag-ghost` is `position: fixed` and
+   relies on nothing between it and the viewport setting a `transform` (see
+   the "Drag polish" comment below) — a drag started in this ~380ms window
+   after mate would briefly compute against the shaking board instead of the
+   viewport. The move that delivers mate always clears its own drag before
+   this class is ever applied, so this can only happen if a NEW drag is
+   started on an already-finished board, which is otherwise inert.
+   Reduced motion (below) drops the animation; the board simply never moves. */
+.board.checkmate-shake { animation: board-shake 380ms ease-in-out; }
+@keyframes board-shake {
+  0%, 100% { transform: translateX(0); }
+  15% { transform: translateX(-8px); }
+  30% { transform: translateX(7px); }
+  45% { transform: translateX(-5px); }
+  60% { transform: translateX(4px); }
+  75% { transform: translateX(-2px); }
+  90% { transform: translateX(1px); }
+}
 .coords {
   display: flex;
   pointer-events: none;
@@ -72,6 +94,19 @@
 .square.check {
   background-image: radial-gradient(circle at center, rgba(255, 40, 40, 0.95) 0%,
     rgba(230, 30, 30, 0.6) 35%, rgba(200, 0, 0, 0) 72%);
+  /* Pulses to read as "live danger" rather than a flat tint. Reduced motion
+     (below) drops the animation entirely, leaving exactly the static
+     gradient above — today's indicator. */
+  animation: check-pulse 1.6s ease-in-out infinite;
+}
+/* Checkmate: the glow holds at its peak instead of continuing to pulse —
+   the game is over, so nothing about the king's square should keep moving.
+   Wins over .square.check's own animation by source order (same specificity,
+   both classes are always applied together — see Board.tsx). */
+.square.check.mated { animation: none; opacity: 1; }
+@keyframes check-pulse {
+  0%, 100% { opacity: 0.72; }
+  50% { opacity: 1; }
 }
 /* `z-index: 3` (see "Stacking order (Task 3)" below) puts the legal-move
    dot/ring above every piece, including one mid-flight: `.legal` is applied
@@ -387,6 +422,10 @@
 @media (prefers-reduced-motion: reduce) {
   .square.legal::after, .eval-bar-white, .promotion button { transition: none; }
   .square.legal:hover::after, .promotion button:hover { transform: none; }
+  /* Check glow (Task 4): today's static indicator — the plain gradient
+     above, no pulse — and no checkmate shake. */
+  .square.check { animation: none; opacity: 1; }
+  .board.checkmate-shake { animation: none; }
   /* Moves cut, exactly as they did before Task 1: nothing flies, and the
      real piece is never held back. */
   .flight-layer { display: none; }

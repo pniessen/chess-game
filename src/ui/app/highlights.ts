@@ -16,6 +16,13 @@ export function highlightsFor({
   /** `position.status()`, passed in so it is computed once per render. */
   displayedStatus: GameStatus
 }): Highlights {
+  // Checkmate leaves the mated king in check (it's the position a losing
+  // move produces), so the highlight must cover BOTH cases — otherwise the
+  // check glow would vanish on the very move that matters most. `checkmate`
+  // lets Board hold that glow steady and play the one-off board shake
+  // instead of letting it keep pulsing.
+  const inCheck = (displayedStatus.kind === 'in-progress' && displayedStatus.inCheck) ||
+    displayedStatus.kind === 'checkmate'
   return {
     ...(selection.kind === 'selected' ? { selected: selection.square } : {}),
     legal:
@@ -23,8 +30,7 @@ export function highlightsFor({
         ? position.legalMovesFrom(selection.square).map((m) => m.to)
         : [],
     ...(lastMove ? { lastMove: [lastMove.from, lastMove.to] as [Square, Square] } : {}),
-    ...(displayedStatus.kind === 'in-progress' && displayedStatus.inCheck
-      ? { check: position.kingSquare(position.turn()) ?? undefined }
-      : {}),
+    ...(inCheck ? { check: position.kingSquare(position.turn()) ?? undefined } : {}),
+    ...(displayedStatus.kind === 'checkmate' ? { checkmate: true } : {}),
   }
 }

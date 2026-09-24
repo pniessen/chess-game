@@ -23,6 +23,8 @@ export interface Highlights {
   captures?: SquareName[]
   lastMove?: [SquareName, SquareName]
   check?: SquareName
+  /** The displayed position is checkmate (the king on `check` is the mated one). */
+  checkmate?: boolean
 }
 
 export function Board({
@@ -145,7 +147,7 @@ export function Board({
         ))}
       </div>
       <div
-        className={`board ${orientation}`}
+        className={`board ${orientation}${highlights.checkmate ? ' checkmate-shake' : ''}`}
         role="grid"
         aria-label="Chess board"
         onPointerDown={handlePointerDown}
@@ -157,6 +159,7 @@ export function Board({
           if (captures.has(name)) classes.push('capture')
           if (highlights.lastMove?.includes(name)) classes.push('last-move')
           if (highlights.check === name) classes.push('check')
+          if (highlights.check === name && highlights.checkmate) classes.push('mated')
           if (draggingSquare === name) classes.push('dragging')
           if (arriving.has(name)) classes.push('arriving')
           if (drag?.over === name) classes.push('drag-target')

@@ -1,5 +1,7 @@
 import { describe, expect, test } from 'vitest'
 import { gameFromSan } from '../../game-core/io'
+import { Position } from '../../game-core/position'
+import { RULE_FIXTURES } from '../../../tests/fixtures/positions'
 import { highlightsFor } from './highlights'
 
 function after(sans: string[]) {
@@ -27,5 +29,31 @@ describe('highlightsFor', () => {
   test('check marks the king of the side to move', () => {
     const h = highlightsFor({ selection: { kind: 'idle' }, ...after(['e4', 'f5', 'Qh5+']) })
     expect(h.check).toBe('e8')
+    expect(h.checkmate).toBeUndefined()
+  })
+
+  // Breaks if checkmate stops marking the mated king (the glow that must
+  // "hold" in Board/board.css has nothing to hold onto without this).
+  test('checkmate keeps the check highlight on the mated king and flags checkmate', () => {
+    const h = highlightsFor({
+      selection: { kind: 'idle' },
+      ...after(['e4', 'e5', 'Bc4', 'Nc6', 'Qh5', 'Nf6', 'Qxf7#']),
+    })
+    expect(h.check).toBe('e8')
+    expect(h.checkmate).toBe(true)
+  })
+
+  // Breaks if stalemate (or any other draw) is wrongly treated as checkmate
+  // — no shake, no held glow.
+  test('stalemate marks neither check nor checkmate', () => {
+    const position = new Position(RULE_FIXTURES.stalemate)
+    const h = highlightsFor({
+      selection: { kind: 'idle' },
+      position,
+      lastMove: undefined,
+      displayedStatus: position.status(),
+    })
+    expect(h.check).toBeUndefined()
+    expect(h.checkmate).toBeUndefined()
   })
 })
