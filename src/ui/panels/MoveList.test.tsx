@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, test, vi } from 'vitest'
 import { MoveList } from './MoveList'
 import type { PlayedMove } from '../../game-core/types'
@@ -6,6 +6,15 @@ import type { PlayedMove } from '../../game-core/types'
 const move = (san: string, color: 'w' | 'b'): PlayedMove => ({
   san, color, from: 'e2', to: 'e4', piece: 'p',
   isCapture: false, isCastle: false, isEnPassant: false, fenAfter: '',
+})
+
+// Task 9: real FENs (unlike the bare `move` helper above), since the
+// preview parses `fenAfter` into a position to render.
+const AFTER_E4 = 'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1'
+const AFTER_E5 = 'rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq e6 0 2'
+const moveWithFen = (san: string, color: 'w' | 'b', fenAfter: string): PlayedMove => ({
+  san, color, from: 'e2', to: 'e4', piece: 'p',
+  isCapture: false, isCastle: false, isEnPassant: false, fenAfter,
 })
 
 describe('MoveList', () => {
@@ -95,5 +104,75 @@ describe('MoveList', () => {
       />,
     )
     expect(screen.queryByTestId('mark-1')).not.toBeInTheDocument()
+  })
+})
+
+// Task 9: move-list position preview.
+describe('MoveList position preview', () => {
+  const twoMoves = [
+    moveWithFen('e4', 'w', AFTER_E4),
+    moveWithFen('e5', 'b', AFTER_E5),
+  ]
+
+  test('no preview is shown until a move is hovered or focused', () => {
+    render(<MoveList moves={twoMoves} currentPly={2} onJump={vi.fn()} />)
+    expect(screen.queryByTestId('move-preview')).not.toBeInTheDocument()
+  })
+
+  test('hovering a move shows a preview of the position after it', () => {
+    render(<MoveList moves={twoMoves} currentPly={2} onJump={vi.fn()} />)
+    fireEvent.mouseEnter(screen.getByTestId('move-1'))
+    const preview = screen.getByTestId('move-preview')
+    expect(preview).toBeInTheDocument()
+    // After 1. e4: a white pawn has left e2 for e4.
+    expect(preview.querySelector('[data-piece="wP"]')).toBeInTheDocument()
+    expect(preview).toHaveTextContent('Position after e4')
+  })
+
+  test('moving the mouse off the move hides the preview', () => {
+    render(<MoveList moves={twoMoves} currentPly={2} onJump={vi.fn()} />)
+    const button = screen.getByTestId('move-1')
+    fireEvent.mouseEnter(button)
+    expect(screen.getByTestId('move-preview')).toBeInTheDocument()
+    fireEvent.mouseLeave(button)
+    expect(screen.queryByTestId('move-preview')).not.toBeInTheDocument()
+  })
+
+  test('is keyboard-reachable: focusing a move shows it, blurring hides it', () => {
+    render(<MoveList moves={twoMoves} currentPly={2} onJump={vi.fn()} />)
+    const button = screen.getByTestId('move-2')
+    act(() => button.focus())
+    const preview = screen.getByTestId('move-preview')
+    expect(preview).toHaveTextContent('Position after e5')
+    act(() => button.blur())
+    expect(screen.queryByTestId('move-preview')).not.toBeInTheDocument()
+  })
+
+  test('Escape dismisses the preview without moving focus off the move', () => {
+    render(<MoveList moves={twoMoves} currentPly={2} onJump={vi.fn()} />)
+    const button = screen.getByTestId('move-1')
+    act(() => button.focus())
+    expect(screen.getByTestId('move-preview')).toBeInTheDocument()
+    fireEvent.keyDown(button, { key: 'Escape' })
+    expect(screen.queryByTestId('move-preview')).not.toBeInTheDocument()
+    // Escape hid the popover; it did not blur the trigger.
+    expect(button).toHaveFocus()
+  })
+
+  test('hovering a move does not stop clicking it from jumping', () => {
+    const onJump = vi.fn()
+    render(<MoveList moves={twoMoves} currentPly={2} onJump={onJump} />)
+    const button = screen.getByTestId('move-1')
+    fireEvent.mouseEnter(button)
+    fireEvent.click(button)
+    expect(onJump).toHaveBeenCalledWith(1)
+  })
+
+  test('switching hover from one move to another swaps the preview instead of stacking two', () => {
+    render(<MoveList moves={twoMoves} currentPly={2} onJump={vi.fn()} />)
+    fireEvent.mouseEnter(screen.getByTestId('move-1'))
+    fireEvent.mouseEnter(screen.getByTestId('move-2'))
+    expect(screen.getAllByTestId('move-preview')).toHaveLength(1)
+    expect(screen.getByTestId('move-preview')).toHaveTextContent('Position after e5')
   })
 })

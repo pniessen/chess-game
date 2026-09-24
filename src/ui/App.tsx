@@ -308,6 +308,9 @@ function AppInner({
               onJump: input.handleJump,
               disabled: snapshot.phase.kind === 'engine-thinking',
               marks,
+              orientation,
+              theme: settings.themeId,
+              pieceSet: settings.pieceSetId,
             }}
             explorer={{ book, unavailable: bookFailed, current: opening, onStart: lifecycle.handleStartOpening }}
             review={{

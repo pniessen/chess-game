@@ -562,6 +562,41 @@ body {
 .move-list .move.empty { color: var(--muted); padding: 3px 8px; }
 
 /* ------------------------------------------------------------------
+   Move-list position preview (Task 9)
+
+   `position: fixed` (viewport-relative) so the move list's own
+   `overflow-y: auto` never clips it, and so it sits above the tab panel
+   regardless of scroll. MoveList.tsx computes top/left in JS (it has to:
+   keeping the popover inside the viewport depends on the anchor's real
+   position, which only the DOM knows) and passes MOVE_PREVIEW_SIZE through
+   as this element's own width, so the two never disagree about how big it
+   is. `pointer-events: none` because it is purely informational — it must
+   never itself become the thing a mouseleave/blur fires on.
+   ------------------------------------------------------------------ */
+.move-preview {
+  position: fixed;
+  z-index: 9; /* above panel content, below the promotion picker (10) */
+  pointer-events: none;
+  padding: 6px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-card);
+  /* Well inside the 200ms state-change budget; dropped entirely under
+     reduced motion by the app-wide rule at the foot of this file. */
+  animation: move-preview-in 120ms ease-out both;
+}
+@keyframes move-preview-in {
+  from { opacity: 0; transform: translateY(2px); }
+  to { opacity: 1; transform: none; }
+}
+/* Reuses `.board`/`.square` (board.css) for the checker pattern, border and
+   shadow — this is the same chrome the main board uses, just standalone
+   (no `.board-frame` coordinate gutter, no drag/flight layers, no
+   highlights: MovePreview.tsx renders a plain static grid). */
+.move-preview-board { width: 100%; }
+
+/* ------------------------------------------------------------------
    Clocks
    ------------------------------------------------------------------ */
 .clocks {
