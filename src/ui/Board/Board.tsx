@@ -7,6 +7,7 @@ import type { Annotation } from './annotations'
 import { BoardOverlay } from './BoardOverlay'
 import { DragLayer } from './DragLayer'
 import { FlightLayer } from './FlightLayer'
+import { LastMoveArrow } from './LastMoveArrow'
 import { Piece } from './Piece'
 import { Square } from './Square'
 import { filesInOrder, ranksInOrder, squaresInOrder } from './squares'
@@ -176,6 +177,9 @@ export function Board({
             </Square>
           )
         })}
+        {highlights.lastMove ? (
+          <LastMoveArrow from={highlights.lastMove[0]} to={highlights.lastMove[1]} orientation={orientation} />
+        ) : null}
         <BoardOverlay annotations={annotations} orientation={orientation} />
         {flight ? <FlightLayer flight={flight} orientation={orientation} pieceSet={pieceSet} /> : null}
         {drag && dragPiece ? (

@@ -110,4 +110,76 @@ describe('Board', () => {
     )
     expect(container.querySelector('[data-testid="board-overlay"]')).toBeNull()
   })
+
+  describe('last-move arrow', () => {
+    test('absent when there is no last move (start position, new game)', () => {
+      const { container } = render(
+        <Board position={new Position()} orientation="white" highlights={{}} onSquareClick={vi.fn()} />,
+      )
+      expect(container.querySelector('[data-testid="last-move-arrow"]')).toBeNull()
+    })
+
+    test('drawn from the highlights.lastMove tuple — the same one the square tint uses', () => {
+      const { container } = render(
+        <Board
+          position={new Position()}
+          orientation="white"
+          highlights={{ lastMove: ['e2', 'e4'] }}
+          onSquareClick={vi.fn()}
+        />,
+      )
+      const arrow = container.querySelector('[data-testid="last-move-arrow"]')
+      expect(arrow?.getAttribute('data-from')).toBe('e2')
+      expect(arrow?.getAttribute('data-to')).toBe('e4')
+      // The tint and the arrow are driven by the same prop, so browsing
+      // history (which only ever changes `highlights.lastMove`) moves both.
+      expect(container.querySelector('[data-square="e2"]')?.className).toContain('last-move')
+    })
+
+    test('follows history browsing: swaps when the displayed lastMove changes, disappears at ply 0', () => {
+      const { container, rerender } = render(
+        <Board
+          position={new Position()}
+          orientation="white"
+          highlights={{ lastMove: ['g1', 'f3'] }}
+          onSquareClick={vi.fn()}
+        />,
+      )
+      expect(container.querySelector('[data-testid="last-move-arrow"]')?.getAttribute('data-to')).toBe('f3')
+
+      rerender(
+        <Board position={new Position()} orientation="white" highlights={{}} onSquareClick={vi.fn()} />,
+      )
+      expect(container.querySelector('[data-testid="last-move-arrow"]')).toBeNull()
+    })
+
+    test('flips with the board', () => {
+      const { container } = render(
+        <Board
+          position={new Position()}
+          orientation="black"
+          highlights={{ lastMove: ['e2', 'e4'] }}
+          onSquareClick={vi.fn()}
+        />,
+      )
+      const line = container.querySelector('.last-move-arrow-line')
+      // e2->e4 is a vertical push; from black's view the y coordinates
+      // invert relative to white's (see annotations.test.ts arrowLine).
+      expect(Number(line?.getAttribute('y1'))).toBeCloseTo(1.5)
+    })
+
+    test('never claims a square and never blocks pointer events', () => {
+      const { container } = render(
+        <Board
+          position={new Position()}
+          orientation="white"
+          highlights={{ lastMove: ['e2', 'e4'] }}
+          onSquareClick={vi.fn()}
+        />,
+      )
+      expect(container.querySelectorAll('[data-square]')).toHaveLength(64)
+      const svg = container.querySelector('[data-testid="last-move-arrow"]') as SVGElement
+      expect(svg.getAttribute('aria-hidden')).toBe('true')
+    })
+  })
 })

@@ -86,6 +86,13 @@
 }
 .square.legal, .square.capture { cursor: pointer; }
 .piece {
+  /* `position: relative` + an explicit z-index (rather than the default
+     `auto`) is what lifts every real piece out of its own `.square`'s
+     local paint order and into the board's shared stacking pool — see the
+     "Stacking order (Task 3)" comment below for why that matters and what
+     it is layered against. */
+  position: relative;
+  z-index: 2;
   width: 92%; height: 92%; pointer-events: none;
   filter: drop-shadow(0 2px 1.5px rgba(0, 0, 0, 0.22));
 }
@@ -126,7 +133,7 @@
 .flight-layer {
   position: absolute;
   inset: 0;
-  z-index: 3; /* above the squares and the annotation overlay */
+  z-index: 3; /* above every piece and both arrow layers — see "Stacking order (Task 3)" below */
   pointer-events: none; /* clicks and drags pass through to the squares */
 }
 .flight-piece {
@@ -177,7 +184,7 @@
   position: fixed;
   left: 0;
   top: 0;
-  z-index: 6; /* above the flight layer and the annotation overlay */
+  z-index: 6; /* above everything else on the board — see "Stacking order (Task 3)" below */
   display: flex;
   align-items: center;
   justify-content: center;
@@ -195,13 +202,91 @@
    its own (see DragLayer — the lift's scale is set inline, unconditionally). */
 .drag-ghost.returning { transition: transform var(--drag-snap-ms) var(--flight-ease); }
 
+/* ------------------------------------------------------------------
+   Stacking order (Task 3)
+
+   Task 1's review flagged that a moving piece (flight layer, z-index 3)
+   passed over the hint/review overlay (board-overlay, was z-index 2) while
+   the SAME piece at rest sat under it (squares had no z-index at all) —
+   the same piece flickered in front of and behind an arrow depending on
+   whether it was mid-flight. Task 3 forces the question by adding a second
+   arrow that must sit UNDER pieces (the last-move arrow, matching how the
+   .square.last-move tint already reads as "part of the square" rather than
+   "drawn on top"), while the existing hint/review arrows stay legible
+   drawn OVER pieces (they are active guidance, meant to read as pointing AT
+   a piece, and moving them would flip the meaning of the regression test
+   in hints.spec.ts that the highlighted piece must stay visible under the
+   nudge highlight).
+
+   The chosen rule, applied consistently everywhere a piece can appear:
+   PIECES ARE ALWAYS ABOVE THE LAST-MOVE ARROW, AND ALWAYS BELOW THE
+   HINT/REVIEW OVERLAY — whether resting, flying, or dragged. Concretely,
+   one shared numeric pool (every element below is `position`ed but none of
+   `.board`/`.board-frame`/`.square` ever sets a z-index of its own, so none
+   of them starts a new stacking context — see MDN's stacking-context rules
+   — meaning these numbers really do compare directly against each other,
+   not just within a nested layer):
+
+     0  .last-move-layer   the new brass arrow — under everything
+     1  .board-overlay     hint/review squares + arrows — under pieces, over the last-move arrow
+     2  .piece             every resting piece (real pieces only; the FlightLayer/DragLayer
+                            piece images below live inside their own already-elevated,
+                            already-context-forming layers, so this rule cannot pull them
+                            out of place)
+     3  .flight-layer      the piece(s) of the move currently in the air
+     6  .drag-ghost         the piece under the pointer during a drag
+
+   A last-move arrow and a hint arrow can therefore be on screen together
+   (e.g. hinting the same reply that was just played back) and stay
+   distinguishable: different layer (0 vs 1), different colour (brass vs
+   blue), different weight (thinner, lower-opacity shaft — see
+   .last-move-arrow-line vs .annotation-arrow below).
+   ------------------------------------------------------------------ */
+.last-move-layer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none; /* clicks and drags pass through to the squares */
+  z-index: 0;
+  border-radius: var(--board-inner-radius);
+  clip-path: inset(0 round var(--board-inner-radius));
+}
+/* Same fix as `.square.drag-target::before`: brass alone falls under
+   WCAG's 3:1 non-text contrast minimum against every board theme's square
+   colours, so a dark, mostly-opaque edge (identical rgba to the drag ring)
+   sits under the brass shaft and arrowhead. lastMoveArrowContrast.test.ts
+   computes this from board.css's own rule, not a hand-checked number. */
+.last-move-arrow-edge {
+  stroke: rgba(23, 32, 48, 0.75);
+  stroke-width: 0.24;
+  stroke-linecap: round;
+  fill: none;
+}
+.last-move-arrow-line {
+  /* Distinct from a hint arrow (.annotation-arrow.tone-hint: blue,
+     stroke-width 0.18, opacity 0.85): brass, thinner, and more
+     transparent — plus it is drawn under the pieces, not over them. */
+  stroke: var(--brass, #d9a441);
+  stroke-width: 0.13;
+  stroke-linecap: round;
+  opacity: 0.8;
+  fill: none;
+}
+.last-move-arrowhead {
+  fill: var(--brass, #d9a441);
+  stroke: rgba(23, 32, 48, 0.75);
+  stroke-width: 0.4;
+  stroke-linejoin: round;
+}
+
 .board-overlay {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
   pointer-events: none; /* clicks and drags pass through to the squares */
-  z-index: 2;
+  z-index: 1;
   border-radius: var(--board-inner-radius);
   clip-path: inset(0 round var(--board-inner-radius));
 }
