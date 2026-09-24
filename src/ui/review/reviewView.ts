@@ -19,6 +19,14 @@ export function reviewMarks(review: GameReview): Map<number, MoveQuality> {
   return new Map(review.moves.map((m) => [m.ply, { classification: m.classification, loss: m.loss }]))
 }
 
+// Keyed by the full MoveClass — including 'ok', which MoveList never
+// actually renders a chip for (MARK in review/summary.ts has no glyph for
+// it, so `symbol` there is falsy and moveQualityTitle is never called with
+// it) — rather than a partial map, so this stays a compiler-checked total
+// mapping: adding a new MoveClass anywhere would force a decision here too.
+// There is deliberately no separate "good" tier (see the Task 8 ruling):
+// this label would only ever surface if some future caller chose to show a
+// chip for an unflagged, non-best move.
 const QUALITY_LABEL: Record<MoveClass, string> = {
   best: 'Best move',
   ok: 'Good move',

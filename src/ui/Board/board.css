@@ -495,7 +495,7 @@
      classes are still applied (see the comments above), but the animations
      they'd otherwise start are dropped, exactly like the shake above. The
      existing solved/failed status text is untouched by any of this. */
-  .board.celebrate-solved::after { display: none; }
+  .board.celebrate-solved::after { display: none; animation: none; }
   .square.wrong-move .piece { animation: none; }
   /* Moves cut, exactly as they did before Task 1: nothing flies, and the
      real piece is never held back. */

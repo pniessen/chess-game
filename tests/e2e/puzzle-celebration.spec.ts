@@ -116,10 +116,34 @@ test('My mistakes celebrates the ring on solving, but no rating text ever appear
   )
   await page.reload()
   await openPuzzles(page)
+  // Let the rated puzzle set's own (async) fetch fully settle — and its
+  // mount effect (`useEffect(..., [set])` in PuzzleScreen.tsx) actually
+  // fire — BEFORE switching source. PuzzleScreen.tsx has a real timing
+  // trap here: that effect's closure captures `source` from the render
+  // that scheduled it, and under real scheduling (unlike this component's
+  // own synchronous state updates, which React batches together) a passive
+  // effect queued while the fetch was still pending is not guaranteed to
+  // flush before the next discrete event; if it flushes AFTER the
+  // 'mistakes' switch, it still sees the STALE `source === 'rated'` from
+  // when it was scheduled and calls `showRated` again, silently resetting
+  // `current` back to the rated puzzle (0000D) while the <select> itself
+  // stays on 'mistakes' — this is exactly what turned up on a full-suite
+  // run (never reproduced by re-running this file alone, which starts far
+  // less loaded). Waiting for the rated puzzle to be visibly on screen
+  // first closes that window: `set.kind` is already 'ready' and the mount
+  // effect has already run its one and only time by the time we switch.
+  // (This is a pre-existing PuzzleScreen.tsx race, not something Task 7/8
+  // — presentation-only — should be fixing here; flagged separately.)
+  await expect(page.getByTestId('puzzle-id')).toHaveText('0000D')
   await page.getByTestId('puzzle-source').selectOption('mistakes')
-  // A real wait for the mistakes puzzle itself, not just the (also-true-
-  // before-any-puzzle-loads) absence of a rating delta: proves the switch
-  // actually landed before the moves below are clicked.
+  // Wait on something only THIS seeded mistake puzzle can satisfy — its
+  // origin text names the exact blunder label and game date. Waiting on
+  // `puzzle-side-to-move` reading "White to move" alone (as an earlier
+  // version of this test did) is not specific enough on its own: DEFENCE
+  // (0000D) is Black-to-move, but that is not a hard guarantee against
+  // every possible stale-content window, so the origin text — unique to
+  // this exact seeded puzzle — is the primary wait.
+  await expect(page.getByTestId('puzzle-origin')).toContainText('you played 25. h3??')
   await expect(page.getByTestId('puzzle-side-to-move')).toHaveText('White to move')
   await expect(page.getByTestId('puzzle-rating-delta')).toHaveCount(0)
 
