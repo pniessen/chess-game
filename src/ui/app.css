@@ -901,6 +901,107 @@ body {
 }
 
 /* ------------------------------------------------------------------
+   Task 6: the game-end card
+
+   Sits over the LOWER part of the board (never the whole of it — hence
+   `max-height`, and the bottom anchor) so the final position stays
+   readable behind it. No backdrop, on purpose: the board is still there to
+   look at, and the card is dismissed with its own button or Escape.
+   ------------------------------------------------------------------ */
+/* The card is positioned against the BOARD, not the row: `--board-inset`
+   is everything to the left of the board inside `.board-row` — the
+   board-frame's own rank-coordinate gutter (`--coord-gutter`, 1.25rem),
+   plus the eval bar (`flex: 0 0 24px`) and the row's 6px gap when the eval
+   bar is showing. With `left: var(--board-inset); right: 0` the card's
+   containing block is exactly the board's box, so it centres on the board
+   and can never hang off its edge. (A browser without `:has()` simply
+   leaves the card 30px left of centre.) */
+.board-row {
+  position: relative;
+  --board-inset: 1.25rem;
+}
+.board-row:has(.eval-bar) { --board-inset: calc(1.25rem + 30px); }
+
+.game-end-card {
+  position: absolute;
+  /* Above every layer inside the board (the drag ghost tops out at 5), and
+     below the promotion dialog's backdrop at 10 — which can never be up at
+     the same time as a finished game anyway. */
+  z-index: 6;
+  /* `left`/`right` bracket the board's own box (plus a small inset from
+     its edges); `width: auto` + `margin-inline: auto` then fills or centres
+     within exactly that span. A percentage width would NOT: on an
+     absolutely positioned box a percentage resolves against the whole
+     containing block, not the left/right span, and would overhang the
+     board on a narrow screen. The bottom offset clears the file
+     coordinates (`--coord-gutter`, 1.25rem) that sit under the board. */
+  left: calc(var(--board-inset) + 12px);
+  right: 12px;
+  bottom: calc(1.25rem + 6%);
+  width: auto;
+  /* Wide enough for the four actions on one row at desktop widths, and
+     still well inside a 590px board. */
+  max-width: 460px;
+  margin-inline: auto;
+  max-height: 68%;
+  overflow: auto;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 18px;
+  text-align: center;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-top: 3px solid var(--brass);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-board);
+  /* A celebration, well inside the 600ms budget; the app-wide
+     `prefers-reduced-motion` rule at the foot of this file drops it and the
+     card is simply present. */
+  animation: game-end-in 200ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+/* The card takes focus itself so the headline is read first; that is not a
+   keyboard focus the user needs to see a ring around. */
+.game-end-card:focus { outline: none; }
+
+@keyframes game-end-in {
+  from { opacity: 0; transform: translateY(12px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+
+.game-end-headline {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1.2rem;
+  font-weight: 700;
+  line-height: 1.25;
+  color: var(--ink);
+}
+.game-end-opening {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+.game-end-opening:empty { display: none; }
+.game-end-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+.app .game-end-card button[data-testid='game-end-rematch'] {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--bg);
+}
+.app .game-end-card button[data-testid='game-end-rematch']:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--ink) 85%, var(--brass));
+  border-color: color-mix(in srgb, var(--ink) 85%, var(--brass));
+}
+
+/* ------------------------------------------------------------------
    Narrow screens: one column, board first, clocks right under it.
    `display: contents` lifts the under-board panels into the layout grid
    so they can be ordered around the clocks and the move list.
@@ -950,6 +1051,20 @@ body {
   .scoreboard-label { font-size: 0.8em; }
 
   .speed-control { margin-left: 0; }
+
+  /* Tighter, and closer to the board's bottom edge, so a phone-sized board
+     still shows its top half. */
+  .game-end-card {
+    left: calc(var(--board-inset) + 8px);
+    right: 8px;
+    bottom: calc(1.25rem + 3%);
+    max-width: 340px;
+    max-height: 60%;
+    gap: 6px;
+    padding: 12px;
+  }
+  .game-end-headline { font-size: 1.05rem; }
+  .app .game-end-card button { padding: 7px 10px; font-size: 0.86em; }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -35,6 +35,7 @@ export function useMatchLifecycle({
   engineAvailable,
   records,
   resetInput,
+  onMatchReset,
   onShowMoves,
 }: {
   controller: MatchController
@@ -44,6 +45,8 @@ export function useMatchLifecycle({
   records: Pick<MatchRecords, 'pendingResume' | 'setResumeChoice' | 'scoredRef' | 'recordedRef' | 'historyRef'>
   /** Clears redo and any selection; called after every start/load. */
   resetInput: () => void
+  /** Task 6: closes the game-end card and forgets the phase it had seen; called after every start/load. */
+  onMatchReset: () => void
   /** Brings the Moves tab to the front. */
   onShowMoves: () => void
 }) {
@@ -60,6 +63,18 @@ export function useMatchLifecycle({
     recordedRef.current = false
     historyRef.current = null
     resetInput()
+    onMatchReset()
+  }
+
+  /**
+   * Task 6: "Rematch" on the game-end card — the setup that just finished,
+   * read back off the controller rather than off the New game panel, whose
+   * selects the user may have changed while the game was running. Same
+   * seats (so the same colours and the same engine level), same time
+   * control, same speed, same starting position; the board is not flipped.
+   */
+  const handleRematch = () => {
+    startMatch(controller.snapshot().config)
   }
 
   const handleNewGame = () => {
@@ -98,6 +113,7 @@ export function useMatchLifecycle({
     historyRef.current = null
     controller.load(config, history)
     resetInput()
+    onMatchReset()
   }
 
   const handleImport = (imported: Game) => {
@@ -176,6 +192,7 @@ export function useMatchLifecycle({
     orientation,
     handleFlip,
     handleNewGame,
+    handleRematch,
     handleImport,
     handleStartOpening,
     handleReplay,

@@ -20,6 +20,7 @@ import { usePuzzleMode } from './puzzles/usePuzzleMode'
 import { describeResult, resignableSide } from './app/matchText'
 import { highlightsFor } from './app/highlights'
 import { StatusHeader } from './app/StatusHeader'
+import { GameEndCard } from './app/GameEndCard'
 import { RightTabs, type RightTab } from './app/RightTabs'
 import { useControllerBundle } from './app/useControllerBundle'
 import { useSettings } from './app/useSettings'
@@ -34,6 +35,8 @@ import { useMoveInput } from './app/useMoveInput'
 import { useMatchLifecycle } from './app/useMatchLifecycle'
 import { useCoachHints } from './app/useCoachHints'
 import { useReviewFlow } from './app/useReviewFlow'
+import { useEndCard } from './app/useEndCard'
+import { downloadPgn } from './pgnFile'
 import './app.css'
 
 /**
@@ -126,6 +129,10 @@ function AppInner({
   const records = useMatchRecords(snapshot, finalOpeningName)
   const input = useMoveInput(controller, snapshot)
   const { selection } = input
+  // Task 6: the game-end card. It opens only on a finish observed live (see
+  // useEndCard) and is closed again by every start/load, through the
+  // lifecycle's `onMatchReset` below.
+  const endCard = useEndCard(snapshot)
   const lifecycle = useMatchLifecycle({
     controller,
     settings,
@@ -133,6 +140,7 @@ function AppInner({
     engineAvailable,
     records,
     resetInput: input.resetInput,
+    onMatchReset: endCard.reset,
     onShowMoves: () => setTab('moves'),
   })
   const { choices, orientation } = lifecycle
@@ -196,6 +204,21 @@ function AppInner({
               lastPlayed={lastMove ?? null}
               cutKey={input.cutKey}
             />
+            {endCard.open ? (
+              <GameEndCard
+                headline={describeResult(snapshot.phase, displayedStatus)}
+                opening={finalOpeningName}
+                canReview={engineAvailable && game.moves.length > 0}
+                onRematch={lifecycle.handleRematch}
+                onReview={() => {
+                  setTab('review')
+                  endCard.dismiss()
+                  handleReview()
+                }}
+                onExport={() => downloadPgn(game)}
+                onDismiss={endCard.dismiss}
+              />
+            ) : null}
           </div>
           <span className="sr-only" data-testid="ply-count">
             {game.moves.length}

@@ -1,12 +1,7 @@
 import { useState } from 'react'
 import type { Game } from '../../game-core/game'
-import { exportPgn, importFen, importPgn, type PgnHeaders } from '../../game-core/io'
-
-function todayFileDate(): string {
-  const d = new Date()
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
-}
+import { importFen, importPgn, type PgnHeaders } from '../../game-core/io'
+import { downloadPgn } from '../pgnFile'
 
 export function GameIO({
   game,
@@ -21,20 +16,7 @@ export function GameIO({
   const [text, setText] = useState('')
   const [error, setError] = useState<string | null>(null)
 
-  const handleExport = () => {
-    const pgn = exportPgn(game, headers)
-    const blob = new Blob([pgn], { type: 'application/x-chess-pgn' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `chess-${todayFileDate()}.pgn`
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    // Revoke once the click has been dispatched, or the blob leaks for the
-    // page's lifetime.
-    URL.revokeObjectURL(url)
-  }
+  const handleExport = () => downloadPgn(game, headers)
 
   const handleFile = (file: File) => {
     file
