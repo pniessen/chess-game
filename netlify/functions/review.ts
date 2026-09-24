@@ -11,7 +11,7 @@ import { coachClaude, coachStore, netlifyEnv } from '../lib/runtime'
 export default async (request: Request, context: Context): Promise<Response> => {
   const env = netlifyEnv()
   return handleCoach('review', request, {
-    store: coachStore(env),
+    store: coachStore(request.url),
     claude: coachClaude(env),
     env,
     ip: context.ip,

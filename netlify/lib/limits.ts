@@ -169,6 +169,26 @@ export async function reserveBudget(
 }
 
 /**
+ * Whether a request arrived at the site's live address rather than at a
+ * preview.
+ *
+ * It reads the host and nothing else, because `CONTEXT` is a build-time
+ * variable that is simply absent when a deploy is made from the CLI, and a
+ * budget that silently resets with every deploy is not a budget. Netlify
+ * gives every non-production deploy a host with a `--` in it —
+ * `<deploy-id>--site.netlify.app`, `branch--site.netlify.app` — while the
+ * live site is `site.netlify.app` or a custom domain.
+ */
+export function isProductionHost(requestUrl: string | undefined): boolean {
+  if (!requestUrl) return false
+  try {
+    return !new URL(requestUrl).host.includes('--')
+  } catch {
+    return false
+  }
+}
+
+/**
  * Whether a browser at `origin` may use these endpoints.
  *
  * Only this site and a developer's own machine: the point is that somebody

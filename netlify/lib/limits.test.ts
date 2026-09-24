@@ -4,6 +4,7 @@ import {
   COACH_LIMITS,
   answerKey,
   isAllowedOrigin,
+  isProductionHost,
   readAnswer,
   reserveBudget,
   takeRateLimit,
@@ -143,6 +144,20 @@ describe('the daily budget', () => {
     expect(await reserveBudget(store, VISITOR, 'hint', NOW)).toBe(false)
     const tomorrow = NOW + 24 * 60 * 60_000
     expect(await reserveBudget(store, VISITOR, 'hint', tomorrow)).toBe(true)
+  })
+})
+
+describe('telling the live site from a preview', () => {
+  test('the live host counts as production; every deploy host does not', () => {
+    expect(isProductionHost('https://chess-with-claude.netlify.app/api/hint')).toBe(true)
+    expect(isProductionHost('https://chess.example/api/hint')).toBe(true)
+    expect(isProductionHost('https://6ab4--chess-with-claude.netlify.app/api/hint')).toBe(false)
+    expect(isProductionHost('https://netlify-coach--chess-with-claude.netlify.app/api/hint')).toBe(false)
+  })
+
+  test('with nothing to go on it is never treated as production', () => {
+    expect(isProductionHost(undefined)).toBe(false)
+    expect(isProductionHost('not a url')).toBe(false)
   })
 })
 
