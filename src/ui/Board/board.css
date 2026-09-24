@@ -102,9 +102,12 @@
   border-radius: 6px;
   /* A dark hairline outside the brass keeps the ring legible on every
      square colour — brass alone measures under WCAG's 3:1 non-text
-     contrast minimum against both the light and dark square tones; this
-     combination clears 3:1 against both (checked against the classic
-     theme's own light/dark values). */
+     contrast minimum against every theme's square tones. This combination
+     clears 3:1 against the dark square (the binding case in all four board
+     themes — see dragTargetContrast.test.ts, which computes it from
+     BOARD_THEMES rather than trusting hand-checked numbers here): classic
+     3.54:1, green 3.35:1, blue 3.91:1, slate 3.12:1 (the thinnest margin,
+     but still clear). */
   box-shadow: inset 0 0 0 3px var(--brass, #d9a441), inset 0 0 0 4px rgba(23, 32, 48, 0.75);
   pointer-events: none;
 }
