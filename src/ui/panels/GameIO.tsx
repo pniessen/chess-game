@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { Game } from '../../game-core/game'
 import { importFen, importPgn, type PgnHeaders } from '../../game-core/io'
 import { downloadPgn } from '../pgnFile'
+import { buildShareUrl } from '../share'
 
 export function GameIO({
   game,
@@ -15,8 +16,27 @@ export function GameIO({
 }) {
   const [text, setText] = useState('')
   const [error, setError] = useState<string | null>(null)
+  // Task 14: 'idle' before the first click; 'copied' once the clipboard
+  // write succeeds; 'manual' when there is no Clipboard API, or it refused
+  // (no permission, insecure context, ...) — the URL is shown to copy by
+  // hand rather than the button silently doing nothing.
+  const [shareStatus, setShareStatus] = useState<'idle' | 'copied' | 'manual'>('idle')
+  const [shareUrl, setShareUrl] = useState('')
 
   const handleExport = () => downloadPgn(game, headers)
+
+  const handleShare = () => {
+    const url = buildShareUrl(game)
+    setShareUrl(url)
+    if (!navigator.clipboard?.writeText) {
+      setShareStatus('manual')
+      return
+    }
+    navigator.clipboard.writeText(url).then(
+      () => setShareStatus('copied'),
+      () => setShareStatus('manual'),
+    )
+  }
 
   const handleFile = (file: File) => {
     file
@@ -58,6 +78,29 @@ export function GameIO({
       <button data-testid="export-pgn" onClick={handleExport}>
         Export PGN
       </button>
+      <div className="share-game">
+        <button data-testid="share-link" onClick={handleShare}>
+          Share position
+        </button>
+        {shareStatus === 'copied' ? (
+          <span className="share-status" data-testid="share-status" role="status">
+            Link copied to clipboard
+          </span>
+        ) : null}
+        {shareStatus === 'manual' ? (
+          <div className="share-manual" data-testid="share-manual">
+            <label htmlFor="share-url-input">Copy this link:</label>
+            <input
+              id="share-url-input"
+              type="text"
+              readOnly
+              data-testid="share-url"
+              value={shareUrl}
+              onFocus={(e) => e.currentTarget.select()}
+            />
+          </div>
+        ) : null}
+      </div>
       <div className="import">
         <textarea
           data-testid="import-text"

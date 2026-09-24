@@ -1346,6 +1346,38 @@ body {
 }
 
 /* ------------------------------------------------------------------
+   Task 14: sharing the current position
+   ------------------------------------------------------------------ */
+.share-game {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+.share-status {
+  font-size: 0.85em;
+  color: var(--brass-ink);
+  font-weight: 600;
+}
+.share-manual {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+}
+.share-manual label { font-size: 0.8em; color: var(--muted); font-weight: 600; }
+.share-manual input {
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+  padding: 7px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line-strong);
+  background: var(--surface-2);
+  color: var(--ink);
+}
+
+/* ------------------------------------------------------------------
    Narrow screens: one column, board first, clocks right under it.
    `display: contents` lifts the under-board panels into the layout grid
    so they can be ordered around the clocks and the move list.

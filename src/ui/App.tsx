@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import type { Game } from '../game-core/game'
 import { Board } from './Board/Board'
 import { EvalBar } from './Board/EvalBar'
@@ -39,6 +39,7 @@ import { useReviewFlow } from './app/useReviewFlow'
 import { useEndCard } from './app/useEndCard'
 import { useShortcuts } from './app/useShortcuts'
 import { ShortcutsOverlay } from './app/ShortcutsOverlay'
+import { useShareLink } from './app/useShareLink'
 import { downloadPgn } from './pgnFile'
 import './app.css'
 
@@ -135,6 +136,8 @@ function AppInner({
 
   const { book, bookFailed, opening, finalOpeningName } = useOpenings(controller, game)
   const records = useMatchRecords(snapshot, finalOpeningName)
+  // Task 14: a shared-position link, read off the URL once at startup.
+  const share = useShareLink()
   const input = useMoveInput(controller, snapshot)
   const { selection } = input
   // Task 6: the game-end card. It opens only on a finish observed live (see
@@ -152,6 +155,47 @@ function AppInner({
     onShowMoves: () => setTab('moves'),
   })
   const { choices, orientation } = lifecycle
+
+  // Task 14: a valid share link takes precedence over the normal start —
+  // but ONLY when there is nothing to conflict with. When a saved
+  // in-progress game is also waiting, loading the share link automatically
+  // would silently bury it (the ordinary resume banner would never appear
+  // this session), so that case is offered as a choice instead, reusing the
+  // exact same resume-banner pattern/markup (see StatusHeader) rather than
+  // a second one. See handleShareAccept below for why accepting does NOT
+  // resolve the resume choice; declining just leaves the ordinary resume
+  // banner to run exactly as it always has.
+  const shareOk = share.pending.kind === 'ok'
+  const shareConflict = shareOk && !share.resolved && records.pendingResume !== null
+  const shareAutoLoad = shareOk && !share.resolved && records.pendingResume === null
+
+  useEffect(() => {
+    if (!shareAutoLoad || share.pending.kind !== 'ok') return
+    lifecycle.handleImport(share.pending.position.game)
+    share.resolve()
+    // Runs once, exactly when there is a share link and nothing to ask
+    // about: `shareAutoLoad` itself flips to false the moment `resolve()`
+    // commits, so this never re-fires on the stale `lifecycle`/`share`
+    // closures a full dependency list would otherwise force a re-run for.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shareAutoLoad])
+
+  const handleShareAccept = () => {
+    if (share.pending.kind !== 'ok') return
+    lifecycle.handleImport(share.pending.position.game)
+    share.resolve()
+    // Deliberately leaves `resumeChoice` exactly as it was: it is what
+    // gates useMatchRecords' autosave (see saveInProgress there), and
+    // resolving it here would let the newly-loaded shared game overwrite
+    // the still-undecided saved one the moment it starts autosaving. Left
+    // 'pending', the ordinary resume banner reappears once `shareConflict`
+    // above goes false (it no longer has this offer to yield to) — now
+    // offering to ALSO resume the saved game on top of the shared position,
+    // which is exactly the fallback this hook exists to preserve.
+  }
+  const handleShareDecline = () => share.resolve()
+  const shareError = share.pending.kind === 'error' && !share.resolved ? share.pending.message : null
+  const handleDismissShareError = () => share.resolve()
 
   const { hints, handleHint } = useCoachHints({ controller, coach, game, phaseKind: snapshot.phase.kind })
   const { review, reviewed, marks, handleReview } = useReviewFlow({
@@ -225,9 +269,17 @@ function AppInner({
 
       <StatusHeader
         engineAvailable={engineAvailable}
-        resumePending={records.resumeChoice === 'pending'}
+        // Suppressed while the share-conflict banner below is unresolved,
+        // so the two never show at once — declining the share offer is
+        // what lets this one appear, exactly as it always has.
+        resumePending={records.resumeChoice === 'pending' && !shareConflict}
         onResumeAccept={lifecycle.handleResumeAccept}
         onResumeDecline={lifecycle.handleResumeDecline}
+        shareConflict={shareConflict}
+        onShareAccept={handleShareAccept}
+        onShareDecline={handleShareDecline}
+        shareError={shareError}
+        onDismissShareError={handleDismissShareError}
         turn={position.turn()}
         result={result}
         engineStatus={engineStatus}

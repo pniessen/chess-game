@@ -13,6 +13,11 @@ export function StatusHeader({
   resumePending,
   onResumeAccept,
   onResumeDecline,
+  shareConflict,
+  onShareAccept,
+  onShareDecline,
+  shareError,
+  onDismissShareError,
   turn,
   result,
   engineStatus,
@@ -25,6 +30,13 @@ export function StatusHeader({
   resumePending: boolean
   onResumeAccept: () => void
   onResumeDecline: () => void
+  /** Task 14: a shared-position link arrived alongside a saved in-progress game. */
+  shareConflict: boolean
+  onShareAccept: () => void
+  onShareDecline: () => void
+  /** Task 14: a shared-position link could not be read; null when there is nothing to report. */
+  shareError: string | null
+  onDismissShareError: () => void
   /** The side to move in the DISPLAYED position. */
   turn: Color
   /** The result banner text (describeResult). */
@@ -54,6 +66,30 @@ export function StatusHeader({
           </button>
           <button data-testid="resume-decline" onClick={onResumeDecline}>
             Discard
+          </button>
+        </p>
+      ) : null}
+
+      {/* Task 14: a shared-position link arrived alongside a saved game —
+          the same resume-choice pattern as the banner above, offering the
+          shared position instead of (never destructively instead of) it. */}
+      {shareConflict ? (
+        <p className="resume-banner" data-testid="share-conflict-banner">
+          Open the position from your shared link? Your saved game is kept either way.
+          <button data-testid="share-accept" onClick={onShareAccept}>
+            Open shared position
+          </button>
+          <button data-testid="share-decline" onClick={onShareDecline}>
+            Keep my saved game
+          </button>
+        </p>
+      ) : null}
+
+      {shareError ? (
+        <p className="resume-banner" data-testid="share-link-error">
+          {shareError}
+          <button data-testid="share-link-dismiss" onClick={onDismissShareError}>
+            Dismiss
           </button>
         </p>
       ) : null}
