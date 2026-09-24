@@ -134,8 +134,11 @@
 .square { position: relative; display: flex; align-items: center; justify-content: center; }
 .square.light { background-color: var(--sq-light, #f0d9b5); }
 .square.dark  { background-color: var(--sq-dark, #b58863); }
-/* Round the four corner squares to follow the board's radius (squares are
-   the first 64 children in every orientation; the overlay comes last). */
+/* Round the four corner squares to follow the board's radius: squares are
+   always the first 64 children of `.board`, in every orientation, no
+   matter what follows them — since Task 3 that is the last-move arrow,
+   BoardOverlay, and (conditionally) the flight/drag layers, in THAT order,
+   not "the overlay last" as this used to say. */
 .board > .square:nth-child(1) { border-top-left-radius: var(--board-inner-radius); }
 .board > .square:nth-child(8) { border-top-right-radius: var(--board-inner-radius); }
 .board > .square:nth-child(57) { border-bottom-left-radius: var(--board-inner-radius); }

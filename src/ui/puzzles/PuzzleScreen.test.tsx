@@ -148,7 +148,12 @@ describe('PuzzleScreen (My mistakes)', () => {
   // 'in-progress'` check that src/ui/app/highlights.ts also had — solving a
   // mate-in-1 puzzle used to leave the mated king with no glow at all.
   // SEEDED above is exactly that: White plays Qd1-d8#, mating the king on g8.
-  test('solving a mate-in-1 puzzle holds the check glow on the mated king and shakes the board', async () => {
+  //
+  // Final-review fix: solving by mate makes `checkmate` (from the shared
+  // highlightsFor) and `celebrate` (set on `phase === 'solved'`) both true
+  // here — the board used to shake AND celebrate at once. The glow stays;
+  // the shake is suppressed in favour of the celebration ring (Board.tsx).
+  test('solving a mate-in-1 puzzle holds the check glow on the mated king and celebrates, without also shaking', async () => {
     localStorage.setItem('chess-game:blunder-puzzles', JSON.stringify(SEEDED))
     await mount()
     fireEvent.change(screen.getByTestId('puzzle-source'), { target: { value: 'mistakes' } })
@@ -159,7 +164,8 @@ describe('PuzzleScreen (My mistakes)', () => {
     const king = document.querySelector('[data-square="g8"]')
     expect(king?.className).toContain('check')
     expect(king?.className).toContain('mated')
-    expect(document.querySelector('[role="grid"]')?.className).toContain('checkmate-shake')
+    expect(document.querySelector('[role="grid"]')?.className).toContain('celebrate-solved')
+    expect(document.querySelector('[role="grid"]')?.className).not.toContain('checkmate-shake')
   })
 
   test('a wrong move on a mistake is not rated either', async () => {

@@ -135,7 +135,15 @@ test('a solved mistake is marked solved, the rating is untouched, and it stays s
 // `status.kind === 'in-progress'` gate that src/ui/app/highlights.ts also
 // had. Solving this same mate-in-1 (Ra8#, mating the black king on g8) used
 // to leave it with no check glow at all.
-test('solving a mate-in-1 puzzle holds the check glow on the mated king and shakes the board', async ({ page }) => {
+//
+// Final-review fix: most puzzles ARE solved by delivering mate, so
+// `checkmate` (from the shared highlightsFor) and `celebrate` (set by
+// PuzzleScreen on `phase === 'solved'`) are both true here — the board
+// used to play `checkmate-shake` AND `celebrate-solved` at once, two
+// concurrent transforms for what is a win, not a loss. The check glow and
+// `mated` square styling stay; only the shake is suppressed in favour of
+// the celebration ring.
+test('solving a mate-in-1 puzzle holds the check glow on the mated king and celebrates, without also shaking', async ({ page }) => {
   await page.addInitScript(
     ({ k, v }) => {
       if (!localStorage.getItem(k)) localStorage.setItem(k, v)
@@ -153,5 +161,6 @@ test('solving a mate-in-1 puzzle holds the check glow on the mated king and shak
   const king = page.locator('[data-square="g8"]')
   await expect(king).toHaveClass(/check/)
   await expect(king).toHaveClass(/mated/)
-  await expect(page.locator('.board')).toHaveClass(/checkmate-shake/)
+  await expect(page.locator('.board')).toHaveClass(/celebrate-solved/)
+  await expect(page.locator('.board')).not.toHaveClass(/checkmate-shake/)
 })

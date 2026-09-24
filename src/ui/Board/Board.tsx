@@ -25,7 +25,18 @@ export interface Highlights {
   check?: SquareName
   /** The displayed position is checkmate (the king on `check` is the mated one). */
   checkmate?: boolean
-  /** Puzzle-solved celebration (Task 7): a green ring sweeps the board once. */
+  /**
+   * Puzzle-solved celebration (Task 7): a green ring sweeps the board once.
+   *
+   * Final-review fix: most puzzles ARE solved by delivering mate, so
+   * `checkmate` and `celebrate` are routinely both true on the very same
+   * render — `checkmate-shake` (this branch's vocabulary for a bad outcome,
+   * two concurrent transforms on `.board`/`.board::after`) has no business
+   * playing on a win. `celebrate` therefore wins: see the class list below,
+   * where it suppresses `checkmate-shake` outright rather than the two
+   * classes fighting over the same transform. The `mated`-square styling
+   * and the check glow are untouched — only the shake is suppressed.
+   */
   celebrate?: boolean
   /** Puzzle wrong-move (Task 7): the piece just moved to this square shakes once. */
   wrongMove?: SquareName
@@ -151,7 +162,7 @@ export function Board({
         ))}
       </div>
       <div
-        className={`board ${orientation}${highlights.checkmate ? ' checkmate-shake' : ''}${highlights.celebrate ? ' celebrate-solved' : ''}`}
+        className={`board ${orientation}${highlights.checkmate && !highlights.celebrate ? ' checkmate-shake' : ''}${highlights.celebrate ? ' celebrate-solved' : ''}`}
         role="grid"
         aria-label="Chess board"
         onPointerDown={handlePointerDown}

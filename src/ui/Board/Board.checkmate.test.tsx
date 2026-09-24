@@ -47,4 +47,25 @@ describe('Board checkmate presentation', () => {
     )
     expect(container.querySelector('[role="grid"]')?.className).not.toContain('checkmate-shake')
   })
+
+  // Final-review fix: most puzzles are solved BY delivering mate, so
+  // `checkmate` and `celebrate` (Task 7's ring) are routinely both true on
+  // the same render. The glow/mated styling stays, but the shake — this
+  // branch's vocabulary for a bad outcome — must not play alongside a win.
+  test('checkmate together with celebrate: the glow and ring show, but the board does not shake', () => {
+    const { container } = render(
+      <Board
+        position={new Position()}
+        orientation="white"
+        highlights={{ check: 'e1', checkmate: true, celebrate: true }}
+        onSquareClick={vi.fn()}
+      />,
+    )
+    const grid = container.querySelector('[role="grid"]')
+    const king = container.querySelector('[data-square="e1"]')
+    expect(king?.className).toContain('check')
+    expect(king?.className).toContain('mated')
+    expect(grid?.className).toContain('celebrate-solved')
+    expect(grid?.className).not.toContain('checkmate-shake')
+  })
 })
