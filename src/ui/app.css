@@ -145,6 +145,62 @@
 /* ------------------------------------------------------------------
    Page
    ------------------------------------------------------------------ */
+
+/* Turn off CSS scroll anchoring for the PAGE's scroller.
+
+   Chromium anchors a nonzero scroll offset to a node it picks among the
+   viewport scroller's descendants — something visible near the top of the
+   scrollport, which on a phone is the board — and silently adjusts
+   `window.scrollY` to hold that node still whenever layout moves it. The
+   header above the board moves it constantly, and never in response to
+   anything the reader did: the opening name fills in (and wraps to a
+   second line) on move one, the `engine-status` spinner resolves, the
+   coach badge arrives once the health check fails, the resume and
+   share-conflict banners come and go. Each one jumps the page and the
+   board under a reader who has scrolled down into it. Measured at
+   375x667: playing e4/c5 grows `.status-row` 76.75px -> 119.48px and
+   drags `window.scrollY` 200 -> 229 with it; declining the resume banner
+   shrinks the header and drops it 200 -> 84.
+
+   Why not on the growing elements themselves. `overflow-anchor: none`
+   only makes an element (and its subtree) ineligible to BE the anchor; it
+   does nothing about an element whose growth displaces an anchor below it.
+   `.status-row { overflow-anchor: none }` is therefore a no-op here —
+   measured, 200 -> 229 with it exactly as without — because `.status-row`
+   is never the anchor, it is the box doing the pushing. The anchor is
+   whatever happens to be on screen, so no element-level fix exists; the
+   scroll container is the only scope that works, and one rule there covers
+   every growing element above the fold, present and future.
+
+   Why `body` and not `html` alone, which is what the spec names as the
+   viewport scroller's element. Measured, `html` alone is NOT enough in
+   Chromium: it fixes the growing case (200 -> 200) but leaves the
+   shrinking one untouched (200 -> 85, the board pinned at the same
+   viewport offset either way). `body` alone fixes both, because what
+   actually works in Chromium is the subtree rule — `none` on an element
+   inside a scroller prunes its whole subtree from candidacy, and with
+   `body` pruned the viewport scroller is left with no candidate at all.
+   `html` is kept alongside it because it is the spec's own lever for
+   "disable anchoring for this scroll container", so an engine that
+   implements that reading honours it; it costs nothing, and only Chromium
+   is measured here.
+
+   This does NOT touch the inner scroll containers — `.left-column`,
+   `.right-column`, `.tabs`, `.move-list`, the explorer results. Verified
+   on a synthetic two-level page: `none` on an ANCESTOR of a scroller has
+   no effect on that scroller's own anchoring (its candidate walk starts at
+   the scroller and never sees the rule), while `none` on a wrapper INSIDE
+   one does prune it. `body` is an ancestor of all of them, so their
+   anchoring is left exactly as it was.
+
+   Pinned by two tests in tests/e2e/above-the-fold.spec.ts ("never moves
+   the page under a reader scrolled into it") — one growing element, one
+   shrinking one, deliberately different elements. */
+html,
+body {
+  overflow-anchor: none;
+}
+
 body {
   /* The board/panels never rely on the page's default (transparent)
      background or inherited (black) text color — a dark host would

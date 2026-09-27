@@ -1279,3 +1279,146 @@ test('at 375x812, importing a long game scrolls the moves panel to the current p
   const scrollTop = await page.getByTestId('move-list').evaluate((el) => el.scrollTop)
   expect(scrollTop, 'move-list.scrollTop').toBeGreaterThan(0)
 })
+
+/* --------------------------------------------------------------------
+   CSS scroll anchoring: a header that changes height must not move the
+   page under a reader who is scrolled into it.
+
+   Found while fixing an unrelated Task 6 bug, and NOT introduced by any
+   task in this plan — it predates the whole above-the-fold branch. The
+   mechanism is Chromium's CSS scroll anchoring: at a nonzero
+   `window.scrollY` the browser picks an anchor node among the viewport
+   scroller's descendants (something visible near the top of the
+   scrollport — on a phone, the board), and when layout moves that node it
+   "compensates" by adjusting the scroll offset to hold it still. Anything
+   in the header that changes height moves it: the opening name filling in
+   (and wrapping to a second line) on move one, the engine-status spinner
+   resolving, the coach badge appearing, the resume/share-conflict banners
+   coming and going. The reader gets a page-and-board jump with no
+   interaction of their own.
+
+   The fix (app.css, `html, body { overflow-anchor: none }`) is at the
+   SCROLL CONTAINER's scope, not on any one growing element. Measured,
+   `.status-row { overflow-anchor: none }` does NOT fix this — 200 -> 229
+   either way. `overflow-anchor: none` only excludes the element it is set
+   on (and its subtree) from being chosen as the ANCHOR; `.status-row` is
+   never the anchor here, it is the box whose growth displaces the anchor
+   below it. No narrower element-level fix exists, because the anchor is
+   whatever happens to be on screen — so the container is the right scope,
+   and one rule there covers every growing element above it, present and
+   future.
+
+   `body` is the part that does the work: measured across both cases below,
+   `html` alone fixes the growing one (200 -> 200) and leaves the shrinking
+   one broken (200 -> 85). See app.css for why, and for why `html` is kept
+   next to it anyway.
+
+   The two tests deliberately use DIFFERENT elements — one inside
+   `.status-row` growing, one banner above it leaving — because that is the
+   claim being made: fixing this at the container's scope holds for
+   elements the rule never mentions.
+   -------------------------------------------------------------------- */
+
+/**
+ * Wait for the header to stop changing height on its own before measuring
+ * anything. Two things in `.status-row` settle asynchronously after load
+ * and would otherwise be measured mid-flight: the `engine-status` spinner
+ * ("Loading engine…", present until the first handshake lands) and the
+ * coach badge (`coachOffline` makes its arrival deterministic, but not
+ * instant). Measured, skipping this wait is not merely flaky but actively
+ * misleading: with the spinner still up the row already stands at its
+ * two-line 119.48px, and the opening name then fills the space the
+ * spinner vacates for a net delta of zero — the trigger under test
+ * silently stops happening.
+ */
+async function settledHeader(page: Page): Promise<void> {
+  await expect(page.locator('.board')).toBeVisible()
+  await expect(page.getByTestId('engine-status')).toHaveCount(0)
+  await expect(page.getByTestId('coach-badge')).toBeVisible()
+}
+
+/** Scroll the page down and report where it actually landed. */
+async function scrollPageTo(page: Page, top: number): Promise<number> {
+  await page.evaluate((y) => window.scrollTo(0, y), top)
+  const landed = await page.evaluate(() => window.scrollY)
+  // A page that cannot scroll makes every assertion below vacuous:
+  // Chromium suppresses anchoring at offset 0, so the bug cannot show
+  // there. Fail loudly rather than pass for the wrong reason.
+  expect(landed, 'the page must actually scroll for this test to mean anything').toBeGreaterThan(0)
+  return landed
+}
+
+const statusRowHeight = (page: Page) =>
+  page.locator('.status-row').evaluate((el) => el.getBoundingClientRect().height)
+
+test('the opening name filling in never moves the page under a reader scrolled into it', async ({
+  page,
+}) => {
+  await coachOffline(page)
+  await page.setViewportSize({ width: 375, height: 667 })
+  await page.goto('/')
+  await settledHeader(page)
+
+  const landed = await scrollPageTo(page, 200)
+  const before = await statusRowHeight(page)
+
+  // e4 c5 — the Sicilian, whose name is long enough to wrap `.status-row`
+  // onto a second line at 375px wide (measured: 76.75px -> 119.48px).
+  for (const [from, to] of [['e2', 'e4'], ['c7', 'c5']]) {
+    await page.locator(`[data-square="${from}"]`).click()
+    await page.locator(`[data-square="${to}"]`).click()
+  }
+  await expect(page.getByTestId('opening')).toHaveText('B20 Sicilian Defense')
+  await expect
+    .poll(() => statusRowHeight(page), {
+      message: '.status-row must actually grow, or this test proves nothing',
+    })
+    .toBeGreaterThan(before)
+
+  expect(await page.evaluate(() => window.scrollY), 'window.scrollY after the status row grew').toBe(
+    landed,
+  )
+})
+
+test('a banner above the status row disappearing never moves the page under a reader scrolled into it', async ({
+  page,
+}) => {
+  await coachOffline(page)
+  await page.addInitScript(() => {
+    window.localStorage.setItem(
+      'chess-game:in-progress',
+      JSON.stringify({
+        v: 2,
+        pgn: '1. d4 d5 *',
+        setup: {
+          white: { kind: 'human' },
+          black: { kind: 'human' },
+          timeControl: { kind: 'untimed' },
+        },
+        scored: false,
+      }),
+    )
+  })
+  await page.setViewportSize({ width: 375, height: 667 })
+  await page.goto('/')
+  await settledHeader(page)
+  await expect(page.getByTestId('resume-banner')).toBeVisible()
+
+  const landed = await scrollPageTo(page, 200)
+
+  // `dispatchEvent`, not `click`: the button sits at the very top of the
+  // page, and Playwright's own scroll-into-view for a real click would
+  // move `window.scrollY` itself and destroy the measurement. What is
+  // under test is the LAYOUT reaction to the banner leaving, which is the
+  // same either way — and "a banner above me vanishes while I am looking
+  // at the board" is exactly the no-interaction-of-their-own case. This
+  // is the second, independent element in the test above's list: the
+  // whole point of fixing this at the container's scope rather than on
+  // `.status-row` is that it holds for a banner it never mentions.
+  await page.getByTestId('resume-decline').dispatchEvent('click')
+  await expect(page.getByTestId('resume-banner')).toHaveCount(0)
+
+  expect(await page.evaluate(() => window.scrollY), 'window.scrollY after the banner left').toBe(
+    landed,
+  )
+})
