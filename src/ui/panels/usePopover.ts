@@ -24,7 +24,19 @@ const FOCUSABLE =
 
 export function tabbables(root: HTMLElement): HTMLElement[] {
   const seen = new Set<string>()
+  // Nothing without a layout box: `handleKeyDown` now moves focus along this
+  // list itself rather than only correcting the browser at the ends (see its
+  // note), so an element here that cannot take focus would not merely be
+  // skipped — it would stop the cycle dead on that step. The `opacity: 0`
+  // radios covering each preview tile keep their box and stay in, which is
+  // what makes them reachable at all.
+  //
+  // Gated on the root measuring, because jsdom has no layout and reports
+  // zero rects for EVERYTHING: applied unconditionally, this would empty the
+  // list under the unit tests and silently disable the trap there.
+  const measurable = root.getClientRects().length > 0
   return [...root.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((el) => {
+    if (measurable && el.getClientRects().length === 0) return false
     if (!(el instanceof HTMLInputElement) || el.type !== 'radio') return true
     if (el.checked) return true
     const group = [...root.querySelectorAll<HTMLInputElement>(`input[type="radio"][name="${el.name}"]`)]
@@ -192,6 +204,36 @@ export function usePopover({
     return () => document.removeEventListener('keydown', onDocumentKeyDown)
   }, [open, documentEscape, close])
 
+  /**
+   * Escape closes; Tab moves focus along `tabbables` and wraps at both
+   * ends, taking EVERY step itself rather than letting the browser take
+   * the step and only intervening at the ends.
+   *
+   * WebKit fix: the ends-only version could not work in Safari. macOS
+   * Safari's default tab mode ("Press Tab to highlight each item" off)
+   * does not make buttons, radios or checkboxes tab stops at all, so
+   * `nodes[nodes.length - 1]` — `Done`, in both popovers — is an element
+   * Safari will never focus. `active === last` was therefore never true,
+   * the wrap never fired, and Tab walked straight out into the page
+   * behind. Measured, with the Game file popover open:
+   *
+   *   import-text -> mode -> time-control -> tab-moves -> BODY -> ...
+   *
+   * and Settings was worse still — none of its controls are tab stops in
+   * that mode, so Tab never entered it in the first place. No trap that
+   * assumes the browser agrees with `querySelectorAll` about what a tab
+   * stop is can fix that; the only assumption that holds everywhere is
+   * that programmatic `focus()` works, which it does on every control in
+   * both popovers in all three engines (verified, buttons and the
+   * `opacity: 0` radios included).
+   *
+   * So the cycle is computed here and the browser's own step is always
+   * prevented. That makes the order `tabbables`' order in every engine —
+   * identical to what Chromium and Firefox already did natively, radio
+   * groups still counting as one stop — instead of whatever each engine's
+   * tab-order policy happens to be. `tabbables` drops boxless elements
+   * for this reason; see its note.
+   */
   const handleKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.key === 'Escape') {
       e.stopPropagation()
@@ -202,17 +244,18 @@ export function usePopover({
     const pop = popRef.current
     if (!pop) return
     const nodes = tabbables(pop)
-    const first = nodes[0]
-    const last = nodes[nodes.length - 1]
-    if (!first || !last) return
+    if (nodes.length === 0) return
     const active = document.activeElement
-    if (e.shiftKey && (active === first || active === pop)) {
-      e.preventDefault()
-      last.focus()
-    } else if (!e.shiftKey && active === last) {
-      e.preventDefault()
-      first.focus()
-    }
+    const here = active instanceof HTMLElement ? nodes.indexOf(active) : -1
+    // -1 is the popover element itself, which is where focus lands on open:
+    // Tab enters at the first control, Shift+Tab at the last.
+    const next =
+      here === -1
+        ? nodes[e.shiftKey ? nodes.length - 1 : 0]
+        : nodes[(here + (e.shiftKey ? -1 : 1) + nodes.length) % nodes.length]
+    if (!next) return
+    e.preventDefault()
+    next.focus()
   }
 
   return { open, toggle, close, triggerRef, popRef, handleKeyDown }
