@@ -476,11 +476,23 @@ body {
      page's overflow was here. */
   min-height: 0;
   max-height: var(--board-size);
-  /* A backstop, not the mechanism: .tabs below gives up its height first,
-     so this only ever scrolls once .tabs has hit its own min-height (i.e.
-     on a viewport short enough that New game + a usable tab card no longer
-     fit). Clipping instead would make the bottom of New game unreachable
-     there, since the page has no scrollbar of its own any more. */
+  /* A backstop, not the preferred mechanism: .tabs below gives up its
+     height first, so in the current code this only ever scrolls once
+     .tabs has hit its own min-height (i.e. on a viewport short enough
+     that New game + a usable tab card no longer fit). Clipping instead
+     would make the bottom of New game unreachable there, since the page
+     has no scrollbar of its own any more.
+
+     It is a genuine backstop, though, not merely cosmetic: it also
+     catches a fixed-cap regression on `.tabs`/`.move-list` — restoring
+     either alone still leaves the PAGE itself unscrolled (Task 7 fix
+     round 1, verified live) because THIS rule absorbs it into an
+     internal scrollbar instead. (`.move-list`'s own rule separately
+     fails a different, legitimate test that pins ITS OWN sizing — see
+     its comment — which is not the same claim as this one.) Pinned
+     directly, by computed style, in tests/e2e/above-the-fold.spec.ts's
+     "the right column's own height cap is what keeps a tall tab panel
+     from pushing the page" test. */
   overflow-y: auto;
   /* See .left-column: a reserved gutter instead of a 15px reflow the first
      time a classic scrollbar appears in this fixed 280px track. */
@@ -699,13 +711,36 @@ body {
   list-style: none;
   margin: 0;
   padding: 4px 8px 10px;
-  /* Task 5: was `max-height: 420px`. A constant cap is what put 948px of
-     page into an 800px viewport with a long game loaded — the list simply
-     grew to 420px and shoved everything under it past the fold. It now
-     takes the panel's height instead (`min-height: 0` so it may shrink
-     below its content, which a flex item otherwise refuses to do) and
-     scrolls there: measured 248px at 1440x800 and 206px at 1280x720 under a
-     324px New game card. */
+  /* Task 5: was `max-height: 420px`. At the time, a constant cap here is
+     what put 948px of page into an 800px viewport with a long game loaded
+     — the list simply grew to 420px and shoved everything under it past
+     the fold. It now takes the panel's height instead (`min-height: 0` so
+     it may shrink below its content, which a flex item otherwise refuses
+     to do) and scrolls there: measured 248px at 1440x800 and 206px at
+     1280x720 under a 324px New game card.
+
+     Task 7 fix round 1 correction: restoring the literal `max-height:
+     420px` here TODAY no longer reproduces that 948px page overflow —
+     verified live, `document.documentElement.scrollHeight` stays equal
+     to the viewport. The 948px figure above is a real historical
+     measurement, not a live regression test: `.right-column`'s own
+     `max-height: var(--board-size)` / `overflow-y: auto` cap (below) now
+     absorbs a fixed cap here into an internal scrollbar instead of the
+     page, whether or not this rule's own flex-based sizing is doing
+     anything — see `.right-column`'s own comment, and
+     tests/e2e/above-the-fold.spec.ts's "the right column's own height cap
+     is what keeps a tall tab panel from pushing the page" test, which
+     pins THAT cap directly.
+
+     Restoring `max-height: 420px` here does still fail something, though
+     — correctly, and for an unrelated reason: tests/e2e/above-the-fold.
+     spec.ts's own "with a 70-move game ..., the moves list scrolls and
+     the page does not" test separately asserts this rule's OWN computed
+     `max-height` is `'none'`, i.e. that this list itself no longer uses a
+     fixed cap. That is a distinct, legitimate mechanism check (this
+     rule's own sizing), not the page-scroll invariant `.right-column`'s
+     cap now carries — the two are not the same claim, and this comment
+     used to conflate them. */
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;

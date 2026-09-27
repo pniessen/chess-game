@@ -898,9 +898,102 @@ test('the left column never fades when its content already fits', async ({ page 
    popovers) rather than the brief's own stale id list.
 
    Breaking change this whole section exists to catch: adding any card
-   back into `.board-column`, or restoring a fixed `max-height` on the tab
-   panel, turns this red.
+   back into `.board-column` turns this red — verified live (injecting a
+   400px div there produced 348px of overflow and exactly one failure
+   across the specs in this file, the right one).
+
+   Fix round 1 correction: restoring a fixed `max-height` on the tab panel
+   does NOT turn THIS matrix red, and an earlier draft of this comment
+   claimed it would — verified live, and the full story is more precise
+   than a flat "leaves everything green":
+
+   - `.tabs { max-height: 480px }` alone: every test in this file stays
+     green, no exceptions.
+   - `.move-list { max-height: 420px }` alone (the exact historical value
+     `.move-list`'s own app.css comment names): the page-scroll matrix
+     ITSELF still stays green — `pageOverflow` is still 0 — but a
+     different, pre-existing test earlier in this file ("with a 70-move
+     game ..., the moves list scrolls and the page does not") fails, on
+     purpose and for an unrelated, correct reason: it separately pins
+     `.move-list`'s own computed `max-height` as `'none'`, i.e. that THIS
+     list no longer uses a fixed cap at all — restoring one is exactly
+     the regression that test exists to catch, and it does, just not via
+     a page overflow.
+
+   Either way, the page itself does not scroll, because `.right-column`'s
+   OWN `max-height: var(--board-size)` / `overflow-y: auto` cap (below)
+   is what actually absorbs a fixed cap on `.tabs` or `.move-list` today
+   — it just makes `.right-column` grow an internal scrollbar instead,
+   invisible to `document.documentElement.scrollHeight` (the tab header
+   stays `flex: none` and visible regardless, so nothing above the fold
+   moves either). `.right-column`'s cap is what is actually load-bearing
+   for THIS matrix; it is pinned directly, by computed style, in the very
+   next test — removing IT (not `.tabs`'s own sizing) is what reproduces
+   a page overflow again: verified both alone (1811px, with neither inner
+   cap restored — nothing bounds `.tabs`'s growth any more) and combined
+   with both inner fixed caps restored (138px — smaller because the inner
+   caps at least bound how far `.tabs` grows, but still real overflow).
+   A cap severe enough to clip the tab header itself (`.tabs { max-height:
+   20px }`) does still fail the id sweep's hit-test below, by a different,
+   correct route. No test is added for the moderate, harmless `.tabs`
+   case, nor for the "harmless to THIS matrix, but a distinct test
+   already catches it" `.move-list` case — asserting that something
+   harmless is harmless, or duplicating a check that already exists, is
+   noise.
    ==================================================================== */
+
+/**
+ * Fix round 1: nothing above tested `.right-column`'s own cap directly —
+ * only incidentally, via the matrix, if someone removed it entirely. Two
+ * mechanisms now exist for the same invariant: `.tabs`'s flex-shrink
+ * (the preferred path — no scrollbar appears in the common case) and
+ * `.right-column`'s `max-height`/`overflow-y: auto` backstop (what
+ * actually still holds the line if the preferred path is ever reverted,
+ * per the banner correction above). Computed style, not stylesheet
+ * source text, so a refactor that moves the declaration under a
+ * different selector but keeps the effect still passes, and a refactor
+ * that drops the EFFECT fails whether or not some rule still "looks"
+ * present in a text diff. Cross-checked against `.left-column`'s own
+ * cap rather than a hardcoded number: both derive from the same
+ * `var(--board-size)`, so if they ever disagree, the point of a shared
+ * token has already been lost.
+ *
+ * Red before this fix: temporarily deleted `.right-column`'s own
+ * `max-height: var(--board-size);` declaration (app.css) — this test
+ * failed on `.right-column max-height` (`none` !== the `.left-column`
+ * figure); separately, with that deletion in place, "the page never
+ * scrolls" reappeared too (measured live: 1811px of overflow at 1440x800
+ * with a long game imported and no other change, or 138px with both
+ * `.tabs`'s and `.move-list`'s fixed caps restored alongside it —
+ * smaller because those caps at least bound how far `.tabs` grows, but
+ * still real overflow either way), confirming the cap is not merely
+ * present but load-bearing.
+ */
+test("the right column's own height cap is what keeps a tall tab panel from pushing the page, not the tab panel's own sizing", async ({
+  page,
+}) => {
+  await coachOffline(page)
+  await page.setViewportSize({ width: 1440, height: 800 })
+  await page.goto('/')
+  await page.getByTestId('undo').waitFor()
+
+  const [rightColumn, leftColumn] = await Promise.all([
+    page.locator('.right-column').evaluate((el) => {
+      const s = getComputedStyle(el)
+      return { maxHeight: s.maxHeight, overflowY: s.overflowY }
+    }),
+    // Same `var(--board-size)` source as `.right-column` — the
+    // cross-check that this is genuinely bound to the shared token, not
+    // some other number that happens to match today.
+    page.locator('.left-column').evaluate((el) => getComputedStyle(el).maxHeight),
+  ])
+
+  expect(rightColumn.overflowY, '.right-column overflow-y').toBe('auto')
+  expect(rightColumn.maxHeight, '.right-column max-height').not.toBe('none')
+  expect(rightColumn.maxHeight, '.right-column max-height matches .left-column, the same var(--board-size)').toBe(
+    leftColumn,
+  )
+})
 
 /**
  * `scrollHeight <= innerHeight + 1` (the +1 absorbs sub-pixel rounding —
