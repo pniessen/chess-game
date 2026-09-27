@@ -1,27 +1,33 @@
 import '@testing-library/jest-dom/vitest'
 
 /**
- * Task 6 (mobile pass): jsdom implements neither `Element.scrollIntoView`
- * nor `window.matchMedia` nor `ResizeObserver` — real browser APIs this
- * task's new code depends on (MoveList's auto-scroll to the current ply;
- * `useMediaQuery`, which decides whether New game renders inline or as a
+ * Task 6 (mobile pass): jsdom implements neither `window.matchMedia` nor
+ * `ResizeObserver` — real browser APIs this task's new code depends on
+ * (`useMediaQuery`, which decides whether New game renders inline or as a
  * popover; `useOverflowFade`'s scroll-affordance on `.left-column`). Every
- * component test that mounts `App`, `MoveList` or `NewGameControl` would
- * otherwise throw at render/effect time on a method that simply does not
- * exist in this environment — not a behaviour under test, so a no-op stub
- * (for `scrollIntoView`) and a "never matches, no-op subscription" stub
- * (for `matchMedia`/`ResizeObserver`) are enough: what each does is
- * covered by the real thing in tests/e2e/, in a real browser.
+ * component test that mounts `App` or `NewGameControl` would otherwise
+ * throw at render/effect time on a method that simply does not exist in
+ * this environment — not a behaviour under test, so a "never matches,
+ * no-op subscription" stub for each is enough: what each does is covered
+ * by the real thing in tests/e2e/, in a real browser.
+ *
+ * Task 7: the same reasoning used to cover a third stub,
+ * `Element.scrollIntoView` — MoveList's first version of the auto-scroll
+ * used it, but fix round 1 (see MoveList.tsx's own comment) replaced it
+ * with a direct `list.scrollTop` write specifically to stop walking
+ * ancestor scroll containers, and nothing under src/ calls
+ * `scrollIntoView` any more (confirmed with a repo-wide grep before
+ * removing this). Left in place, it would be actively misleading: a
+ * future regression that reintroduced `scrollIntoView` would render fine
+ * under vitest/jsdom (silently no-op'd here) and only fail in a real
+ * browser, in tests/e2e/ — exactly backwards from what a unit-test stub
+ * is for.
  */
 // Some suites (server/, netlify/, scripts/) run under vitest's `node`
 // environment (per-file `@vitest-environment` docblocks), where `window`
 // itself does not exist — this file's setupFiles entry still runs for
 // them, so every stub below has to be reached only under jsdom.
 if (typeof window !== 'undefined') {
-  if (!window.HTMLElement.prototype.scrollIntoView) {
-    window.HTMLElement.prototype.scrollIntoView = () => {}
-  }
-
   if (!window.matchMedia) {
     window.matchMedia = (query: string) =>
       ({

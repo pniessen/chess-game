@@ -68,28 +68,15 @@ test('at the shortest of the three viewports, the board is measurably smaller th
   expect(boardBox.width).toBeLessThan(580)
 })
 
-/**
- * Task 2: Controls moved out of .board-column (where Pause/Step were
- * clipped by the fold and Hint was entirely below it) into .left-column,
- * re-laid out for its 232px width. Red before this task: with Controls
- * still under a 610px board, Pause/Step/Speed and Hint sit well past
- * y=800 at 1440x800 — verified live (see task-2-report.md) — so their
- * bounding boxes would fail the "inside the viewport" assertion below.
- */
-test('at 1440x800, every control is inside the viewport', async ({ page }) => {
-  await coachOffline(page)
-  await page.setViewportSize({ width: 1440, height: 800 })
-  await page.goto('/')
-
-  for (const id of ['undo', 'redo', 'flip', 'resign', 'pause', 'step', 'speed', 'hint']) {
-    const box = await page.getByTestId(id).boundingBox()
-    if (!box) throw new Error(`[data-testid="${id}"] has no bounding box`)
-    expect(box.y, `${id}.y`).toBeGreaterThanOrEqual(0)
-    expect(box.x, `${id}.x`).toBeGreaterThanOrEqual(0)
-    expect(box.y + box.height, `${id} bottom edge`).toBeLessThanOrEqual(800)
-    expect(box.x + box.width, `${id} right edge`).toBeLessThanOrEqual(1440)
-  }
-})
+// Task 2: Controls moved out of .board-column (where Pause/Step were
+// clipped by the fold and Hint was entirely below it) into .left-column,
+// re-laid out for its 232px width. Red before this task: with Controls
+// still under a 610px board, Pause/Step/Speed and Hint sit well past
+// y=800 at 1440x800 — verified live (see task-2-report.md). Its own
+// "every control is inside the viewport" check is now folded into Task
+// 7's full id sweep, at the bottom of this file (same 8 ids, same
+// viewport, a strictly stronger assertion) — deleted here rather than
+// duplicated.
 
 // Red if `.hint-text` loses its reserved min-height (app.css, `.hint-row
 // .hint-text`): verified live by removing it — `.controls` grows from
@@ -164,23 +151,18 @@ test('the hint text filling in from empty does not move the board or resize the 
  * `level`, `color`, `time-control`, `new-game` and `open-puzzles` all sit
  * well past y=800 at 1440x800 (the same fold `.board-column`'s Controls
  * used to be stuck behind — see the Task 2 test above) — verified live
- * before this task's change.
+ * before this task's change. The bounding-box-inside-viewport half of this
+ * check (all six ids) is folded into Task 7's full id sweep, at the bottom
+ * of this file, and deleted here rather than duplicated; the select-
+ * clipping check below is a distinct mechanism (a `<select>`'s own
+ * `scrollWidth` never reports the 2x2-grid clipping this task's report
+ * measured visually), so it stays.
  */
-test('at 1440x800, every New game control is inside the viewport and no select is clipped', async ({
-  page,
-}) => {
+test('at 1440x800, no New game select is clipped (scrollWidth check)', async ({ page }) => {
   await coachOffline(page)
   await page.setViewportSize({ width: 1440, height: 800 })
   await page.goto('/')
-
-  for (const id of ['mode', 'level', 'color', 'time-control', 'new-game', 'open-puzzles']) {
-    const box = await page.getByTestId(id).boundingBox()
-    if (!box) throw new Error(`[data-testid="${id}"] has no bounding box`)
-    expect(box.y, `${id}.y`).toBeGreaterThanOrEqual(0)
-    expect(box.x, `${id}.x`).toBeGreaterThanOrEqual(0)
-    expect(box.y + box.height, `${id} bottom edge`).toBeLessThanOrEqual(800)
-    expect(box.x + box.width, `${id} right edge`).toBeLessThanOrEqual(1440)
-  }
+  await page.getByTestId('mode').waitFor()
 
   for (const id of ['mode', 'level', 'color', 'time-control']) {
     const overflow = await page.getByTestId(id).evaluate((el: HTMLSelectElement) => el.scrollWidth > el.clientWidth)
@@ -697,10 +679,34 @@ for (const size of [
 // below the trigger and mostly off-screen (105.8/412px visible, 306px of
 // further page scroll needed). Fixed by anchoring upward when the trigger
 // sits in the lower half of the viewport (NewGameControl.tsx's `place()`).
-test('at 375x812 the New game popover opens upward and fits the viewport', async ({ page }) => {
+//
+// Task 7 fix: this test used to open the popover from a fresh page load
+// with no explicit scroll setup, then only assert that the result FIT the
+// viewport — never that it actually went upward. On a fresh load the
+// trigger sits entirely below the 812px fold (measured live: its
+// document top is 914px), so `page.getByTestId(...).click()` has to
+// auto-scroll it into view first — and measured live, that auto-scroll
+// lands the trigger at the BOTTOM edge of the viewport (y ~= 777, well
+// into the lower half), so this test happened to exercise the upward
+// path anyway, but by accident of Playwright's own scroll-into-view
+// behaviour, not by anything the test itself set up or checked. Scrolling
+// explicitly here (and asserting the precondition) makes the case this
+// test's name promises reproducible on its own terms, and the new
+// popover-bottom-above-trigger-top assertion is what actually
+// distinguishes "opened upward" from "opened downward but still fits".
+test('at 375x812 the New game popover opens upward when the trigger sits in the lower half of the viewport', async ({
+  page,
+}) => {
   await coachOffline(page)
   await page.setViewportSize({ width: 375, height: 812 })
   await page.goto('/')
+  await page.getByTestId('new-game-toggle').waitFor()
+
+  await page.evaluate(() => window.scrollTo({ top: 300 }))
+  const anchor = await page.getByTestId('new-game-toggle').boundingBox()
+  if (!anchor) throw new Error('new-game-toggle has no bounding box')
+  expect(anchor.y, 'precondition: trigger sits in the lower half of the viewport').toBeGreaterThan(812 / 2)
+
   await page.getByTestId('new-game-toggle').click()
 
   const popover = page.getByTestId('new-game-popover')
@@ -708,6 +714,9 @@ test('at 375x812 the New game popover opens upward and fits the viewport', async
   if (!box) throw new Error('new-game-popover has no bounding box')
   expect(box.y, 'popover top').toBeGreaterThanOrEqual(0)
   expect(box.y + box.height, 'popover bottom').toBeLessThanOrEqual(812)
+  // Genuinely upward, not merely on-screen: the popover's own bottom edge
+  // sits at or above the trigger's own top edge.
+  expect(box.y + box.height, 'popover bottom sits above the trigger').toBeLessThanOrEqual(anchor.y)
   // The whole point of anchoring upward: no further scroll needed to reach
   // the submit button.
   await expect(popover.getByTestId('new-game')).toBeInViewport()
@@ -876,4 +885,304 @@ test('the left column never fades when its content already fits', async ({ page 
   await page.getByTestId('undo').waitFor()
 
   await expect(page.locator('.left-column')).not.toHaveAttribute('data-fade-bottom', '')
+})
+
+/* ====================================================================
+   Task 7: the fold regression net, plus three carried items.
+
+   Everything below is new in this task. Tasks 1-6 each pinned the
+   mechanism THEY changed, at the sizes that mechanism happened to need;
+   this section owns the full viewport matrix and the full id sweep the
+   brief calls for, corrected against what NewGameControl.tsx and
+   GameFilePopover.tsx actually render today (the brief predates both
+   popovers) rather than the brief's own stale id list.
+
+   Breaking change this whole section exists to catch: adding any card
+   back into `.board-column`, or restoring a fixed `max-height` on the tab
+   panel, turns this red.
+   ==================================================================== */
+
+/**
+ * `scrollHeight <= innerHeight + 1` (the +1 absorbs sub-pixel rounding —
+ * the brief's own tolerance), asserted on a fresh load AND with LONG_GAME
+ * (the 70-move/140-ply fixture the rest of this file already uses)
+ * imported — the brief calls for "a 60-move game imported"; this reuses
+ * the one long-game fixture already established above rather than adding
+ * a second one that exists only to be nominally closer to "60".
+ */
+async function assertPageNeverScrolls(page: Page, size: { width: number; height: number }): Promise<void> {
+  await coachOffline(page)
+  await page.setViewportSize(size)
+  await page.goto('/')
+  await page.getByTestId('undo').waitFor()
+  expect(await pageOverflow(page), `${size.width}x${size.height}, fresh load`).toBeLessThanOrEqual(1)
+
+  await importGame(page, LONG_GAME)
+  await expect(page.getByTestId('ply-count')).toHaveText('140')
+  expect(await pageOverflow(page), `${size.width}x${size.height}, long game imported`).toBeLessThanOrEqual(1)
+}
+
+// The brief's own four viewports.
+for (const size of [
+  { width: 1280, height: 720 },
+  { width: 1440, height: 800 },
+  { width: 1512, height: 860 },
+  { width: 1920, height: 1080 },
+]) {
+  test(`the page never scrolls at ${size.width}x${size.height}, fresh and with a long game imported`, async ({
+    page,
+  }) => {
+    await assertPageNeverScrolls(page, size)
+  })
+}
+
+/**
+ * The brief called out "zero margin at 1280x720" as though it were a
+ * special case. It is not: `--board-size` (app.css's `.layout`) is
+ * `clamp(360px, min(640px, calc(100svh - 122px)), 640px)`, so wherever
+ * the middle term wins the clamp — every viewport HEIGHT from 482
+ * (360+122, the floor) to 762 (640+122, the cap) — the page is exactly
+ * `100svh` tall the instant either side column reaches its own
+ * `max-height: var(--board-size)` cap, at any width wide enough for the
+ * inline (>=900px) desktop layout. 1280x720 is one point 40px inside that
+ * 280px-wide band; sampling only it would say nothing about the other
+ * 279px of it. Sampled at a fixed width (1440, matching the rest of this
+ * file) across the band, per the task: 760, 700, 620 and 500 — the last
+ * one past the 482px edge, where `--board-size` is pinned at its own
+ * 360px floor instead of tracking height any more, which is its own
+ * separate thing worth a sample.
+ */
+for (const height of [760, 700, 620, 500]) {
+  test(`the page never scrolls at 1440x${height} (the zero-margin band), fresh and with a long game imported`, async ({
+    page,
+  }) => {
+    await assertPageNeverScrolls(page, { width: 1440, height })
+  })
+}
+
+/**
+ * The full id sweep, at 1440x800 — the brief's own chosen size for it,
+ * corrected against what actually renders there today: at 1440px
+ * (>=900px wide), `mode`/`level`/`color`/`time-control`/`new-game`/
+ * `open-puzzles` render INLINE (NewGameControl's own
+ * `useMediaQuery('(max-width: 899px)')`), not behind a popover — the
+ * popover trigger (`new-game-toggle`) does not even exist at this width.
+ * `export-pgn`/`share-link`/`import-text`/`import-file`/`import-submit`
+ * live inside the Game file popover at every width (GameFilePopover.tsx
+ * has no width-conditional branch) — swept separately below, for their
+ * own one-click reachability rather than raw geometry, since opening that
+ * popover reflows nothing else on the page but is a precondition these
+ * other ids don't share.
+ *
+ * Bounding-box-inside-viewport is necessary but not sufficient (ruling:
+ * "a test that cannot fail is worse than no test" — Task 6 shipped a
+ * `toBeVisible()` popover check that could not see a popover clipped to
+ * 18% of its height by an ancestor's `overflow`, because `toBeVisible()`
+ * ignores ancestor-overflow clipping, and Playwright's own `.click()`
+ * auto-scrolls the clipping ancestor before landing, masking exactly this
+ * failure — see this file's "the New game popover is not clipped" tests).
+ * Both side columns have their own `overflow-y: auto` (Task 5), so the
+ * same failure mode is possible here even though every one of these ids
+ * sits in plain document flow, never a portal — `document.elementFromPoint`
+ * at each control's own centre is what a real tap actually resolves to,
+ * checked alongside the bounding box for exactly that reason.
+ */
+test('at 1440x800, every top-level control is inside the viewport and hit-testable', async ({ page }) => {
+  await coachOffline(page)
+  await page.setViewportSize({ width: 1440, height: 800 })
+  await page.goto('/')
+  await page.getByTestId('undo').waitFor()
+
+  const ids = [
+    'undo',
+    'redo',
+    'flip',
+    'resign',
+    'pause',
+    'step',
+    'speed',
+    'hint',
+    'mode',
+    'level',
+    'color',
+    'time-control',
+    'new-game',
+    'open-puzzles',
+    'tab-moves',
+    'tab-explorer',
+    'tab-review',
+    'tab-history',
+    'shortcuts-toggle',
+    'settings-toggle',
+    'game-file-toggle',
+  ]
+
+  for (const id of ids) {
+    const locator = page.getByTestId(id)
+    const box = await locator.boundingBox()
+    if (!box) throw new Error(`[data-testid="${id}"] has no bounding box`)
+    expect(box.y, `${id}.y`).toBeGreaterThanOrEqual(0)
+    expect(box.x, `${id}.x`).toBeGreaterThanOrEqual(0)
+    expect(box.y + box.height, `${id} bottom edge`).toBeLessThanOrEqual(800)
+    expect(box.x + box.width, `${id} right edge`).toBeLessThanOrEqual(1440)
+
+    const hit = await locator.evaluate((el) => {
+      const r = el.getBoundingClientRect()
+      const atCentre = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)
+      return atCentre === el || (el.contains(atCentre) ?? false)
+    })
+    expect(hit, `${id} is hit-testable at its own centre`).toBe(true)
+  }
+})
+
+// The five Game file ids: reachable in exactly one click from the header
+// (`game-file-toggle`) — GameFilePopover has no width-conditional branch,
+// so this holds at every width, checked here at the same 1440x800 as the
+// sweep above.
+test('export-pgn, share-link, import-text, import-file and import-submit are reachable in exactly one click', async ({
+  page,
+}) => {
+  await coachOffline(page)
+  await page.setViewportSize({ width: 1440, height: 800 })
+  await page.goto('/')
+
+  await page.getByTestId('game-file-toggle').click()
+  for (const id of ['export-pgn', 'share-link', 'import-text', 'import-file', 'import-submit']) {
+    await expect(page.getByTestId(id), `${id} reachable in one click`).toBeVisible()
+  }
+})
+
+/* --------------------------------------------------------------------
+   Additional item A: clamp the New game popover into the viewport.
+
+   NewGameControl.tsx's `place()` computed a direction (up/down) and a
+   `maxHeight` from the TRIGGER's own `getBoundingClientRect()` alone, and
+   never re-checked the result against the viewport once computed. That
+   is fine as long as the trigger's own rect is inside the viewport when
+   `place()` runs — but `place()` re-runs on every scroll (capture
+   phase), and a scroll can carry the trigger anywhere, including below
+   the viewport's bottom edge, before the next run.
+   -------------------------------------------------------------------- */
+
+// Red before the final clamp in NewGameControl.tsx's `place()` (the
+// `Math.min(Math.max(top, MARGIN), ...)` pass at the end, working off the
+// popover's own `maxHeight` rather than the anchor's rect): open the
+// popover while scrolled down (the trigger sits in the lower half of the
+// viewport there, so it opens upward, correctly), then wheel-scroll the
+// PAGE back to the top — the trigger's viewport rect moves DOWN with it
+// (it is below the popover's own trigger row in document order), past
+// `window.innerHeight` entirely, and the un-clamped upward math placed
+// the popover's own bottom edge measurably past the viewport's bottom
+// (measured live before the fix: 51.5px past it) — Start was still
+// reachable; the Done row below it was not.
+test('scrolling the page after the New game popover opens keeps it inside the viewport', async ({ page }) => {
+  await coachOffline(page)
+  await page.setViewportSize({ width: 375, height: 812 })
+  await page.goto('/')
+  await page.getByTestId('new-game-toggle').waitFor()
+
+  // Scrolled down enough that the trigger sits in the lower half of the
+  // viewport (opens upward) but is not yet clipped by the fold.
+  await page.evaluate(() => window.scrollTo({ top: 300 }))
+  const anchorBefore = await page.getByTestId('new-game-toggle').boundingBox()
+  if (!anchorBefore) throw new Error('new-game-toggle has no bounding box')
+  expect(anchorBefore.y, 'precondition: trigger in the lower half').toBeGreaterThan(812 / 2)
+
+  await page.getByTestId('new-game-toggle').click()
+  const popover = page.getByTestId('new-game-popover')
+  await expect(popover).toBeVisible()
+
+  // The wheel-scroll: back to the very top. `place()`'s own scroll
+  // listener re-runs synchronously with this (capture phase), but the
+  // resulting React state update lands a render later — polled below,
+  // not read once, for the same reason MovePreview's own re-place tests
+  // poll rather than assert immediately.
+  await page.evaluate(() => window.scrollTo({ top: 0 }))
+
+  await expect.poll(async () => {
+    const box = await popover.boundingBox()
+    return box ? box.y + box.height : null
+  }).toBeLessThanOrEqual(812)
+
+  const box = await popover.boundingBox()
+  if (!box) throw new Error('new-game-popover has no bounding box')
+  expect(box.y, 'popover top').toBeGreaterThanOrEqual(0)
+  expect(box.y + box.height, 'popover bottom').toBeLessThanOrEqual(812)
+
+  // The RENDERED box alone is not a reliable proof: `.new-game-popover`
+  // scrolls its own overflow (`overflow-y: auto`), so its actual on-screen
+  // height is `min(content, maxHeight)` — today's content (~335px) is
+  // short enough that the un-clamped bug (measured live: `top` computed
+  // from a worst-case `maxHeight` of 560, landing the CSS-PERMITTED box
+  // 51.5px past the viewport bottom) does not show up in the rendered box
+  // at all, even though the placement math that produced it is exactly as
+  // broken. Reading the inline `top`/`max-height` styles `place()` itself
+  // wrote is what actually pins the contract — the box it tells the
+  // browser it is allowed to grow to, not just how tall today's content
+  // happens to make it.
+  const worstCaseBottom = await popover.evaluate((el) => {
+    const style = el.style
+    return parseFloat(style.top) + parseFloat(style.maxHeight)
+  })
+  expect(worstCaseBottom, 'top + max-height (the CSS-permitted box)').toBeLessThanOrEqual(812)
+
+  // Not merely in bounds on paper: the Done row (the part of the
+  // regression that stayed unreachable even though Start still worked)
+  // is genuinely reachable, hit-tested the way a real tap would find it.
+  const done = page.getByTestId('new-game-popover-done')
+  const hit = await done.evaluate((el) => {
+    const r = el.getBoundingClientRect()
+    const atCentre = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)
+    return atCentre === el || (el.contains(atCentre) ?? false)
+  })
+  expect(hit, 'Done is hit-testable at its own centre').toBe(true)
+})
+
+/* --------------------------------------------------------------------
+   Additional item B: pin the mobile move-list auto-scroll.
+
+   Task 6 fixed the auto-scroll being disabled below 768px, but the only
+   mobile move-list test ("at 375x812, playing a move never scrolls the
+   page even though the moves tab is active", above) asserts
+   `window.scrollY === 0` after a single move — which the OLD, broken,
+   guarded-off version of the auto-scroll also satisfied (one ply is
+   already in view in a ~206px-tall panel; there is nothing for either
+   version to scroll to). Genuinely exercising the fix needs a game long
+   enough to overflow the panel, at the width the guard used to key off
+   of.
+   -------------------------------------------------------------------- */
+
+// Red under the old `matchMedia('(max-width: 768px)')` early return this
+// pins against (restored temporarily below to prove it — see
+// task-7-report.md for the exact diff and the failure it produced):
+// importing 140 plies would leave `.move-list`'s `scrollTop` at 0, so the
+// current move (the last one played) sits off the bottom of the panel,
+// out of view.
+test('at 375x812, importing a long game scrolls the moves panel to the current ply', async ({ page }) => {
+  await withLongGame(page, { width: 375, height: 812 })
+
+  // Below 768px the Moves CARD sits further down the single-column page
+  // (Task 6's mobile reorder: status -> board -> controls ->
+  // clocks/captured/score -> tabs), not clipped to a scrolling ancestor —
+  // reaching it at all needs a page scroll, same as a real reader would
+  // do, which is a separate, expected thing from the bug this test pins
+  // (the LIST failing to auto-scroll to the current ply once its card is
+  // on screen). `scrollIntoViewIfNeeded` (a Playwright API, distinct from
+  // the DOM's own `Element.scrollIntoView` this app deliberately never
+  // calls — see MoveList.tsx and test-setup.ts) gets the card into the
+  // page's own viewport first, the same way `tests/e2e/board-stacking-
+  // order.spec.ts` and `drag-helpers.ts` already do elsewhere in this
+  // suite.
+  await page.getByTestId('move-list').scrollIntoViewIfNeeded()
+
+  const current = page.locator('.move-list .move.current')
+  await expect(current).toHaveText('Kg1')
+  // In view inside the LIST specifically (`toBeInViewport()` is relative
+  // to the top-level viewport, not merely truthy about visibility — see
+  // the ruling on asserting things the way a user would experience them),
+  // and the list's own `scrollTop` genuinely moved, not merely "happens
+  // to already be in view" at scrollTop 0.
+  await expect(current).toBeInViewport()
+  const scrollTop = await page.getByTestId('move-list').evaluate((el) => el.scrollTop)
+  expect(scrollTop, 'move-list.scrollTop').toBeGreaterThan(0)
 })

@@ -1721,15 +1721,15 @@ body {
 
    Fix round 1: the popover itself is portaled to `document.body` and
    positioned `fixed` from JS (NewGameControl.tsx), same technique as
-   `MovePreview.tsx` — `.new-game-anchor` (still just the trigger's normal-
-   flow wrapper inside `.right-column`) is NOT its containing block any
-   more. It was, in the first version (`position: absolute` on the
-   popover, `position: relative` here) — and `.right-column`'s own
-   `overflow-y: auto` (Task 5) clipped it to a sliver, since an
-   absolutely-positioned descendant of a scrolling ancestor cannot escape
-   that ancestor's box, `z-index` or no. `position: fixed` escapes every
-   ancestor's overflow by definition, which is the actual fix; the anchor
-   needs no `position` of its own for it.
+   `MovePreview.tsx` — the trigger's own normal-flow wrapper inside
+   `.right-column` is NOT its containing block any more, and carries no
+   rule of its own here. It was, in the first version (`position:
+   absolute` on the popover, `position: relative` on that wrapper) — and
+   `.right-column`'s own `overflow-y: auto` (Task 5) clipped it to a
+   sliver, since an absolutely-positioned descendant of a scrolling
+   ancestor cannot escape that ancestor's box, `z-index` or no. `position:
+   fixed` escapes every ancestor's overflow by definition, which is the
+   actual fix; the wrapper needs no `position` of its own for it any more.
    ------------------------------------------------------------------ */
 .app .new-game-trigger {
   display: inline-flex;
@@ -1959,26 +1959,47 @@ body {
 /* ------------------------------------------------------------------
    Task 5: a floor for the tab card, on SHORT viewports only.
 
-   The right column's height is capped at `--board-size` and `.tabs` is the
-   part of it that gives, so the panel's height is a straight subtraction
-   (measured at 1440x800, and width-independent):
+   Task 7 re-derivation: the 620px threshold below was inherited from
+   Task 5's own comment without being re-checked, and that comment's own
+   arithmetic (a 56px tab header, a 514px subtraction) does not match a
+   live measurement — re-measured here with Playwright, at 1440x800 and
+   confirmed width-independent (900/1280/1920 all agree): New game is
+   324.4px, not 324, and the tab header (`.tabs-header`) is 37.8px, not
+   56.
 
-     panel = --board-size - (New game 324 + column gap 12 + tab header 56)
-     (the header's 56px is the 38px tab row plus its 8px margins and the
-      card's own 1px top and bottom borders — all measured, not guessed)
-           = (100svh - --chrome 122) - 392
-           = viewport height - 514
+   The right column's height is capped at `--board-size` and `.tabs` is
+   the part of it that gives once the column's natural content (New game
+   + a full tab panel) exceeds that cap, so `.tabs`'s squeezed height is a
+   straight subtraction — confirmed live across 762/720/700/660/640/630
+   down to 618px of viewport height, importing a 70-move game so the
+   Moves panel has enough content to force the squeeze:
 
-   Above ~620px of viewport height that leaves 100px or more and no floor is
-   needed — the card cannot shrink past its own header there, so the tabs
-   stay clickable on their own. Below it the subtraction runs the panel down
-   towards nothing, and `overflow: hidden` on `.tabs` (which is what lets it
-   shrink at all) would eventually clip the tab row itself out of reach,
-   with no page scrollbar left to get at it.
+     tabs = --board-size - (New game 324.4 + column gap 12)
+          = (100svh - --chrome 122) - 336.4
+          = viewport height - 458.4
 
-   So below that threshold the card refuses to go under 160px — the header
-   plus about three move rows — and `.right-column`'s own `overflow-y: auto`
-   takes over, scrolling the column instead. The floor is deliberately NOT
+   `.tabs`'s own floor is 160px (the header plus about three move rows),
+   so the floor is needed exactly where that subtraction would take it
+   below 160 — solving `viewport height - 458.4 < 160` gives a crossover
+   at viewport height 618.4, confirmed live: measured tabs height (floor
+   temporarily removed) is 161.6px at 620px of viewport height and 159.6px
+   at 618px, either side of the 160px line. `max-height: 620px` sits
+   1.6px above that crossover — still the right number: `.tabs` never
+   needs to be told to floor above it (the query is a no-op at 619-620px,
+   where the natural height already clears 160 on its own), and the small
+   margin below the exact 618.4px crossover absorbs sub-pixel differences
+   between browsers/font rendering that the bare arithmetic above can't
+   promise to hold to the pixel. It is NOT robust to New game's own height
+   changing, though: that 324.4px is a live input to the 618.4px crossover
+   above, not a constant this query can see, so a future change to New
+   game's height (an extra row, a taller select, a longer label wrapping)
+   shifts the real crossover without this number following it — anyone
+   changing New game's height needs to re-run this derivation.
+
+   Below the threshold the card refuses to go under 160px, and
+   `.right-column`'s own `overflow-y: auto` takes over, scrolling the
+   column instead of clipping the tab row itself out of reach with no
+   page scrollbar left to get at it. The floor is deliberately NOT
    unconditional: measured, applying it at every height padded the empty
    Moves card from 70px to 160px and the empty History card from 96px to
    160px, a visibly empty box beside a full-height board, to buy something

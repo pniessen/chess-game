@@ -9,17 +9,18 @@ import { usePopover } from './usePopover'
  * Task 3 left it: inline, above the tabs, no popover chrome at all. */
 const MOBILE_QUERY = '(max-width: 899px)'
 
-/** Fix round 1: fixed footprint for the position math below, matching the
- * popover's own CSS (`.new-game-popover`, app.css) — width and the desktop
- * max-height cap. Not a hard limit on its own: `place()` below always
- * shrinks `maxHeight` further to whatever room the viewport actually has
- * in the chosen direction. */
+/** Fix round 1: fixed footprint for the position math below — an upper
+ * bound `place()` feeds into its own layout, not a value read off any CSS
+ * rule (`.new-game-popover`, app.css, sets none of its own: `top`/`bottom`,
+ * `left`, `width` and `max-height` are all inline styles computed here).
+ * `place()` always shrinks `maxHeight` further to whatever room the
+ * viewport actually has in the chosen direction. */
 const POPOVER_WIDTH = 320
 const POPOVER_MAX_HEIGHT = 560
 const MARGIN = 8
 const GAP = 8
 
-type Placement = { top: number; left: number; width: number; maxHeight: number } | { bottom: number; left: number; width: number; maxHeight: number }
+type Placement = { top: number; left: number; width: number; maxHeight: number }
 
 /**
  * Task 6 (mobile pass): New game gets the same treatment Game file already
@@ -64,6 +65,16 @@ type Placement = { top: number; left: number; width: number; maxHeight: number }
  *    (the only thing the first version ever did) left the popover mostly
  *    off-screen — 105.8px of 412px visible, 306px of page scroll still
  *    needed to reach the rest of the form.
+ * 3. **The final box is clamped against the viewport using the popover's
+ *    OWN footprint, not just the anchor's rect** (`place()` below) — the
+ *    same technique `MovePreview.tsx`'s `clampToViewport` uses. Needed
+ *    because `place()` re-runs on every scroll, and a scroll can carry the
+ *    TRIGGER itself off-screen (below the viewport) before the anchor-
+ *    relative math above ever runs again: measured live at 375x812, open
+ *    upward at `scrollY` 208, then wheel-scroll to 0 — the trigger's
+ *    viewport rect moves to 871.5 (past the 812px viewport), and the
+ *    un-clamped math placed the popover's own bottom edge 51.5px past the
+ *    viewport bottom (Start still reachable; the Done row was not).
  *
  * `usePopover`'s focus trap, Escape, focus restore and the focusout guard
  * all keep working through the portal unmodified: every one of them
@@ -130,18 +141,46 @@ export function NewGameControl(
       // "Lower half of the viewport" (not the page — this is `position:
       // fixed`, so only the viewport's own geometry matters): open upward
       // there, since there is more likely to be room above the trigger
-      // than below it.
+      // than below it. Expressed as a `top` either way (never `bottom`),
+      // so the clamp below has one number to work with, not two shapes.
+      let top: number
+      let maxHeight: number
       if (anchor.top > window.innerHeight / 2) {
-        const maxHeight = Math.min(POPOVER_MAX_HEIGHT, window.innerHeight * 0.8, anchor.top - GAP - MARGIN)
-        setPlacement({ bottom: window.innerHeight - anchor.top + GAP, left, width, maxHeight })
+        maxHeight = Math.min(POPOVER_MAX_HEIGHT, window.innerHeight * 0.8, anchor.top - GAP - MARGIN)
+        top = anchor.top - GAP - maxHeight
       } else {
-        const maxHeight = Math.min(
+        maxHeight = Math.min(
           POPOVER_MAX_HEIGHT,
           window.innerHeight * 0.8,
           window.innerHeight - anchor.bottom - GAP - MARGIN,
         )
-        setPlacement({ top: anchor.bottom + GAP, left, width, maxHeight })
+        top = anchor.bottom + GAP
       }
+
+      // Additional item A: the anchor-relative math above assumes the
+      // trigger's OWN rect is inside the viewport, which is not always
+      // true — `place()` re-runs on every scroll (capture phase), and a
+      // scroll can move the trigger anywhere, including below the bottom
+      // edge, before this handler gets to look at it. Measured live at
+      // 375x812: open the popover while scrolled down (trigger in the
+      // lower half, so it anchors upward, correctly, at that scroll
+      // position), then wheel-scroll the PAGE to the top — the trigger's
+      // viewport rect moves down with it, past `window.innerHeight`
+      // entirely (871.5 against an 812 viewport), and the un-clamped
+      // upward math above places the popover's `top` such that its own
+      // bottom edge (`top + maxHeight`) lands 51.5px past the viewport
+      // bottom — Start is still reachable, but the Done row below it is
+      // not. Clamping the FINAL box against the popover's own footprint
+      // (`maxHeight`, already computed above), not merely against the
+      // anchor, is the same technique `MovePreview.tsx`'s
+      // `clampToViewport` uses for its own fixed-size popover — the only
+      // difference here is that this popover's height varies per
+      // placement, so the clamp works off `maxHeight` instead of a
+      // constant.
+      maxHeight = Math.max(maxHeight, MARGIN)
+      top = Math.min(Math.max(top, MARGIN), Math.max(MARGIN, window.innerHeight - maxHeight - MARGIN))
+
+      setPlacement({ top, left, width, maxHeight })
     }
     place()
     window.addEventListener('scroll', place, true)
@@ -155,7 +194,7 @@ export function NewGameControl(
   if (!mobile) return <NewGame {...newGameProps} />
 
   return (
-    <div className="new-game-anchor">
+    <div>
       <button
         type="button"
         className="new-game-trigger"
@@ -182,8 +221,7 @@ export function NewGameControl(
               ref={popRef}
               onKeyDown={handleKeyDown}
               style={{
-                top: 'top' in placement ? placement.top : undefined,
-                bottom: 'bottom' in placement ? placement.bottom : undefined,
+                top: placement.top,
                 left: placement.left,
                 width: placement.width,
                 maxHeight: placement.maxHeight,
