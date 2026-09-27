@@ -99,7 +99,9 @@ function clampToViewport(anchor: DOMRect): { top: number; left: number } {
  * left when there isn't room on the right, then clamps top/left directly as
  * a last resort on very small viewports. `position: fixed` + a viewport
  * scroll-container escape means the move list's own `overflow-y: auto`
- * never clips it.
+ * never clips it — and the effect below re-places it whenever anything
+ * scrolls, so escaping the clip does not leave it stranded at a stale
+ * position when the row it points at moves.
  */
 export function MovePreviewPopover({
   anchorEl,
@@ -123,7 +125,25 @@ export function MovePreviewPopover({
       setPos(null)
       return
     }
-    setPos(clampToViewport(anchorEl.getBoundingClientRect()))
+    const place = () => setPos(clampToViewport(anchorEl.getBoundingClientRect()))
+    place()
+    // The anchor's viewport rect is not a constant: Task 5 made the tab
+    // panel (and, on a short viewport, the whole right column) a scroll
+    // container, so the move the popover is pinned to can slide out from
+    // under it while the popover itself — `position: fixed` — stays exactly
+    // where it was. Re-place it on every scroll and resize instead of only
+    // when the anchor changes.
+    //
+    // `capture: true` is what makes this work at all: a scroll event on an
+    // element does NOT bubble, so a listener on `window` only ever hears
+    // the document's own scroll. In the capture phase it hears every
+    // scroll in the tree, whichever container produced it.
+    window.addEventListener('scroll', place, true)
+    window.addEventListener('resize', place)
+    return () => {
+      window.removeEventListener('scroll', place, true)
+      window.removeEventListener('resize', place)
+    }
   }, [anchorEl, fen])
 
   if (!pos) return null

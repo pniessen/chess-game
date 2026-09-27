@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Game } from '../game-core/game'
 import { Board } from './Board/Board'
 import { EvalBar } from './Board/EvalBar'
@@ -11,8 +11,8 @@ import { Captured } from './panels/Captured'
 import { Clocks } from './panels/Clocks'
 import { Controls } from './panels/Controls'
 import { Scoreboard } from './panels/Scoreboard'
-import { NewGame } from './panels/NewGame'
-import { GameIO } from './panels/GameIO'
+import { NewGameControl } from './panels/NewGameControl'
+import { GameFilePopover } from './panels/GameFilePopover'
 import { SettingsPopover } from './panels/SettingsPopover'
 import { currentMoveText, reviewAnnotations } from './review/reviewView'
 import { PuzzleScreen } from './puzzles/PuzzleScreen'
@@ -40,6 +40,7 @@ import { useEndCard } from './app/useEndCard'
 import { useShortcuts } from './app/useShortcuts'
 import { ShortcutsOverlay } from './app/ShortcutsOverlay'
 import { useShareLink } from './app/useShareLink'
+import { useOverflowFade } from './app/useOverflowFade'
 import { downloadPgn } from './pgnFile'
 import './app.css'
 
@@ -93,6 +94,25 @@ function AppInner({
   // Reported up by SettingsPopover's onOpenChange, purely so the keyboard
   // shortcuts hook knows it owns the keyboard — App never reads inside it.
   const [settingsOpen, setSettingsOpen] = useState(false)
+  // Task 4: the same, for the Game file popover. Note that App does NOT
+  // arbitrate which of the two is open: each popover already dismisses
+  // itself on a pointerdown outside it, and the OTHER popover's trigger is
+  // outside it, so pressing one closes the other before its own click
+  // lands. Lifting the open state here to enforce that would have meant
+  // making SettingsPopover controlled — a change to a component this task
+  // is meant to leave alone — to reproduce a guarantee that already holds.
+  const [gameFileOpen, setGameFileOpen] = useState(false)
+  // Task 6 (mobile pass): the same, for New game's mobile-only popover
+  // (NewGameControl). Never set true on desktop — nothing there is ever
+  // "open" in this sense — but declared unconditionally, same as the two
+  // above, so `overlayOpen` below never has to know which width it's at.
+  const [newGameOpen, setNewGameOpen] = useState(false)
+
+  // Task 6 (mobile pass, item B): the bottom-fade scroll affordance on
+  // `.left-column` — see useOverflowFade's own doc comment for why it
+  // needs the column's DOM node directly rather than derived state.
+  const leftColumnRef = useRef<HTMLDivElement>(null)
+  useOverflowFade(leftColumnRef)
 
   const { engineHealth, engineAvailable } = useEngineHealth(engine, engineConstructed)
   // "Loading" (the very first handshake) and "restarting" (a later one,
@@ -233,15 +253,18 @@ function AppInner({
   }
 
   // Task 13: the app-wide keyboard shortcuts. `overlayOpen` is the settings
-  // popover (whose own open state this reports up via onOpenChange) — a
-  // true modal for this hook's purposes. The game-end card is passed
+  // or Game file popover (each reports its own open state up via
+  // onOpenChange) — a true modal for this hook's purposes. `isTypingTarget`
+  // would already spare the Game file textarea, but a popover that owns the
+  // keyboard has to report itself, or the letter shortcuts stay live under
+  // it. The game-end card is passed
   // separately as `cardOpen`: it is non-modal by design (see GameEndCard's
   // doc comment), so useShortcuts lets the navigation keys through while it
   // is open and blocks only the rest. The promotion picker and this hook's
   // own shortcuts overlay are passed separately too (see useShortcuts).
   const shortcuts = useShortcuts({
     active: puzzleMode.screen === 'game',
-    overlayOpen: settingsOpen,
+    overlayOpen: settingsOpen || gameFileOpen || newGameOpen,
     cardOpen: endCard.open,
     promotionOpen: selection.kind === 'awaiting-promotion',
     hintDisabled,
@@ -291,6 +314,11 @@ function AppInner({
         onDismissNotice={() => coach.dismissNotice()}
         actions={
           <>
+            <GameFilePopover
+              game={game}
+              onImport={lifecycle.handleImport}
+              onOpenChange={setGameFileOpen}
+            />
             <button
               type="button"
               className="shortcuts-trigger"
@@ -317,10 +345,44 @@ function AppInner({
       {shortcuts.helpOpen ? <ShortcutsOverlay onClose={shortcuts.closeHelp} /> : null}
 
       <div className="layout">
-        <div className="left-column">
+        <div className="left-column" ref={leftColumnRef}>
           <Clocks clock={snapshot.clock} readClock={readClock} orientation={orientation} />
           <Captured moves={game.moves.slice(0, game.ply)} pieceSet={settings.pieceSetId} />
           <Scoreboard score={records.score} />
+          {/* Task 2: moved out of .board-column, below the fold behind a
+              610px board, into the left column where it fits above it. */}
+          <Controls
+            phase={snapshot.phase}
+            config={snapshot.config}
+            canUndo={game.moves.length > 0 && snapshot.phase.kind !== 'idle'}
+            canRedo={input.canRedo}
+            canResign={resignableSide(snapshot.config, snapshot.phase) !== null}
+            speed={snapshot.config.engineDelayMs ?? 500}
+            hint={{
+              label: hints.label,
+              text: hints.text,
+              disabled: hintDisabled,
+              loading: engineWarmingUp,
+            }}
+            onUndo={input.handleUndo}
+            onRedo={input.handleRedo}
+            onFlip={lifecycle.handleFlip}
+            onResign={input.handleResign}
+            onHint={handleHint}
+            onPause={() => controller.pause()}
+            onResume={() => {
+              // Both snap the display back to the live ply, which can be
+              // exactly one move on from the browsed position: a jump, not
+              // a move, so the board cuts to it.
+              input.cut()
+              controller.resume()
+            }}
+            onStep={() => {
+              input.cut()
+              controller.step()
+            }}
+            onSpeedChange={(ms) => controller.setSpeed(ms)}
+          />
         </div>
 
         <div className="board-column">
@@ -364,39 +426,16 @@ function AppInner({
               pieceSet={settings.pieceSetId}
             />
           ) : null}
-          <Controls
-            phase={snapshot.phase}
-            config={snapshot.config}
-            canUndo={game.moves.length > 0 && snapshot.phase.kind !== 'idle'}
-            canRedo={input.canRedo}
-            canResign={resignableSide(snapshot.config, snapshot.phase) !== null}
-            speed={snapshot.config.engineDelayMs ?? 500}
-            hint={{
-              label: hints.label,
-              text: hints.text,
-              disabled: hintDisabled,
-              loading: engineWarmingUp,
-            }}
-            onUndo={input.handleUndo}
-            onRedo={input.handleRedo}
-            onFlip={lifecycle.handleFlip}
-            onResign={input.handleResign}
-            onHint={handleHint}
-            onPause={() => controller.pause()}
-            onResume={() => {
-              // Both snap the display back to the live ply, which can be
-              // exactly one move on from the browsed position: a jump, not
-              // a move, so the board cuts to it.
-              input.cut()
-              controller.resume()
-            }}
-            onStep={() => {
-              input.cut()
-              controller.step()
-            }}
-            onSpeedChange={(ms) => controller.setSpeed(ms)}
-          />
-          <NewGame
+        </div>
+
+        <div className="right-column">
+          {/* Task 3: moved out of .board-column, below a 610px board, into
+              the right column where it fits above the tabs. Level and time
+              control stay here too — see SettingsPopover's doc comment for
+              why they belong next to the button that starts the next game,
+              not in a settings popover. Task 6: below 900px this collapses
+              into a popover (NewGameControl); inline here otherwise. */}
+          <NewGameControl
             mode={choices.mode}
             level={choices.level}
             timeControlId={choices.timeControlId}
@@ -408,11 +447,8 @@ function AppInner({
             onColorChange={choices.setColor}
             onStart={lifecycle.handleNewGame}
             onPuzzles={openPuzzles}
+            onOpenChange={setNewGameOpen}
           />
-          <GameIO game={game} onImport={lifecycle.handleImport} />
-        </div>
-
-        <div className="right-column">
           <RightTabs
             active={tab}
             onChange={setTab}

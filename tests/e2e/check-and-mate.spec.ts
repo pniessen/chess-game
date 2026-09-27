@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { coachOffline } from './helpers'
+import { coachOffline, importGame } from './helpers'
 
 /**
  * Task 4: a pulsing red glow on the king in check, held (not pulsing) and
@@ -31,8 +31,7 @@ test.beforeEach(async ({ page }) => {
 test('a plain check pulses the king square and does not shake the board', async ({ page }) => {
   await twoPlayer(page)
   // White king on e1, in check from the rook on e8 (RULE_FIXTURES.castlingWhileInCheck).
-  await page.getByTestId('import-text').fill('4r2k/pppp1ppp/8/8/8/8/PPPP1PPP/R3K2R w KQ - 0 1')
-  await page.getByTestId('import-submit').click()
+  await importGame(page, '4r2k/pppp1ppp/8/8/8/8/PPPP1PPP/R3K2R w KQ - 0 1')
 
   const king = page.locator('[data-square="e1"]')
   await expect(king).toHaveClass(/check/)
@@ -70,8 +69,7 @@ test('checkmate holds the glow and shakes the board once', async ({ page }) => {
 test('stalemate never shows a check glow or a shake', async ({ page }) => {
   await twoPlayer(page)
   // Black to move, stalemated (RULE_FIXTURES.stalemate).
-  await page.getByTestId('import-text').fill('7k/5Q2/6K1/8/8/8/8/8 b - - 0 1')
-  await page.getByTestId('import-submit').click()
+  await importGame(page, '7k/5Q2/6K1/8/8/8/8/8 b - - 0 1')
   await expect(page.getByTestId('result')).toHaveText(/stalemate/i)
 
   await expect(page.locator('.square.check')).toHaveCount(0)

@@ -64,6 +64,11 @@
   --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%23536074' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   /* Masked to `currentColor` where it is used, so it needs no dark variant. */
   --icon-sliders: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.6' stroke-linecap='round'%3E%3Cpath d='M2 4.5h4.5M11.5 4.5H14M2 11.5h2.5M9.5 11.5H14'/%3E%3Ccircle cx='9' cy='4.5' r='2'/%3E%3Ccircle cx='7' cy='11.5' r='2'/%3E%3C/svg%3E");
+  --icon-file: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M9 1.75H4.25A1.25 1.25 0 0 0 3 3v10a1.25 1.25 0 0 0 1.25 1.25h7.5A1.25 1.25 0 0 0 13 13V5.75Z'/%3E%3Cpath d='M9 1.75V5.75H13'/%3E%3Cpath d='M5.75 9h4.5M5.75 11.25h3'/%3E%3C/svg%3E");
+  /* Task 6: New game's mobile-only popover trigger (below 900px — see
+     NewGameControl.tsx). Same masked-to-`currentColor` pattern as the two
+     icons above. */
+  --icon-plus: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.6' stroke-linecap='round'%3E%3Ccircle cx='8' cy='8' r='6.25'/%3E%3Cpath d='M8 5.25v5.5M5.25 8h5.5'/%3E%3C/svg%3E");
 
   --radius-sm: 8px;
   --radius: 12px;
@@ -318,8 +323,40 @@ body {
    Layout
    ------------------------------------------------------------------ */
 .layout {
+  /* Task 1: the board's edge length reacts to viewport HEIGHT instead of
+     being a hard 640px that never reacts to it — a 1920x1080 display used
+     to scroll for no reason, since nothing about the board ever got
+     smaller. --board-size keeps the 640px cap (so nothing changes at
+     1440x800 — see below) but shrinks on shorter viewports instead of
+     pushing the page taller; board.css's .board-frame width and this
+     grid's own board track both read it, so `.board-row`, the board
+     itself, the eval bar (a flex sibling that stretches to the row's
+     height) and the coordinate gutters (part of .board-frame's own width
+     calc) all move together.
+
+     --chrome is the vertical space around the board's row that is NOT the
+     board — measured live in a real browser (not guessed) at 1280x720,
+     1440x800 and 1920x1080; identical at all three, since none of it
+     depends on viewport WIDTH, only on the fixed-height header above the
+     board and the page's own padding:
+       .app padding-top                                    20px
+       .status-row rendered height                         42px
+       .status-row margin-bottom (the gap between the       20px  <- "the layout gap"
+         header row and .layout below it)
+       .app padding-bottom                                 40px
+                                                            -----
+                                                            122px
+     (Verified at 1440x800 the board still renders at 610px inside its
+     640px-capped track — unchanged from before this task, since
+     100svh - 122px = 678px there, which still clamps to the 640px cap.)
+
+     `svh`, not `vh`: on mobile Safari `vh` is sized to the LARGEST
+     viewport (URL bar hidden), so a `vh`-sized board would be taller than
+     the actually-visible viewport exactly when the URL bar is showing. */
+  --chrome: 122px;
+  --board-size: clamp(360px, min(640px, calc(100svh - var(--chrome, 180px))), 640px);
   display: grid;
-  grid-template-columns: 232px minmax(0, 640px) 280px;
+  grid-template-columns: 232px minmax(0, var(--board-size)) 280px;
   grid-template-areas: 'left board right';
   gap: 24px;
   justify-content: center;
@@ -331,7 +368,88 @@ body {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  /* Task 5: the side columns are bounded by the board's own edge length and
+     scroll INSIDE that bound, so the PAGE never scrolls.
+
+     Why `max-height: var(--board-size)` and not `height`:
+       - `max-height` leaves a short column at its content height (the idle
+         left column is 504px against a 640px board — `height` would stretch
+         it to 640 and strand 136px of empty card below the controls), while
+         still capping a tall one.
+       - It makes "the page never scrolls" provable rather than measured.
+         The page's height is `--chrome` (122px) + the tallest thing in the
+         `.layout` row, and every one of the three is now <= --board-size:
+         the board column is `min(track, --board-size + gutter)` tall minus
+         its gutter, and both side columns are capped here. Since
+         --board-size is itself `clamp(360px, 100svh - 122px, 640px)`, the
+         page is 122 + --board-size <= 100svh at every viewport tall enough
+         for the clamp's 360px FLOOR not to bind (>= 482px) — Task 1's
+         board floor is the deliberate backstop below that.
+
+     HOW MUCH SLACK that leaves is worth being precise about, because there
+     is a whole band of viewport heights where the answer is NONE. Wherever
+     the clamp's middle term is what wins — every height from 482px to
+     762px — `--board-size` is exactly `100svh - 122`, so as soon as either
+     side column reaches its cap the page is exactly
+     `122 + (100svh - 122) = 100svh`: fits to the pixel, with nothing spare.
+     1280x720 is one point on that 280px-wide band, not a special case.
+     Only above 762px does the 640px cap win and leave real slack
+     (`viewport height - 762`, so 38px at 800 and 318px at 1080).
+
+     The practical consequence, for whoever touches the header next: any
+     growth in `--chrome` — a status row that wraps to a second line, a
+     fourth action beside Game file / Shortcuts / Settings — reintroduces a
+     page scroll across that ENTIRE band at once, not at one awkward size.
+     `--chrome` and this cap are a matched pair; changing one without
+     re-measuring the other is what will break it.
+
+     Measured at 1440x800 with a 70-move game: the column's content is 613px
+     (the captured card grows as material comes off) against a 640px cap, so
+     it does not scroll there; at 1280x720 the cap is 598px and it scrolls
+     15px — the accepted cost of never scrolling the page (the alternative
+     is Hint sitting below the fold, which is what Task 2 just fixed). */
+  min-height: 0;
+  max-height: var(--board-size);
+  overflow-y: auto;
+  /* `overflow-y: auto` also computes `overflow-x` to `auto`, and on
+     platforms with classic space-taking scrollbars (Windows, most Linux)
+     the bar eats ~15px of this fixed 232px track the moment it appears.
+     This column only STARTS scrolling once the captured card has grown
+     mid-game, so without a reserved gutter every card in it would reflow
+     15px narrower part-way through a game. Reserving the space up front
+     costs nothing on macOS (overlay scrollbars reserve 0) and also keeps
+     the cards' box-shadows off the clipping edge on the gutter side.
+     Deliberately NOT visible locally on macOS — reasoned, not observed. */
+  scrollbar-gutter: stable;
 }
+
+/* Task 6 (mobile pass, item B): a bottom fade while `useOverflowFade`
+   (App.tsx) finds there is genuinely more content below the current
+   scroll position — otherwise a long game's Controls card is sliced flat
+   at the column's bottom edge with no border, radius or shadow of its own
+   to read as "cut off" by (worst in dark mode, where there is nothing to
+   cast a shadow against). `data-fade-bottom` is absent — not merely
+   false — once there is nothing left to scroll to, so the mask lifts the
+   instant the reader actually reaches the end.
+
+   No transition: the attribute only flips at rest, between scroll/resize
+   events, never mid-frame — there is no motion here to gate behind
+   `prefers-reduced-motion` in the first place.
+
+   A `mask-image` (like a `transform` or a `filter`) makes its element a
+   containing block for `position: fixed` descendants — nothing fixed
+   lives inside `.left-column` today, which is exactly why that would
+   break silently, later, the day something does. */
+.left-column[data-fade-bottom] {
+  -webkit-mask-image: linear-gradient(to bottom, black calc(100% - 28px), transparent 100%);
+  mask-image: linear-gradient(to bottom, black calc(100% - 28px), transparent 100%);
+}
+
+/* The cards keep their natural height. Without this, a flex column that has
+   hit its `max-height` SHRINKS its items (flex-shrink defaults to 1) down
+   to their min-content size — the clocks and the controls grid visibly
+   squash — instead of overflowing and letting the column scroll. */
+.left-column > * { flex: none; }
 
 .board-column {
   grid-area: board;
@@ -352,7 +470,27 @@ body {
   flex-direction: column;
   gap: 12px;
   min-width: 0;
+  /* Task 5: same cap as .left-column (see there for why `max-height`). This
+     is the column the plan exists for: with a 70-move game loaded it
+     measured 826px against a ~702px budget at 1440x800, and ALL of the
+     page's overflow was here. */
+  min-height: 0;
+  max-height: var(--board-size);
+  /* A backstop, not the mechanism: .tabs below gives up its height first,
+     so this only ever scrolls once .tabs has hit its own min-height (i.e.
+     on a viewport short enough that New game + a usable tab card no longer
+     fit). Clipping instead would make the bottom of New game unreachable
+     there, since the page has no scrollbar of its own any more. */
+  overflow-y: auto;
+  /* See .left-column: a reserved gutter instead of a 15px reflow the first
+     time a classic scrollbar appears in this fixed 280px track. */
+  scrollbar-gutter: stable;
 }
+/* New game cannot give: its selects are already at their floor (Task 3
+   measured a 2x2 grid clipping "Engine vs engine"), so 324px is its real
+   height. The tab card is the one that flexes. */
+.right-column > .new-game { flex: none; }
+.right-column > .tabs { flex: 1 1 auto; }
 
 /* Card surfaces */
 .clock,
@@ -360,8 +498,7 @@ body {
 .scoreboard,
 .tabs,
 .controls,
-.new-game,
-.game-io {
+.new-game {
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius);
@@ -488,9 +625,20 @@ body {
 /* ------------------------------------------------------------------
    Tabs (segmented control)
    ------------------------------------------------------------------ */
-.tabs { overflow: hidden; }
+/* Task 5: the tab card is the flexible part of the right column — it takes
+   whatever height is left under New game and its PANEL scrolls, instead of
+   each list carrying its own fixed px cap and pushing the page past the
+   fold. `overflow: hidden` was already here (it keeps the header's corners
+   inside the card's radius) and does double duty now: it also zeroes this
+   item's automatic minimum size, which is what lets it shrink at all. */
+.tabs {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
 
 .tabs-header {
+  flex: none;
   display: flex;
   gap: 2px;
   margin: 8px;
@@ -523,6 +671,27 @@ body {
   box-shadow: 0 1px 2px rgba(23, 32, 48, 0.12);
 }
 
+/* The panel is the scroll container, not the document: it takes the tab
+   card's leftover height and anything taller than that scrolls inside it.
+
+   `display` is set on `:not([hidden])` ONLY. Tabs.tsx keeps every panel
+   mounted and hides the inactive ones with the `hidden` attribute, and an
+   author `display: flex` would beat the UA stylesheet's `[hidden] { display:
+   none }` no matter the specificity — putting all four panels on screen at
+   once. */
+.tab-panel {
+  flex: 1 1 auto;
+  min-height: 0;
+  /* A backstop for panels whose content cannot shrink (Review is a plain
+     block of prose). Panels whose content DOES flex — Moves, History,
+     Explorer — scroll in their own list below and never reach this. */
+  overflow-y: auto;
+}
+.tab-panel:not([hidden]) {
+  display: flex;
+  flex-direction: column;
+}
+
 /* ------------------------------------------------------------------
    Move list
    ------------------------------------------------------------------ */
@@ -530,9 +699,22 @@ body {
   list-style: none;
   margin: 0;
   padding: 4px 8px 10px;
-  max-height: 420px;
+  /* Task 5: was `max-height: 420px`. A constant cap is what put 948px of
+     page into an 800px viewport with a long game loaded — the list simply
+     grew to 420px and shoved everything under it past the fold. It now
+     takes the panel's height instead (`min-height: 0` so it may shrink
+     below its content, which a flex item otherwise refuses to do) and
+     scrolls there: measured 248px at 1440x800 and 206px at 1280x720 under a
+     324px New game card. */
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
   font-variant-numeric: tabular-nums;
+  /* Task 6 fix round 1: makes this list every row's `offsetParent`, so
+     MoveList.tsx's auto-scroll effect can read `el.offsetTop` relative to
+     the list itself (not some ancestor further up) and write only
+     `list.scrollTop` — never an ancestor, never the page. */
+  position: relative;
 }
 
 .move-list li {
@@ -769,7 +951,13 @@ body {
 }
 
 /* ------------------------------------------------------------------
-   Under-board panels
+   Controls panel (also reused, as .controls.puzzle-panel, by the puzzle
+   screen — see puzzles.css). Task 2: the game's own Controls now lives in
+   the 232px .left-column rather than under the board, so its internal
+   rows (.controls-grid, .speed-control, .hint-row below) are laid out for
+   that width; anything shared with the puzzle screen (.controls itself,
+   .hint-text) is kept generic or scoped with `.hint-row` so the puzzle
+   screen's own (wider, under-the-board) layout is untouched.
    ------------------------------------------------------------------ */
 .controls {
   display: flex;
@@ -780,6 +968,16 @@ body {
   padding: 12px;
 }
 
+/* Only Controls.tsx uses these three — safe to size for its 232px column. */
+.left-column .controls {
+  padding: 10px;
+  gap: 8px;
+}
+.left-column .controls button {
+  padding: 7px 8px;
+  font-size: 0.85em;
+}
+
 .controls-row {
   display: flex;
   gap: 8px;
@@ -787,27 +985,43 @@ body {
   flex-wrap: wrap;
 }
 
+/* undo/redo/flip/resign, and pause/step: two equal-width columns so
+   neither row needs to shrink-wrap or truncate "Flip board" in a narrow
+   column. */
+.controls-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
 .speed-control {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   gap: 8px;
-  margin-left: auto;
+  width: 100%;
   font-size: 0.9em;
   font-weight: 600;
   color: var(--muted);
 }
-.speed-control input { width: 140px; }
+.speed-control input { flex: 1; min-width: 0; }
 
+/* Task 2: hint stays with the rest of the controls (not its own strip
+   under the board — see task-2-brief.md), so it stacks button-then-text
+   instead of sitting side by side. */
 .hint-row {
-  align-items: flex-start;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
   padding-top: 10px;
   border-top: 1px solid var(--line);
 }
+.hint-row button[data-testid='hint'] { width: 100%; }
 /* A loading Hint button reads as "busy", not "broken": still visibly a
    button (icon + label), rather than a plain greyed-out disabled state. */
 .hint-row button[data-testid='hint'].hint-loading {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
 }
 
@@ -819,47 +1033,78 @@ body {
   color: var(--ink);
 }
 .hint-text:not(:empty) { font-style: italic; }
+/* Reserve ~2 lines (line-height 1.45 * 2) so an arriving or clearing hint
+   never shifts the column beneath it. Scoped to `.hint-row` so the puzzle
+   screen's own `.hint-text` (not nested in a `.hint-row`) is unaffected. */
+.hint-row .hint-text {
+  flex: none;
+  width: 100%;
+  min-width: 0;
+  min-height: 2.9em;
+  padding-top: 0;
+}
 
+/* Task 3: moved from under the board (a 640px-wide row of shrink-wrapped
+   labels) into the 280px .right-column, above .tabs. A 2x2 grid of selects
+   was tried first and measured against a single-column stack, both live in
+   a real browser: at 280px (minus this card's own padding) a 2-up grid
+   gives each select ~118px of content width. A closed <select>'s
+   scrollWidth never exceeds its clientWidth in Chromium regardless of
+   content (the selected option isn't laid out as measurable overflow), so
+   that metric alone reads as "fine" for both layouts — but visually, in
+   the grid, "Engine vs engine" (mode) renders as "Engine vs engi" and
+   "Strong club (~1800)" (level) as "Strong club (~" with no ellipsis, cut
+   mid-word. The single-column stack below gives every select the full
+   ~248px content width, which fits every option in every select (those
+   two longest included) with room to spare — see task-3-report.md for the
+   full measurements and screenshots. */
 .new-game {
   display: flex;
-  gap: 12px;
-  flex-wrap: wrap;
-  align-items: flex-end;
+  flex-direction: column;
+  gap: 10px;
   width: 100%;
-  max-width: 640px;
   padding: 14px;
 }
 
 .new-game label {
   display: flex;
   flex-direction: column;
-  flex: 1 1 110px;
+  width: 100%;
   font-size: 0.8em;
   font-weight: 600;
   color: var(--muted);
   gap: 4px;
 }
-.new-game label select { font-size: 1.15em; }
-.new-game button[data-testid='new-game'] { flex: 1 1 120px; padding-block: 9px; }
+.new-game label select { width: 100%; }
 
-.game-io {
+.new-game-actions {
+  display: flex;
+  gap: 8px;
+  padding-top: 2px;
+}
+.new-game-actions button { flex: 1 1 0; padding-block: 9px; }
+
+/* Task 4: GameIO's own wrapper, now the body of the Game file popover
+   rather than a card of its own — so no surface, border or shadow here;
+   `.game-file-popover` supplies all of that. */
+.game-file-body {
   display: flex;
   flex-direction: column;
   gap: 8px;
   width: 100%;
-  max-width: 640px;
-  padding: 14px;
 }
-.game-io > button { align-self: flex-start; }
+.game-file-body > button { align-self: flex-start; }
 
-.game-io .import {
+.game-file-body .import {
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
-.game-io .import > button { align-self: flex-start; }
+.game-file-body .import > button { align-self: flex-start; }
 
-.game-io textarea {
+.game-file-body textarea {
+  width: 100%;
+  box-sizing: border-box;
   min-height: 70px;
 }
 
@@ -1086,9 +1331,31 @@ body {
 /* ------------------------------------------------------------------
    Explorer, review, history
    ------------------------------------------------------------------ */
-.explorer { display: flex; flex-direction: column; gap: 8px; padding: 4px 12px 12px; }
+.explorer { display: flex; flex-direction: column; gap: 8px; padding: 4px 12px 12px; flex: 1 1 auto; min-height: 0; }
+/* Everything except the results list keeps its own height, so the detail
+   block stays pinned under the list the way the old 280px cap kept it. */
+.explorer > * { flex: none; }
 .explorer-current { margin: 0; font-size: 0.85em; color: var(--color-muted); }
-.explorer-results { list-style: none; margin: 0; padding: 0; max-height: 280px; overflow-y: auto; }
+/* Task 5: was `max-height: 280px` — now the results take whatever the panel
+   has left under the current-opening line and above the detail block.
+
+   `min-height: 90px` is not decoration, it is the fix for a hole this task
+   opened. `.explorer-detail` is `flex: none` at a natural 97px, so the
+   results are the ONLY child that gives and they absorb the whole
+   shortfall on their own: measured, they fell to 55.7px at 1280x720, 3.7px
+   at 1366x668 (a mainstream laptop) and a flat 0px at 1440x660 and below,
+   where `clientHeight` is 0 and the list cannot even be scrolled — a
+   hundred openings rendered as a sliver. `.tabs`' own 160px floor does
+   nothing about it, because the fixed detail block eats the panel whatever
+   height the card has.
+
+   90px is three rows at the measured 30px row height, and this list has no
+   padding of its own, so it is exactly three. Past that the results plus
+   the detail simply outgrow `.explorer`, which overflows into
+   `.tab-panel`'s `overflow-y: auto` — the backstop that rule exists for.
+   It never inflates anything: at 1440x800 the results are 97.7px, above
+   the floor, and unchanged. */
+.explorer-results { list-style: none; margin: 0; padding: 0; flex: 1 1 auto; min-height: 90px; overflow-y: auto; }
 .app .explorer-results button {
   width: 100%; text-align: left; border: none; background: transparent;
   color: var(--color-fg); padding: 5px 8px; border-radius: 6px; cursor: pointer; font: inherit;
@@ -1166,7 +1433,11 @@ body {
 :root[data-theme='dark'] .mark-mistake { color: #ffab5e; background: rgba(255, 171, 94, 0.18); }
 :root[data-theme='dark'] .mark-blunder { color: #ff8a80; background: rgba(255, 138, 128, 0.18); }
 
-.history-list { list-style: none; margin: 0; padding: 4px 12px 12px; max-height: 420px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+/* Task 5: was `max-height: 420px`, same story as .move-list. Entries are
+   stored newest-first (storage.ts's addHistoryEntry prepends), so the most
+   recent game is the one at scrollTop 0 — shrinking this list never hides
+   it. */
+.history-list { list-style: none; margin: 0; padding: 4px 12px 12px; flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
 .history-entry {
   display: flex; flex-direction: column; gap: 4px;
   padding: 10px 12px; border-radius: 10px; background: var(--surface-2);
@@ -1177,6 +1448,7 @@ body {
 .history-empty { margin: 0; padding: 4px 12px 14px; color: var(--color-muted); }
 
 .history-notice {
+  flex: none;
   display: flex; flex-direction: column; gap: 8px; align-items: flex-start;
   margin: 4px 12px 12px; padding: 10px 12px; border-radius: var(--radius);
   background: var(--color-warning-bg); border: 1px solid var(--color-warning-border);
@@ -1379,6 +1651,136 @@ body {
 }
 
 /* ------------------------------------------------------------------
+   Game file popover (Task 4, above the fold)
+
+   Export PGN / Share position / Import, lifted out of the board column.
+   Same shell and same tier as settings (z-index 30) — see
+   `.settings-popover` above for the full stacking order — and, like it,
+   NOT a modal: no backdrop, no `aria-modal`, the game behind stays live.
+   ------------------------------------------------------------------ */
+.game-file-anchor {
+  position: relative;
+  margin-left: auto;
+}
+/* `.settings-anchor` carries the same `margin-left: auto`; in a flex row
+   only the first of them takes up the slack, so this one pushes the whole
+   trio right and settings then sits flush against its neighbours. */
+.status-row .game-file-anchor ~ .settings-anchor { margin-left: 0; }
+
+.app .game-file-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  background: var(--surface);
+}
+.game-file-icon {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  background: currentColor;
+  -webkit-mask: var(--icon-file) center / contain no-repeat;
+  mask: var(--icon-file) center / contain no-repeat;
+}
+
+.game-file-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 30;
+  box-sizing: border-box;
+  width: 320px;
+  max-width: calc(100vw - 24px);
+  max-height: min(70vh, 560px);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  text-align: left;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card), 0 18px 40px -16px rgba(23, 32, 48, 0.35);
+  animation: settings-pop-in 140ms ease-out;
+}
+.game-file-popover:focus { outline: none; }
+
+.game-file-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+/* ------------------------------------------------------------------
+   Task 6 (mobile pass): New game's mobile-only popover.
+
+   Below 900px `NewGameControl` swaps the always-visible `NewGame` card for
+   this trigger + popover pair — same shell as Game file/Settings
+   (`usePopover`).
+
+   Fix round 1: the popover itself is portaled to `document.body` and
+   positioned `fixed` from JS (NewGameControl.tsx), same technique as
+   `MovePreview.tsx` — `.new-game-anchor` (still just the trigger's normal-
+   flow wrapper inside `.right-column`) is NOT its containing block any
+   more. It was, in the first version (`position: absolute` on the
+   popover, `position: relative` here) — and `.right-column`'s own
+   `overflow-y: auto` (Task 5) clipped it to a sliver, since an
+   absolutely-positioned descendant of a scrolling ancestor cannot escape
+   that ancestor's box, `z-index` or no. `position: fixed` escapes every
+   ancestor's overflow by definition, which is the actual fix; the anchor
+   needs no `position` of its own for it.
+   ------------------------------------------------------------------ */
+.app .new-game-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  justify-content: center;
+  background: var(--surface);
+}
+.new-game-icon {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  background: currentColor;
+  -webkit-mask: var(--icon-plus) center / contain no-repeat;
+  mask: var(--icon-plus) center / contain no-repeat;
+}
+
+.new-game-popover {
+  /* `position`, `top`/`bottom`, `left`, `width` and `max-height` are all
+     set inline, per-instance, by NewGameControl.tsx's `place()` — computed
+     from the trigger's live `getBoundingClientRect()` and the viewport,
+     re-run on every scroll/resize while open, and picking upward vs.
+     downward from which half of the viewport the trigger is in. Nothing
+     here can be a static value any more (that was the bug — see the
+     comment above this block). */
+  position: fixed;
+  z-index: 30;
+  box-sizing: border-box;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  text-align: left;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card), 0 18px 40px -16px rgba(23, 32, 48, 0.35);
+  animation: settings-pop-in 140ms ease-out;
+}
+.new-game-popover:focus { outline: none; }
+
+.new-game-popover-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+/* ------------------------------------------------------------------
    Task 14: sharing the current position
    ------------------------------------------------------------------ */
 .share-game {
@@ -1431,7 +1833,43 @@ body {
     grid-row: 2;
     justify-content: flex-start;
     margin-bottom: 12px;
+    /* Task 4: the containing block for BOTH header popovers here — see
+       below. */
+    position: relative;
   }
+  /* Task 4: on a phone the row wraps, and neither trigger can be relied on
+     to sit at the right edge of the screen — so anchoring a 320px popover
+     to a trigger's own right edge hangs most of it off the left. (Settings
+     used to be safe by being the last item on the row; adding a third
+     action ended that, and at 320px it went to x = -176, ~60% off-screen
+     with no horizontal page scroll to reach it.) Anchoring both to the
+     status row instead — which always spans the content width — puts them
+     under the header and inside the viewport whatever the row does.
+
+     `margin-left: auto` has to go with it: with `justify-content:
+     flex-start` a surviving auto margin strands `Game file` alone on its
+     own right-aligned line at 414/430px, and indents the row by 72px at
+     320px. */
+  .game-file-anchor,
+  .settings-anchor {
+    position: static;
+    margin-left: 0;
+  }
+
+  /* Task 6: every popover gets a taller cap on a phone, where there is no
+     side column's worth of alternative content to look at while it is
+     open and a phone screen is itself often taller, proportionally, than
+     it is wide — 70vh of a short desktop window clips sooner than the
+     same 70vh of a tall phone actually needs to. `.new-game-popover`
+     needs no entry here: it only ever exists below 900px (NewGameControl),
+     and fix round 1 made its `max-height` a per-instance inline style
+     (computed from the trigger's own position — see NewGameControl.tsx),
+     not a static rule this block could override. */
+  .settings-popover,
+  .game-file-popover {
+    max-height: min(80vh, 560px);
+  }
+
   .opening { max-width: 100%; }
 
   .layout {
@@ -1441,12 +1879,45 @@ body {
   }
   .board-column { display: contents; }
   .board-row { order: 1; }
+  /* Task 2: Controls now nests inside .left-column (order 2) instead of
+     being a direct .board-column child ordered on its own — it renders
+     after the clocks/captured/scoreboard already in there, which is the
+     same visual slot (between the left column and the right column's
+     tabs) this used to reach with an explicit `order: 3`. */
   .left-column { order: 2; grid-area: auto; }
-  .controls { order: 3; }
+  /* Task 3: .new-game now nests inside .right-column (order 4) instead of
+     being a flattened .board-column child ordered on its own — it renders
+     before .tabs there in DOM order already (see App.tsx), which is the
+     same visual slot (above the tabs) this used to reach with an explicit
+     `order: 5` when it was a sibling of .board-row in the flattened
+     `.layout` flow. No override needed here now: default order (0) on
+     both .right-column children preserves DOM order. */
   .right-column { order: 4; grid-area: auto; }
-  .new-game { order: 5; }
-  .game-io { order: 6; }
-  .controls, .new-game, .game-io { max-width: none; }
+
+  /* Task 5 is a DESKTOP measure: it caps the two side columns at the board's
+     edge length so the page never scrolls beside it. Here the layout is one
+     column and the page is meant to scroll, so the caps come off — a column
+     capped at --board-size would put a second, nested scrollbar inside a
+     page that already has one. The three lists get their original px caps
+     back with them, which keeps this breakpoint pixel-identical to what it
+     rendered before this task: without them a 70-move game would run the
+     moves list to 2,097px and push History and New game miles down the
+     page. (The flex plumbing above is harmless here: in a panel with no
+     height cap, `flex: 1 1 auto` items just take their content height.) */
+  .left-column,
+  .right-column {
+    max-height: none;
+    overflow-y: visible;
+  }
+  .move-list { max-height: 420px; }
+  .history-list { max-height: 420px; }
+  /* `min-height` goes with the cap: the desktop floor exists because a
+     fixed-height `.explorer-detail` can squeeze the results to nothing
+     inside a height-capped panel. Here there is no cap and no shortfall to
+     floor against, and leaving it on would pad a two-result list out to
+     90px — a change to this breakpoint, which otherwise renders exactly as
+     it did before this task. */
+  .explorer-results { max-height: 280px; min-height: 0; }
 
   .clocks { flex-direction: row; }
   .clocks .clock { flex: 1 1 0; min-width: 0; padding: 10px 12px; }
@@ -1457,8 +1928,18 @@ body {
   .left-column .captured { padding: 6px 10px; }
   .left-column .scoreboard { flex-direction: column; justify-content: center; gap: 0; padding: 6px 14px; }
   .scoreboard-label { font-size: 0.8em; }
+  /* Controls' own 2-column grids need the full row, not the auto-placed
+     half-width cell a plain grid item would fall into here.
 
-  .speed-control { margin-left: 0; }
+     Task 6 (mobile pass): `order: -1` puts Controls FIRST among
+     `.left-column`'s own children — the brief's "status -> board ->
+     controls -> clocks/captured/score -> tabs" — so Undo and Hint sit
+     right under the board instead of below three cards' worth of
+     clocks/captured/score first. `order` is presentation-only: it does
+     not touch DOM order or Tab order, both of which stay
+     clocks/captured/scoreboard/controls, matching every existing
+     data-testid and this file's own reading order. */
+  .left-column .controls { grid-column: 1 / -1; max-width: none; order: -1; }
 
   /* Tighter, and closer to the board's bottom edge, so a phone-sized board
      still shows its top half. */
@@ -1473,6 +1954,37 @@ body {
   }
   .game-end-headline { font-size: 1.05rem; }
   .app .game-end-card button { padding: 7px 10px; font-size: 0.86em; }
+}
+
+/* ------------------------------------------------------------------
+   Task 5: a floor for the tab card, on SHORT viewports only.
+
+   The right column's height is capped at `--board-size` and `.tabs` is the
+   part of it that gives, so the panel's height is a straight subtraction
+   (measured at 1440x800, and width-independent):
+
+     panel = --board-size - (New game 324 + column gap 12 + tab header 56)
+     (the header's 56px is the 38px tab row plus its 8px margins and the
+      card's own 1px top and bottom borders — all measured, not guessed)
+           = (100svh - --chrome 122) - 392
+           = viewport height - 514
+
+   Above ~620px of viewport height that leaves 100px or more and no floor is
+   needed — the card cannot shrink past its own header there, so the tabs
+   stay clickable on their own. Below it the subtraction runs the panel down
+   towards nothing, and `overflow: hidden` on `.tabs` (which is what lets it
+   shrink at all) would eventually clip the tab row itself out of reach,
+   with no page scrollbar left to get at it.
+
+   So below that threshold the card refuses to go under 160px — the header
+   plus about three move rows — and `.right-column`'s own `overflow-y: auto`
+   takes over, scrolling the column instead. The floor is deliberately NOT
+   unconditional: measured, applying it at every height padded the empty
+   Moves card from 70px to 160px and the empty History card from 96px to
+   160px, a visibly empty box beside a full-height board, to buy something
+   only ever needed down here. */
+@media (max-height: 620px) {
+  .tabs { min-height: 160px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

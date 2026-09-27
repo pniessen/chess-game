@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { coachOffline, openSettings, withSettings } from './helpers'
+import { coachOffline, importGame, openSettings, withSettings } from './helpers'
 
 declare global {
   interface Window {
@@ -57,8 +57,7 @@ test('no audio before a gesture; a move plays; mute persists', async ({ page }) 
 })
 
 test('importing a game is silent', async ({ page }) => {
-  await page.getByTestId('import-text').fill('1. e4 e5 2. Nf3 Nc6 *')
-  await page.getByTestId('import-submit').click() // this click unlocks audio
+  await importGame(page, '1. e4 e5 2. Nf3 Nc6 *') // this click unlocks audio
   await expect(page.getByTestId('ply-count')).toHaveText('4')
   expect((await audio(page)).tones).toBe(0)
 })

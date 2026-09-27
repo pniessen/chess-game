@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import type { PlayedMove } from '../../game-core/types'
 import { moveQualityTitle, type MoveQuality } from '../review/reviewView'
 import { MARK } from '../../review/summary'
@@ -50,6 +50,53 @@ export function MoveList({
   const hidePreview = (ply: number) =>
     setPreviewPly((current) => (current === ply ? null : current))
 
+  // Task 6 (mobile pass, item A): the current move was never auto-scrolled
+  // into view — a genuinely missing feature (Task 5 measured no
+  // `scrollIntoView` anywhere in src/ before this), and Task 5 made its
+  // absence far more noticeable: this panel went from ~14 visible pairs to
+  // ~7-8 with no page scrollbar left to hint "there is more here".
+  //
+  // Fix round 1: the first version of this used the browser's own
+  // `Element.scrollIntoView({ block: 'nearest' })`, which walks every
+  // scrollable ANCESTOR, not just this list — and on mobile (≤768px,
+  // where `.right-column` gives up its own scroll container, Task 5's
+  // mobile override) the walk continued past it to the document itself,
+  // which genuinely can scroll there. Measured live: playing a single
+  // move while the Moves tab was merely active yanked the whole PAGE down
+  // to reveal it, moving the board out from under whatever the reader was
+  // doing on it. Guarding it off below 768px only deleted the feature
+  // exactly where the panel is smallest and needs it most (measured: at
+  // 375x812 with a 70-move game, `.move-list` is its own scroll container
+  // — `scrollHeight` 2097 against `clientHeight` 434 — and the current
+  // move sat off-panel, unreached, guard or no guard).
+  //
+  // This version scrolls `listRef` DIRECTLY instead: `el.offsetTop` is
+  // relative to `.move-list` itself (app.css makes it `position:
+  // relative`, so it is every row's `offsetParent`), and only
+  // `list.scrollTop` is ever written — never an ancestor, never the page,
+  // identically at every viewport width. No 768px literal to keep in
+  // sync with the CSS breakpoint any more, either.
+  //
+  // Deliberately instant, and a plain `if`/`else`, not an animated
+  // easing: a duration this codebase cannot bound (a long jump — Home
+  // from move 140 — could run well past the 200ms state-change budget)
+  // would race tests/e2e/move-preview.spec.ts's own explicit,
+  // synchronous scroll on the same list. Instant scrolling satisfies
+  // "respect prefers-reduced-motion" by construction: there is no motion
+  // to gate.
+  const listRef = useRef<HTMLOListElement>(null)
+  useLayoutEffect(() => {
+    const el = anchorsRef.current.get(currentPly)
+    const list = listRef.current
+    if (!el || !list) return
+    const top = el.offsetTop
+    if (top < list.scrollTop) {
+      list.scrollTop = top
+    } else if (top + el.offsetHeight > list.scrollTop + list.clientHeight) {
+      list.scrollTop = top + el.offsetHeight - list.clientHeight
+    }
+  }, [currentPly])
+
   const entry = (e?: { san: string; ply: number }) => {
     if (!e) return <span className="move empty">…</span>
     const quality = marks?.get(e.ply)
@@ -100,7 +147,7 @@ export function MoveList({
 
   return (
     <>
-      <ol className="move-list" data-testid="move-list">
+      <ol className="move-list" data-testid="move-list" ref={listRef}>
         {pairs.map((p) => (
           <li key={p.number}>
             <span className="number">{p.number}.</span>

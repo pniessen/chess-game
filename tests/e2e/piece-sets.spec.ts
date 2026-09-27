@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { coachOffline, openSettings, withSettings } from './helpers'
+import { coachOffline, importGame, openSettings, withSettings } from './helpers'
 
 // Task 12 changed the selector here: the piece set is no longer a <select>
 // but two preview tiles (radios showing the real SVGs) inside the settings
@@ -34,9 +34,7 @@ test('the promotion picker uses the chosen piece set', async ({ page }) => {
   await choose(page, 'cburnett')
 
   // A White pawn one step from promotion, kings placed so the position is legal.
-  await page.getByTestId('import-text').fill('8/P7/8/8/8/8/8/K6k w - - 0 1')
-  await page.getByTestId('import-submit').click()
-  await expect(page.getByTestId('import-error')).toHaveText('')
+  await importGame(page, '8/P7/8/8/8/8/8/K6k w - - 0 1')
 
   await page.locator('[data-square="a7"]').click()
   await page.locator('[data-square="a8"]').click()
@@ -59,9 +57,7 @@ test('the captured-pieces tray uses the chosen piece set', async ({ page }) => {
 
   // 1. e4 d5 2. exd5 - White's pawn captures Black's, so a black pawn
   // appears in White's ("captured-by-white") tray.
-  await page.getByTestId('import-text').fill('1. e4 d5 2. exd5')
-  await page.getByTestId('import-submit').click()
-  await expect(page.getByTestId('import-error')).toHaveText('')
+  await importGame(page, '1. e4 d5 2. exd5')
 
   const tray = page.getByTestId('captured-by-white')
   await expect(tray.locator('[data-piece="bP"]')).toHaveAttribute('src', '/pieces/cburnett/bP.svg')

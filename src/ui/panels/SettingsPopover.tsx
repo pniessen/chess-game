@@ -1,29 +1,7 @@
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import type { Appearance, Settings } from '../../storage/storage'
 import { BOARD_THEMES, boardTheme } from '../themes'
 import { PIECE_SETS, pieceImageSrc } from '../pieceSets'
-
-/**
- * Everything inside the popover that the Tab key can reach. A radio group
- * is ONE tab stop (the checked button, or the first when none is checked),
- * which is what `tabbables` below reproduces — querying the DOM naively
- * would make the trap hand focus to an unchecked radio and let an arrow
- * key silently change the setting.
- */
-const FOCUSABLE =
-  'button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [href], [tabindex]:not([tabindex="-1"]), [contenteditable]:not([contenteditable="false"])'
-
-function tabbables(root: HTMLElement): HTMLElement[] {
-  const seen = new Set<string>()
-  return [...root.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((el) => {
-    if (!(el instanceof HTMLInputElement) || el.type !== 'radio') return true
-    if (el.checked) return true
-    const group = [...root.querySelectorAll<HTMLInputElement>(`input[type="radio"][name="${el.name}"]`)]
-    if (group.some((r) => r.checked) || seen.has(el.name)) return false
-    seen.add(el.name)
-    return true
-  })
-}
+import { usePopover } from './usePopover'
 
 /** The keys that change a range input's value (so a preview tone is warranted). */
 const SLIDER_KEYS = new Set([
@@ -73,73 +51,26 @@ export function SettingsPopover({
   /** Task 13: lets the keyboard-shortcuts hook know an overlay owns the keyboard. */
   onOpenChange?: (open: boolean) => void
 }) {
-  const [open, setOpenState] = useState(false)
-  const triggerRef = useRef<HTMLButtonElement>(null)
-  const popRef = useRef<HTMLDivElement>(null)
-
-  const setOpen = useCallback(
-    (next: boolean) => {
-      setOpenState(next)
-      onOpenChange?.(next)
-    },
-    [onOpenChange],
-  )
-
-  const close = useCallback(
-    (restoreFocus: boolean) => {
-      setOpen(false)
-      if (restoreFocus) triggerRef.current?.focus({ preventScroll: true })
-    },
-    [setOpen],
-  )
-
-  // Focus the popover itself (not its first control) so a screen reader
-  // announces "Settings" before reading the board previews.
-  useEffect(() => {
-    if (open) popRef.current?.focus({ preventScroll: true })
-  }, [open])
-
-  // A click anywhere else dismisses it, WITHOUT swallowing that click: the
-  // board underneath is still a live game, and a move there should land.
-  useEffect(() => {
-    if (!open) return
-    const onPointerDown = (e: PointerEvent) => {
-      const target = e.target
-      if (!(target instanceof Node)) return
-      if (popRef.current?.contains(target) || triggerRef.current?.contains(target)) return
-      // Restore focus to the trigger only when it was actually inside the
-      // popover (Task 12 review fix, round 1, finding 2): otherwise focus
-      // was already somewhere else on the page (e.g. the board), and
-      // yanking it to the trigger on every outside click would be a
-      // surprise, not a courtesy.
-      close(popRef.current?.contains(document.activeElement) ?? false)
-    }
-    document.addEventListener('pointerdown', onPointerDown)
-    return () => document.removeEventListener('pointerdown', onPointerDown)
-  }, [open, close])
-
-  const handleKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-    if (e.key === 'Escape') {
-      e.stopPropagation()
-      close(true)
-      return
-    }
-    if (e.key !== 'Tab') return
-    const pop = popRef.current
-    if (!pop) return
-    const nodes = tabbables(pop)
-    const first = nodes[0]
-    const last = nodes[nodes.length - 1]
-    if (!first || !last) return
-    const active = document.activeElement
-    if (e.shiftKey && (active === first || active === pop)) {
-      e.preventDefault()
-      last.focus()
-    } else if (!e.shiftKey && active === last) {
-      e.preventDefault()
-      first.focus()
-    }
-  }
+  // Task 4: the trap, the focus dance and the outside-click dismissal now
+  // live in `usePopover`, lifted out of this file verbatim so the Game file
+  // popover could reuse them.
+  //
+  // `documentEscape` stays OFF here, and the reason is concrete, not just
+  // "that is how Task 12 shipped": NOTHING below is conditionally
+  // rendered. Every control in this popover — every radio, the sound
+  // checkbox, the volume slider, the eval switch, Done — is mounted for
+  // as long as the popover is, whatever the game behind it does. So the
+  // focusable element under the user's focus can never be torn out from
+  // under them, focus can never fall to `<body>`, and the popover's own
+  // `onKeyDown` always sees Escape. (Verified in round 1 review: a full
+  // engine-vs-engine game played to checkmate with this open never once
+  // moved focus out, not even when the game-end card appeared.)
+  //
+  // If you ever add content here that renders conditionally — a "saved"
+  // confirmation, a reset-confirm step, anything that can appear and
+  // vanish — that reasoning dies with it. Pass `documentEscape: true`
+  // when you do; `GameFilePopover` has the long version of why.
+  const { open, toggle, close, triggerRef, popRef, handleKeyDown } = usePopover({ onOpenChange })
 
   const volumePercent = Math.round(settings.volume * 100)
 
@@ -153,7 +84,7 @@ export function SettingsPopover({
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-controls="settings-popover"
-        onClick={() => (open ? close(true) : setOpen(true))}
+        onClick={toggle}
       >
         <span className="settings-gear" aria-hidden="true" />
         Settings

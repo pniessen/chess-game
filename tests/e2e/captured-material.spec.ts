@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { coachOffline } from './helpers'
+import { coachOffline, importGame } from './helpers'
 
 /**
  * Task 11: captured pieces animate into their tray, and the side ahead on
@@ -17,9 +17,7 @@ import { coachOffline } from './helpers'
 // 1. e4 d5 2. exd5 — White's pawn captures Black's d-pawn (same fixture
 // piece-sets.spec.ts already uses for the same tray).
 async function importCapture(page: Page) {
-  await page.getByTestId('import-text').fill('1. e4 d5 2. exd5')
-  await page.getByTestId('import-submit').click()
-  await expect(page.getByTestId('import-error')).toHaveText('')
+  await importGame(page, '1. e4 d5 2. exd5')
 }
 
 test.beforeEach(async ({ page }) => {

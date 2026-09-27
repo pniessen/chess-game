@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { render } from '@testing-library/react'
 import { describe, expect, test, vi } from 'vitest'
 import { Board } from './Board'
@@ -180,6 +182,71 @@ describe('Board', () => {
       expect(container.querySelectorAll('[data-square]')).toHaveLength(64)
       const svg = container.querySelector('[data-testid="last-move-arrow"]') as SVGElement
       expect(svg.getAttribute('aria-hidden')).toBe('true')
+    })
+  })
+
+  // Task 1: the board's edge length derives from --board-size (set on
+  // .layout in app.css) instead of a hard 640px, so a short viewport
+  // shrinks the board instead of pushing the page taller. jsdom has no real
+  // layout engine (see useDragMove.unmount.test.tsx's comment on the same
+  // limitation), so getBoundingClientRect/offsetWidth can't measure a
+  // rendered pixel size here — every test below instead pins board.css's
+  // own rules by source (the same technique durations.test.ts and
+  // dragTargetContrast.test.ts use for the same reason), either by matching
+  // the exact rule text or, where a test needs a number to compute with, by
+  // regex-extracting that number out of the real file rather than
+  // hand-typing it — so an edit to the real numbers or structure, not just
+  // a wholesale revert, fails these tests.
+  describe('the board edge derives from --board-size (Task 1)', () => {
+    const css = readFileSync(join(process.cwd(), 'src/ui/Board/board.css'), 'utf8')
+    const boardRule = css.match(/\.board\s*\{[^}]*\}/)?.[0]
+    const frameRule = css.match(/\.board-frame\s*\{[^}]*\}/)?.[0]
+
+    test('.board is forced square by aspect-ratio: 1, at whatever width its column resolves to', () => {
+      expect(boardRule).toMatch(/aspect-ratio:\s*1;/)
+      // 100% of the grid column .board-frame hands it — never a fixed px width.
+      expect(boardRule).toMatch(/width:\s*100%;/)
+    })
+
+    test('.board-frame reads var(--board-size, 640px), not a bare 640px', () => {
+      expect(frameRule).toMatch(
+        /width:\s*min\(100%,\s*calc\(var\(--board-size,\s*640px\)\s*\+\s*var\(--coord-gutter\)\)\)/,
+      )
+    })
+
+    test("the frame-width formula, computed from board.css's own parsed numbers, adds exactly one real coord-gutter to --board-size", () => {
+      // Parsed out of .board-frame's own declaration, not hand-typed: this
+      // breaks if `--coord-gutter` is ever changed to something other than
+      // 1.25rem (e.g. widening the coordinate labels' gutter).
+      const gutterMatch = frameRule?.match(/--coord-gutter:\s*([\d.]+)rem/)
+      if (!gutterMatch) throw new Error('--coord-gutter not found in .board-frame')
+      const coordGutterPx = Number(gutterMatch[1]) * 16 // the (unoverridden) 16px default root font-size — see app.css, no html/body font-size override
+
+      // Parsed out of the width formula itself (a looser capture than the
+      // exact-text match above), so this test computes from what the file
+      // actually says the fallback is, then checks that number separately.
+      const widthMatch = frameRule?.match(
+        /width:\s*min\(100%,\s*calc\(var\(--board-size,\s*(\d+)px\)\s*\+\s*var\(--coord-gutter\)\)\)/,
+      )
+      if (!widthMatch) throw new Error('.board-frame width formula not found')
+      expect(Number(widthMatch[1])).toBe(640) // the documented cap
+
+      // Three representative --board-size values, checked against concrete,
+      // independently-stated expected numbers (not re-derived from the same
+      // arithmetic) — computed using the REAL, parsed coord-gutter, so this
+      // moves and fails if that declaration's value ever changes.
+      const expectedFrameWidthPx: Record<number, number> = { 360: 380, 500: 520, 640: 660 }
+      for (const [boardSize, expected] of Object.entries(expectedFrameWidthPx)) {
+        expect(Number(boardSize) + coordGutterPx).toBe(expected)
+      }
+
+      // The structural link from frame-width to .board's own rendered
+      // width: exactly one `var(--coord-gutter)`-wide ranks column ahead of
+      // the `minmax(0, 1fr)` board column (pinned by source, not assumed) —
+      // which is why .board's edge is frame-width minus that same real
+      // gutter, and so tracks --board-size 1:1 and (via aspect-ratio: 1,
+      // pinned above) stays square, at any of the three sizes checked above.
+      expect(frameRule).toMatch(/grid-template-columns:\s*var\(--coord-gutter\)\s*minmax\(0,\s*1fr\)/)
     })
   })
 })

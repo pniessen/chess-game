@@ -6,6 +6,16 @@ import { coachOffline } from './helpers'
 export async function twoPlayer(page: Page): Promise<void> {
   await coachOffline(page)
   await page.goto('/')
+  // Task 6: below 900px New game is a popover (NewGameControl.tsx), not
+  // the inline card Task 3 left on desktop — `mode`/`new-game` are the
+  // same two controls either way, just behind a trigger first on the
+  // touch/phone-width specs this helper is shared with (touch-drag.spec.ts
+  // sets a 375px `test.use` viewport for the whole file). Checked off the
+  // viewport Playwright already has, not a DOM probe: the popover trigger
+  // and the inline `mode` select never coexist, so waiting on either one
+  // to decide which is present would be racing the app's first render.
+  const mobile = (page.viewportSize()?.width ?? 1280) < 900
+  if (mobile) await page.getByTestId('new-game-toggle').click()
   await page.getByTestId('mode').selectOption('two-player')
   await page.getByTestId('new-game').click()
 }
@@ -25,6 +35,18 @@ export async function centerOf(page: Page, square: string): Promise<{ x: number;
  * `page.mouse.up()`, so a test can inspect the board mid-drag.
  */
 export async function pressAndDragTo(page: Page, from: string, to: string): Promise<void> {
+  // Read `from` and `to` from the SAME scroll position. `centerOf` scrolls
+  // its own square into view, independently, each time it's called — if
+  // the page starts far enough down (e.g. right after a click on a button
+  // well below the board) that `from` and `to` are not simultaneously in
+  // view, the second call's scroll invalidates the first call's
+  // already-read coordinate, and the drag starts from a point that no
+  // longer corresponds to `from` once the page has moved. Scrolling the
+  // whole board into view first avoids that: `--board-size` keeps it
+  // shorter than every tested viewport, so once any part of it is in view,
+  // the whole board — both squares — is too, and neither subsequent
+  // `centerOf` call needs to scroll again.
+  await page.locator('.board').scrollIntoViewIfNeeded()
   const start = await centerOf(page, from)
   const end = await centerOf(page, to)
   await page.mouse.move(start.x, start.y)

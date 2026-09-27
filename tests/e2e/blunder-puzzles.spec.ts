@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { coachOffline, openPuzzles, servePuzzles } from './helpers'
+import { coachOffline, importGame, openPuzzles, servePuzzles } from './helpers'
 
 const KEY = 'chess-game:blunder-puzzles'
 const BEFORE_NF6 = 'r1bqkbnr/pppp1ppp/2n5/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR b KQkq - 3 3'
@@ -51,8 +51,7 @@ test('reviewing a finished game saves the human blunder as a puzzle with an engi
 
 // Breaks if imported (non-history) games start producing "my" mistakes.
 test('an imported game that is not in history adds no puzzles', async ({ page }) => {
-  await page.getByTestId('import-text').fill('1. e4 e5 2. Bc4 Nc6 3. Qh5 Nf6 4. Qxf7# 1-0')
-  await page.getByTestId('import-submit').click()
+  await importGame(page, '1. e4 e5 2. Bc4 Nc6 3. Qh5 Nf6 4. Qxf7# 1-0')
   await expect(page.getByTestId('result')).toContainText(/checkmate/i)
   await page.getByTestId('tab-review').click()
   await page.getByTestId('review-start').click()

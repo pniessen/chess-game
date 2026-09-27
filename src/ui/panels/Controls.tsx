@@ -45,7 +45,9 @@ export function Controls({
 
   return (
     <div className="controls">
-      <div className="controls-row">
+      {/* Task 2: undo/redo/flip/resign as a 2x2 grid — a 232px column has
+          no room for a 4-wide row without truncating "Flip board". */}
+      <div className="controls-grid">
         <button data-testid="undo" onClick={onUndo} disabled={!canUndo}>
           Undo
         </button>
@@ -59,7 +61,10 @@ export function Controls({
           Resign
         </button>
       </div>
-      <div className="controls-row">
+      {/* Pause/Step side by side; Speed moves to its own full-width row
+          below (see .speed-control). All three stay present-but-disabled
+          outside engine modes — never hidden — so the layout doesn't jump. */}
+      <div className="controls-grid">
         <button
           data-testid="pause"
           onClick={isPaused ? onResume : onPause}
@@ -70,20 +75,20 @@ export function Controls({
         <button data-testid="step" onClick={onStep} disabled={stepDisabled}>
           Step
         </button>
-        <label className="speed-control">
-          Speed
-          <input
-            type="range"
-            data-testid="speed"
-            min={0}
-            max={2000}
-            step={100}
-            value={speed}
-            disabled={speedDisabled}
-            onChange={(e) => onSpeedChange(Number(e.target.value))}
-          />
-        </label>
       </div>
+      <label className="speed-control">
+        Speed
+        <input
+          type="range"
+          data-testid="speed"
+          min={0}
+          max={2000}
+          step={100}
+          value={speed}
+          disabled={speedDisabled}
+          onChange={(e) => onSpeedChange(Number(e.target.value))}
+        />
+      </label>
       <div className="controls-row hint-row">
         <button
           data-testid="hint"
@@ -93,6 +98,10 @@ export function Controls({
         >
           {hint.label}
         </button>
+        {/* min-height reserved in app.css (.hint-row .hint-text) for ~2
+            lines, so an arriving or clearing hint never resizes this
+            card (see tests/e2e/above-the-fold.spec.ts for a measured
+            regression test on .controls's own height). */}
         <span className="hint-text" data-testid="hint-text" aria-live="polite">
           {hint.text}
         </span>
