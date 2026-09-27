@@ -88,14 +88,16 @@ export function NewGame({
           ))}
         </select>
       </label>
-      <button data-testid="new-game" onClick={onStart}>
-        New game
-      </button>
-      {onPuzzles ? (
-        <button data-testid="open-puzzles" onClick={onPuzzles}>
-          Puzzles
+      <div className="new-game-actions">
+        <button data-testid="new-game" onClick={onStart}>
+          New game
         </button>
-      ) : null}
+        {onPuzzles ? (
+          <button data-testid="open-puzzles" onClick={onPuzzles}>
+            Puzzles
+          </button>
+        ) : null}
+      </div>
     </div>
   )
 }

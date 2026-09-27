@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { coachOffline } from './helpers'
+import { coachOffline, importGame } from './helpers'
 
 test.beforeEach(async ({ page }) => coachOffline(page))
 
@@ -10,9 +10,7 @@ test('dragging a pawn onto a promotion square raises the picker', async ({ page 
 
   // A White pawn one step from promotion, kings placed so the position is
   // legal. Drag mechanics, not chess logic, are under test here.
-  await page.getByTestId('import-text').fill('8/P7/8/8/8/8/8/K6k w - - 0 1')
-  await page.getByTestId('import-submit').click()
-  await expect(page.getByTestId('import-error')).toHaveText('')
+  await importGame(page, '8/P7/8/8/8/8/8/K6k w - - 0 1')
   await expect(page.locator('[data-square="a7"] [data-piece="wP"]')).toBeVisible()
 
   const from = page.locator('[data-square="a7"]')

@@ -9,8 +9,11 @@
   grid-template-areas:
     'ranks board'
     '.     files';
-  /* The board itself may be at most 640px; the gutter comes on top. */
-  width: min(100%, calc(640px + var(--coord-gutter)));
+  /* The board itself may be at most --board-size (Task 1: set on .layout in
+     app.css, derived from viewport height and capped at 640px — falls back
+     to the old hard 640px when rendered without that ancestor, e.g. in
+     Board.test.tsx's standalone render); the gutter comes on top. */
+  width: min(100%, calc(var(--board-size, 640px) + var(--coord-gutter)));
 }
 .board {
   grid-area: board;

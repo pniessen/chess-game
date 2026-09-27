@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, test } from 'vitest'
 import { App } from './App'
+import { importGame } from './testHelpers'
 
 // Deviation from the brief: the brief used a bare `el.click()` here. As
 // App.test.tsx already found, under this repo's React 19 + jsdom, a raw
@@ -159,10 +160,7 @@ describe('a finished game is never re-saved or re-scored (I4)', () => {
 
   test('importing an already-finished PGN adds nothing to the score', () => {
     render(<App />)
-    fireEvent.change(screen.getByTestId('import-text'), {
-      target: { value: '1. e4 e5 2. Bc4 Nc6 3. Qh5 Nf6 4. Qxf7# 1-0' },
-    })
-    fireEvent.click(screen.getByTestId('import-submit'))
+    importGame('1. e4 e5 2. Bc4 Nc6 3. Qh5 Nf6 4. Qxf7# 1-0')
     expect(screen.getByTestId('result')).toHaveTextContent('Checkmate')
     expect(total()).toBe(0)
   })

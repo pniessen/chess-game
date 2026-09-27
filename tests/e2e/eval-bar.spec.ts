@@ -1,13 +1,12 @@
 import { expect, test } from '@playwright/test'
-import { coachOffline, openSettings, pinRandom, withSettings } from './helpers'
+import { coachOffline, importGame, openSettings, pinRandom, withSettings } from './helpers'
 
 test.beforeEach(async ({ page }) => coachOffline(page))
 
 test('the bar finds a mate, flips with the board, scores the result, and can be hidden', async ({ page }) => {
   await page.goto('/')
   // Back-rank mate in one: Rd8#.
-  await page.getByTestId('import-text').fill('6k1/5ppp/8/8/8/8/5PPP/3R2K1 w - - 0 1')
-  await page.getByTestId('import-submit').click()
+  await importGame(page, '6k1/5ppp/8/8/8/8/5PPP/3R2K1 w - - 0 1')
 
   const label = page.getByTestId('eval-label')
   await expect(label).toHaveText('M1', { timeout: 30_000 })

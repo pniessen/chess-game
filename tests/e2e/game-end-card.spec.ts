@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { coachOffline } from './helpers'
+import { coachOffline, importGame } from './helpers'
 
 /**
  * Task 6: the game-end card.
@@ -80,8 +80,7 @@ test('a draw raises the card with the draw wording', async ({ page }) => {
   await twoPlayer(page)
   // Black to move and stalemated is reached live: White queens to f7 with
   // the black king boxed in on h8.
-  await page.getByTestId('import-text').fill('7k/8/5QK1/8/8/8/8/8 w - - 0 1')
-  await page.getByTestId('import-submit').click()
+  await importGame(page, '7k/8/5QK1/8/8/8/8/8 w - - 0 1')
   // Imported already-live position: no card yet.
   await expect(page.getByTestId('game-end-card')).toHaveCount(0)
   await play(page, [['f6', 'f7']])
@@ -91,8 +90,7 @@ test('a draw raises the card with the draw wording', async ({ page }) => {
 // Red if the card starts firing for a game that did not end in front of the
 // user, and red if raising the card ever records a second history entry.
 test('an imported finished game raises no card, and a live one records exactly one entry', async ({ page }) => {
-  await page.getByTestId('import-text').fill('1. e4 e5 2. Bc4 Nc6 3. Qh5 Nf6 4. Qxf7# 1-0')
-  await page.getByTestId('import-submit').click()
+  await importGame(page, '1. e4 e5 2. Bc4 Nc6 3. Qh5 Nf6 4. Qxf7# 1-0')
   await expect(page.getByTestId('result')).toContainText(/checkmate/i)
   await expect(page.getByTestId('game-end-card')).toHaveCount(0)
   await page.getByTestId('tab-history').click()

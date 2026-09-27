@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { App } from './App'
 import { exportPgn, gameFromSan } from '../game-core/io'
 import { loadHistory } from '../storage/storage'
+import { importGame } from './testHelpers'
 
 // Deviation from the brief: the brief used a bare `el.click()` here. Under
 // this repo's actual React 19 + jsdom, a raw click's state update is not
@@ -90,10 +91,11 @@ describe('App (two-player)', () => {
   test('pasting a valid PGN into import-text loads that game into the move list', () => {
     render(<App />)
     const pgn = '1. e4 e5 2. Nf3 Nc6 *'
-    fireEvent.change(screen.getByTestId('import-text'), { target: { value: pgn } })
-    fireEvent.click(screen.getByTestId('import-submit'))
+    importGame(pgn)
 
-    expect(screen.getByTestId('import-error')).toBeEmptyDOMElement()
+    // The popover closing IS the success signal now: a parse error would
+    // have kept it open with `import-error` filled in.
+    expect(screen.queryByTestId('game-file')).toBeNull()
     expect(screen.getByTestId('ply-count')).toHaveTextContent('4')
     expect(screen.getByTestId('move-1')).toHaveTextContent('e4')
     expect(screen.getByTestId('move-4')).toHaveTextContent('Nc6')
@@ -102,10 +104,9 @@ describe('App (two-player)', () => {
   test('pasting a valid FEN loads that position', () => {
     const { container } = render(<App />)
     const fen = 'r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5Q2/PPPP1PPP/RNB1K1NR w KQkq - 0 1'
-    fireEvent.change(screen.getByTestId('import-text'), { target: { value: fen } })
-    fireEvent.click(screen.getByTestId('import-submit'))
+    importGame(fen)
 
-    expect(screen.getByTestId('import-error')).toBeEmptyDOMElement()
+    expect(screen.queryByTestId('game-file')).toBeNull()
     expect(screen.getByTestId('ply-count')).toHaveTextContent('0')
     expect(container.querySelector('[data-square="f3"] [data-piece]')).not.toBeNull()
   })
@@ -115,10 +116,7 @@ describe('App (two-player)', () => {
     clickSquare(container, 'e2')
     clickSquare(container, 'e4')
 
-    fireEvent.change(screen.getByTestId('import-text'), {
-      target: { value: 'not a chess game at all' },
-    })
-    fireEvent.click(screen.getByTestId('import-submit'))
+    importGame('not a chess game at all')
 
     expect(screen.getByTestId('import-error')).not.toBeEmptyDOMElement()
     expect(screen.getByTestId('ply-count')).toHaveTextContent('1')
@@ -132,10 +130,7 @@ describe('import credits no clock increment per replayed move (I6)', () => {
       JSON.stringify({ level: 3, timeControlId: 'blitz-3-2', orientation: 'white', soundEnabled: true, themeId: 'classic' }),
     )
     render(<App />)
-    fireEvent.change(screen.getByTestId('import-text'), {
-      target: { value: '1. e4 e5 2. Nf3 Nc6 3. Bb5 a6 *' },
-    })
-    fireEvent.click(screen.getByTestId('import-submit'))
+    importGame('1. e4 e5 2. Nf3 Nc6 3. Bb5 a6 *')
     expect(screen.getByTestId('ply-count')).toHaveTextContent('6')
     expect(screen.getByTestId('clock-w')).toHaveTextContent(/^3:00$/)
     expect(screen.getByTestId('clock-b')).toHaveTextContent(/^3:00$/)

@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
+import { importGame } from './testHelpers'
 
 /**
  * Task 13: the app-wide keyboard shortcuts, through the whole App. A
@@ -104,8 +105,14 @@ describe('keyboard shortcuts', () => {
     expect(trigger).toHaveFocus()
   })
 
+  // Task 4: the import box now lives inside the Game file popover, which
+  // reports itself through `overlayOpen` — so shortcuts are doubly guarded
+  // here. `isTypingTarget` is still the one that matters: it is what keeps
+  // a keystroke in this textarea from flipping the board even if the
+  // overlay gate were ever loosened.
   test('shortcuts do not fire while typing in the PGN/FEN import box', () => {
     const { container } = render(<App />)
+    fireEvent.click(screen.getByTestId('game-file-toggle'))
     const textarea = screen.getByTestId('import-text')
     fireEvent.change(textarea, { target: { value: 'f' } })
     textarea.focus()
@@ -152,6 +159,16 @@ describe('keyboard shortcuts', () => {
     expect(isFlipped()).toBeTruthy()
   })
 
+  test('shortcuts do not fire while the Game file popover owns the keyboard', () => {
+    render(<App />)
+    fireEvent.click(screen.getByTestId('game-file-toggle'))
+    expect(screen.getByTestId('game-file')).toBeInTheDocument()
+    fireEvent.keyDown(document, { key: 'p' })
+    expect(screen.queryByTestId('puzzle-screen')).not.toBeInTheDocument()
+    fireEvent.keyDown(screen.getByTestId('game-file'), { key: 'Escape' })
+    expect(screen.queryByTestId('game-file')).not.toBeInTheDocument()
+  })
+
   test('shortcuts do not fire while the settings popover owns the keyboard', () => {
     render(<App />)
     fireEvent.click(screen.getByTestId('settings-toggle'))
@@ -168,10 +185,7 @@ describe('keyboard shortcuts', () => {
     // 1.e4 e5 2.Nf3 Nc6 3.Bc4 ... set up a simple promotion: push a white
     // pawn to the 7th and try to promote on e8 is slow to set up by hand;
     // instead drive a position one FEN import away from a legal promotion.
-    fireEvent.change(screen.getByTestId('import-text'), {
-      target: { value: 'k7/4P3/8/8/8/8/8/4K3 w - - 0 1' },
-    })
-    fireEvent.click(screen.getByTestId('import-submit'))
+    importGame('k7/4P3/8/8/8/8/8/4K3 w - - 0 1')
     clickSquare(container, 'e7')
     clickSquare(container, 'e8')
     expect(screen.getByRole('dialog', { name: 'Choose a promotion piece' })).toBeInTheDocument()

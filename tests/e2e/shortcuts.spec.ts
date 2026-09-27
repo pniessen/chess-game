@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { coachOffline, openSettings, servePuzzles, startOnePlayer } from './helpers'
+import { coachOffline, importGame, openGameFile, openSettings, servePuzzles, startOnePlayer } from './helpers'
 
 /**
  * Task 13: the app-wide keyboard shortcuts.
@@ -123,9 +123,24 @@ test('a real click on the backdrop dismisses the overlay and restores focus', as
   await expect(trigger).toBeFocused()
 })
 
+// Task 4: the import box now lives inside the Game file popover, which
+// reports itself through `overlayOpen` — so this is doubly guarded now.
+// `isTypingTarget` is still the guard that matters: it is what keeps a
+// keystroke in this textarea from flipping the board on its own.
 test('shortcuts never fire while typing in the PGN/FEN import box', async ({ page }) => {
+  await openGameFile(page)
   await page.getByTestId('import-text').fill('f')
   await expect(page.getByTestId('board-frame')).toHaveClass(/white/)
+})
+
+test('shortcuts never fire while the Game file popover owns the keyboard', async ({ page }) => {
+  await openGameFile(page)
+  await page.keyboard.press('p')
+  await expect(page.getByTestId('puzzle-screen')).toHaveCount(0)
+  await page.keyboard.press('f')
+  await expect(page.getByTestId('board-frame')).toHaveClass(/white/)
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('game-file')).toHaveCount(0)
 })
 
 test('shortcuts never fire while the settings popover owns the keyboard', async ({ page }) => {
@@ -137,6 +152,25 @@ test('shortcuts never fire while the settings popover owns the keyboard', async 
   // Settings itself still closes on its own Escape, unaffected.
   await page.keyboard.press('Escape')
   await expect(page.getByTestId('settings')).toHaveCount(0)
+})
+
+// Task 6: New game is the same kind of popover as Game file/Settings below
+// 900px (NewGameControl) — red before `newGameOpen` was wired into
+// `overlayOpen` (App.tsx): 'f' would flip the board right behind the open
+// popover.
+test('shortcuts never fire while the New game popover owns the keyboard', async ({ page }) => {
+  await page.setViewportSize({ width: 500, height: 900 })
+  await coachOffline(page)
+  await page.goto('/')
+  await page.getByTestId('new-game-toggle').click()
+  await expect(page.getByTestId('new-game-popover')).toBeVisible()
+
+  await page.keyboard.press('p')
+  await expect(page.getByTestId('puzzle-screen')).toHaveCount(0)
+  await page.keyboard.press('f')
+  await expect(page.getByTestId('board-frame')).toHaveClass(/white/)
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('new-game-popover')).toHaveCount(0)
 })
 
 test("Left/Right move between tabs when a tab has focus, not through the move list", async ({ page }) => {
@@ -151,8 +185,7 @@ test("Left/Right move between tabs when a tab has focus, not through the move li
 })
 
 test('Escape cancels the promotion picker, which has no Escape handling of its own', async ({ page }) => {
-  await page.getByTestId('import-text').fill('k7/4P3/8/8/8/8/8/4K3 w - - 0 1')
-  await page.getByTestId('import-submit').click()
+  await importGame(page, 'k7/4P3/8/8/8/8/8/4K3 w - - 0 1')
   await move(page, 'e7', 'e8')
   await expect(page.getByRole('dialog', { name: 'Choose a promotion piece' })).toBeVisible()
 

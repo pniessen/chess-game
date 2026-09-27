@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { coachOffline, coachOnline, pinRandom, startOnePlayer } from './helpers'
+import { coachOffline, coachOnline, importGame, pinRandom, startOnePlayer } from './helpers'
 
 const SCHOLAR = '1. e4 e5 2. Bc4 Nc6 3. Qh5 Nf6 4. Qxf7# 1-0'
 /**
@@ -13,14 +13,12 @@ const LONG_GAME =
   'Kg3 Rxa4 Rb1 Bh8 Nf3 c5 Qxd6+ Kd8 Bf4 Qxd6 Kh2 Bf5 Ra1 Bb1 Ba2 Re8 Raxb1 Qc7'
 
 async function importFinished(page: Page, pgn: string) {
-  await page.getByTestId('import-text').fill(pgn)
-  await page.getByTestId('import-submit').click()
+  await importGame(page, pgn)
   await expect(page.getByTestId('result')).toContainText(/checkmate/i)
 }
 
 async function importLongAndResign(page: Page) {
-  await page.getByTestId('import-text').fill(LONG_GAME)
-  await page.getByTestId('import-submit').click()
+  await importGame(page, LONG_GAME)
   await expect(page.getByTestId('ply-count')).toHaveText('100')
   await page.getByTestId('resign').click()
   await expect(page.getByTestId('result')).toContainText(/resigns/i)

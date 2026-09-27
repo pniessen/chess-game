@@ -2,6 +2,7 @@ import { StrictMode } from 'react'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { loadHistory, loadScore } from '../../storage/storage'
+import { importGame } from '../testHelpers'
 
 /**
  * Task 6: the game-end card, through the whole App.
@@ -98,10 +99,7 @@ describe('the game-end card', () => {
   // the user — the distinction loadMatch already draws for history.
   test('never appears for a position imported already finished', () => {
     render(<App />)
-    fireEvent.change(screen.getByTestId('import-text'), {
-      target: { value: '1. e4 e5 2. Bc4 Nc6 3. Qh5 Nf6 4. Qxf7# 1-0' },
-    })
-    fireEvent.click(screen.getByTestId('import-submit'))
+    importGame('1. e4 e5 2. Bc4 Nc6 3. Qh5 Nf6 4. Qxf7# 1-0')
 
     expect(screen.getByTestId('result')).toHaveTextContent(/checkmate/i)
     expect(screen.queryByTestId('game-end-card')).not.toBeInTheDocument()

@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { coachOffline } from './helpers'
+import { coachOffline, importGame } from './helpers'
 
 /**
  * Task 8: move-quality chips in the move list. Same Scholar's mate fixture
@@ -18,8 +18,7 @@ import { coachOffline } from './helpers'
 const SCHOLAR = '1. e4 e5 2. Bc4 Nc6 3. Qh5 Nf6 4. Qxf7# 1-0'
 
 async function importFinished(page: Page, pgn: string) {
-  await page.getByTestId('import-text').fill(pgn)
-  await page.getByTestId('import-submit').click()
+  await importGame(page, pgn)
   await expect(page.getByTestId('result')).toContainText(/checkmate/i)
 }
 
