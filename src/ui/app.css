@@ -1813,9 +1813,149 @@ body {
 }
 
 /* ------------------------------------------------------------------
-   Narrow screens: one column, board first, clocks right under it.
-   `display: contents` lifts the under-board panels into the layout grid
-   so they can be ordered around the clocks and the move list.
+   Below 1020px: one column, because three can no longer honour the
+   board's own floor.
+
+   `--board-size` above is a `clamp(360px, ..., 640px)` — a 360px FLOOR -
+   but the board's grid track is `minmax(0, var(--board-size))`, where that
+   value is only ever the track's MAXIMUM. Both side columns are fixed
+   (232px + 280px + two 24px gaps = 560px, on top of `.app`'s own 48px of
+   horizontal padding), so every pixel of shortfall comes out of the board
+   track alone — and `.board-frame`'s `width: min(100%, ...)` (board.css)
+   faithfully follows it down, well under the floor the clamp promises.
+   Measured live in a real browser, the board's own edge length is:
+
+     board = viewport -  48 (`.app` padding-inline)
+                      - 560 (232 + 280 + two 24px gaps)
+                      -  30 (the eval bar's 24px + `.board-row`'s 6px gap)
+                      -  20 (`--coord-gutter`, the rank labels)
+           = viewport - 658
+
+   which crosses 360px at exactly 1018px of viewport width — verified:
+   359px at 1017, 360px at 1018, 342px at 1000, 310px at 968, 241px at
+   899, and 111px at 769px, one pixel above the old breakpoint. Note 968px
+   is where the board's TRACK is exactly 360px and the board inside it is
+   still only 310px: the 50px of eval bar and rank gutter that live inside
+   the track are why this reaches to 1017px and not to 968px.
+
+   Nothing flagged it, which is how it survived Task 5: the middle track
+   just quietly shrank, so no horizontal scrollbar ever appeared and the
+   no-scroll suite stayed green the whole time.
+
+   Squeezing the side columns instead was measured and rejected: holding
+   the 410px board track a 360px board needs (360 + that same 50px) at
+   769px leaves the two side columns 263px to share — 131px each, against
+   the 232px and 280px their own content is laid out for (a 2x2 grid of
+   selects in New game, a 2-column grid in Controls). Three columns simply
+   do not fit down here, so the layout stacks and the board gets the width
+   it needs. The page scrolls in this band, as it already does below
+   768px, which is the trade: a scroll beats a 241px board.
+
+   1020, not 1018: the same couple of pixels of margin the `max-height:
+   620px` query below takes, for the same reason — the arithmetic above is
+   live measurement, and a fractional viewport width (browser zoom) must
+   not be able to land between the query and the real crossover. At 1020px
+   the three-column board would be 362px, so the margin costs nothing.
+
+   Everything STRUCTURAL for a stacked layout lives here, so it applies
+   across the whole range; `@media (max-width: 768px)` below keeps only
+   the phone-specific cosmetics on top of it, which is why <=768px still
+   renders exactly as it did. `display: contents` lifts the under-board
+   panels into the layout grid so they can be ordered around the clocks
+   and the move list.
+   ------------------------------------------------------------------ */
+@media (max-width: 1020px) {
+  .layout {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: none;
+    gap: 12px;
+  }
+  .board-column { display: contents; }
+  .board-row { order: 1; }
+  /* Task 2: Controls now nests inside .left-column (order 2) instead of
+     being a direct .board-column child ordered on its own — it renders
+     after the clocks/captured/scoreboard already in there, which is the
+     same visual slot (between the left column and the right column's
+     tabs) this used to reach with an explicit `order: 3`. */
+  .left-column { order: 2; grid-area: auto; }
+  /* Task 3: .new-game now nests inside .right-column (order 4) instead of
+     being a flattened .board-column child ordered on its own — it renders
+     before .tabs there in DOM order already (see App.tsx), which is the
+     same visual slot (above the tabs) this used to reach with an explicit
+     `order: 5` when it was a sibling of .board-row in the flattened
+     `.layout` flow. No override needed here now: default order (0) on
+     both .right-column children preserves DOM order. */
+  .right-column { order: 4; grid-area: auto; }
+
+  /* Task 5 is a DESKTOP measure: it caps the two side columns at the board's
+     edge length so the page never scrolls beside it. Here the layout is one
+     column and the page is meant to scroll, so the caps come off — a column
+     capped at --board-size would put a second, nested scrollbar inside a
+     page that already has one. The three lists get their original px caps
+     back with them, which keeps this breakpoint pixel-identical to what it
+     rendered before this task: without them a 70-move game would run the
+     moves list to 2,097px and push History and New game miles down the
+     page. (The flex plumbing above is harmless here: in a panel with no
+     height cap, `flex: 1 1 auto` items just take their content height.) */
+  .left-column,
+  .right-column {
+    max-height: none;
+    overflow-y: visible;
+  }
+  .move-list { max-height: 420px; }
+  .history-list { max-height: 420px; }
+  /* `min-height` goes with the cap: the desktop floor exists because a
+     fixed-height `.explorer-detail` can squeeze the results to nothing
+     inside a height-capped panel. Here there is no cap and no shortfall to
+     floor against, and leaving it on would pad a two-result list out to
+     90px — a change to this breakpoint, which otherwise renders exactly as
+     it did before this task. */
+  .explorer-results { max-height: 280px; min-height: 0; }
+}
+
+/* ------------------------------------------------------------------
+   769-1020px only: keep the stacked column no wider than the board.
+
+   Two separate caps, because neither covers the other:
+
+   `.layout`'s `max-width` centres the whole stack at the board's own
+   width instead of letting the cards run to ~950px beside a 640px board.
+   `50px` is what `.board-row` puts beside the board frame (the eval bar's
+   24px + the row's 6px gap) plus the frame's own 20px rank gutter, so a
+   `--board-size`-wide board plus its furniture fits exactly.
+
+   `.board-frame`'s `max-width` is the one that actually caps the BOARD.
+   Its `width: min(100%, calc(var(--board-size) + var(--coord-gutter)))`
+   (board.css) does not: `.board-row .board-frame` is `flex: 1 1 auto`, and
+   flex-grow grows an item past its `width` — only `max-width` stops it.
+   On the desktop layout the grid track happens to do that capping, which
+   is why nothing needed this before; measured live at 768x800, where the
+   column is wider than the board, the frame grows to 714px and the board
+   with it to 694px, past `--board-size`'s own 640px cap.
+
+   Which is exactly why both are scoped `min-width: 769px`: that 694px
+   board IS the phone layout as it ships, and this fix has no business
+   changing it. Below 769px only the structural query above applies.
+   ------------------------------------------------------------------ */
+@media (min-width: 769px) and (max-width: 1020px) {
+  .layout {
+    max-width: calc(var(--board-size) + 50px);
+    margin-inline: auto;
+  }
+  .board-frame {
+    max-width: calc(var(--board-size) + var(--coord-gutter));
+  }
+}
+
+/* ------------------------------------------------------------------
+   Phones: the cosmetics on top of the stacked layout above — tighter
+   padding, a smaller brand, the clocks in a row, and Controls first
+   under the board.
+   ------------------------------------------------------------------ */
+/* ------------------------------------------------------------------
+   Phones: the cosmetics on top of the stacked layout above — tighter
+   padding, a smaller brand, the clocks in a row, and Controls first
+   under the board.
    ------------------------------------------------------------------ */
 @media (max-width: 768px) {
   .app {
@@ -1872,52 +2012,6 @@ body {
 
   .opening { max-width: 100%; }
 
-  .layout {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-areas: none;
-    gap: 12px;
-  }
-  .board-column { display: contents; }
-  .board-row { order: 1; }
-  /* Task 2: Controls now nests inside .left-column (order 2) instead of
-     being a direct .board-column child ordered on its own — it renders
-     after the clocks/captured/scoreboard already in there, which is the
-     same visual slot (between the left column and the right column's
-     tabs) this used to reach with an explicit `order: 3`. */
-  .left-column { order: 2; grid-area: auto; }
-  /* Task 3: .new-game now nests inside .right-column (order 4) instead of
-     being a flattened .board-column child ordered on its own — it renders
-     before .tabs there in DOM order already (see App.tsx), which is the
-     same visual slot (above the tabs) this used to reach with an explicit
-     `order: 5` when it was a sibling of .board-row in the flattened
-     `.layout` flow. No override needed here now: default order (0) on
-     both .right-column children preserves DOM order. */
-  .right-column { order: 4; grid-area: auto; }
-
-  /* Task 5 is a DESKTOP measure: it caps the two side columns at the board's
-     edge length so the page never scrolls beside it. Here the layout is one
-     column and the page is meant to scroll, so the caps come off — a column
-     capped at --board-size would put a second, nested scrollbar inside a
-     page that already has one. The three lists get their original px caps
-     back with them, which keeps this breakpoint pixel-identical to what it
-     rendered before this task: without them a 70-move game would run the
-     moves list to 2,097px and push History and New game miles down the
-     page. (The flex plumbing above is harmless here: in a panel with no
-     height cap, `flex: 1 1 auto` items just take their content height.) */
-  .left-column,
-  .right-column {
-    max-height: none;
-    overflow-y: visible;
-  }
-  .move-list { max-height: 420px; }
-  .history-list { max-height: 420px; }
-  /* `min-height` goes with the cap: the desktop floor exists because a
-     fixed-height `.explorer-detail` can squeeze the results to nothing
-     inside a height-capped panel. Here there is no cap and no shortfall to
-     floor against, and leaving it on would pad a two-result list out to
-     90px — a change to this breakpoint, which otherwise renders exactly as
-     it did before this task. */
-  .explorer-results { max-height: 280px; min-height: 0; }
 
   .clocks { flex-direction: row; }
   .clocks .clock { flex: 1 1 0; min-width: 0; padding: 10px 12px; }

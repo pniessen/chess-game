@@ -877,3 +877,193 @@ test('the left column never fades when its content already fits', async ({ page 
 
   await expect(page.locator('.left-column')).not.toHaveAttribute('data-fade-bottom', '')
 })
+
+/**
+ * Hold until the header has stopped changing height on its own, so a rect
+ * read on one line and a rect read on the next describe the same layout.
+ *
+ * Two things move right after load. `engineStatus` starts at 'loading', so
+ * `.status-row` carries a "Loading engine…" line (StatusHeader.tsx) that
+ * disappears when the engine is ready; and with `public/engine` missing
+ * altogether — it is gitignored and written by the `postinstall`
+ * `scripts/copy-engine.mjs`, which a freshly-added worktree never runs — an
+ * `.engine-warning` banner sits above the row instead, permanently.
+ *
+ * This matters here because it is measurably flaky without it: two separate
+ * `boundingBox()` calls straddled a relayout and put `.left-column`'s top
+ * 3.7px ABOVE a board bottom read a moment earlier, failing the stacking
+ * check against a board that had already moved.
+ */
+async function headerSettled(page: Page): Promise<void> {
+  await expect(page.getByTestId('engine-status')).toHaveCount(0, { timeout: 30_000 })
+  await page.waitForFunction(
+    () => {
+      const board = document.querySelector('.board')
+      if (!board) return false
+      const seen = window as unknown as { __boardBottom?: number }
+      const bottom = Math.round(board.getBoundingClientRect().bottom)
+      const stable = seen.__boardBottom === bottom
+      seen.__boardBottom = bottom
+      return stable
+    },
+    null,
+    { polling: 100, timeout: 10_000 },
+  )
+}
+
+/**
+ * The intermediate-width band: 769px (one pixel above the old single-column
+ * breakpoint) up to 1017px.
+ *
+ * Red before this fix, measured live at height 800: the board rendered
+ * 111px at 769px, 241px at 899px, 310px at 968px and 342px at 1000px of
+ * viewport width — against a `--board-size` whose own `clamp(360px, ...)`
+ * promises a 360px FLOOR. The floor only ever reached the board's grid
+ * track as a MAXIMUM (`minmax(0, var(--board-size))`) while both side
+ * columns stayed fixed at 232px and 280px, so the whole shortfall came out
+ * of the board:
+ *
+ *   board = viewport - 48 (.app padding) - 560 (columns + two 24px gaps)
+ *                    - 30 (eval bar + .board-row gap) - 20 (--coord-gutter)
+ *         = viewport - 658
+ *
+ * crossing 360px at exactly 1018px of viewport width (verified live: 359px
+ * at 1017, 360px at 1018). Nothing flagged it, which is how it survived
+ * Task 5 — no horizontal scrollbar ever appeared, the middle track just
+ * quietly shrank, so `pageOverflow` and the no-scroll cases above stayed
+ * green throughout. These assert the board's own edge, which is the only
+ * thing that actually moved.
+ *
+ * 968px is in the list deliberately: that is where the board's TRACK is
+ * exactly 360px and the board inside it is still only 310px — the 50px of
+ * eval bar and rank gutter that live inside the track are why the broken
+ * band reaches to 1017px and not to 968px.
+ *
+ * 1018 and 1020 are in the list too, above the crossover, because the fix's
+ * query deliberately stacks a couple of pixels early (`max-width: 1020px`,
+ * see app.css) so a fractional viewport width cannot land between the query
+ * and the real 1018px crossover.
+ */
+for (const width of [769, 800, 899, 900, 950, 968, 1000, 1017, 1018, 1020]) {
+  test(`the board keeps its 360px floor at ${width}x800, and the page never scrolls sideways`, async ({
+    page,
+  }) => {
+    await coachOffline(page)
+    await page.setViewportSize({ width, height: 800 })
+    await page.goto('/')
+    await expect(page.locator('.board')).toBeVisible()
+    await headerSettled(page)
+
+    // Every rect in ONE evaluate, for the reason headerSettled explains.
+    const geometry = await page.evaluate(() => {
+      const board = document.querySelector('.board')
+      const left = document.querySelector('.left-column')
+      if (!board || !left) return null
+      const b = board.getBoundingClientRect()
+      const doc = document.documentElement
+      return {
+        width: b.width,
+        height: b.height,
+        bottom: b.bottom,
+        leftTop: left.getBoundingClientRect().top,
+        sideways: doc.scrollWidth - doc.clientWidth,
+      }
+    })
+    if (!geometry) throw new Error('.board or .left-column is missing')
+
+    expect(geometry.width, `board width at ${width}px`).toBeGreaterThanOrEqual(360)
+    // Still square, and still capped by --board-size: a stacked column that
+    // simply let the board follow the viewport would run it to ~950px here
+    // (`.board-row .board-frame` is `flex: 1 1 auto`, which grows past its
+    // own `width` unless something sets a `max-width`).
+    expect(
+      Math.abs(geometry.width - geometry.height),
+      `board squareness at ${width}px`,
+    ).toBeLessThan(1)
+    expect(geometry.width, `board capped by --board-size at ${width}px`).toBeLessThanOrEqual(640)
+    expect(geometry.sideways, `horizontal overflow at ${width}px`).toBeLessThanOrEqual(1)
+
+    // The mechanism: the layout is stacked here, so the left column sits
+    // BELOW the board rather than beside it. Asserting this stops the board
+    // check above from being satisfied some other way.
+    expect(
+      geometry.leftTop,
+      `.left-column stacked below the board at ${width}px`,
+    ).toBeGreaterThanOrEqual(geometry.bottom)
+  })
+}
+
+/**
+ * The other side of the same boundary: at 1021px and up the three-column
+ * layout is still what renders, and the board still clears 360px there on
+ * its own — 363px at 1021 (1021 - 658), without the query's help. Red if
+ * the new query's `max-width` is set too high (say a round 1200px): the
+ * side columns would stop sitting beside the board at widths where three
+ * columns fit perfectly well.
+ */
+for (const width of [1021, 1100, 1280]) {
+  test(`at ${width}x800 the three-column layout still renders, board beside both side columns`, async ({
+    page,
+  }) => {
+    await coachOffline(page)
+    await page.setViewportSize({ width, height: 800 })
+    await page.goto('/')
+    await expect(page.locator('.board')).toBeVisible()
+    await headerSettled(page)
+
+    const geometry = await page.evaluate(() => {
+      const board = document.querySelector('.board')
+      const left = document.querySelector('.left-column')
+      const right = document.querySelector('.right-column')
+      if (!board || !left || !right) return null
+      const b = board.getBoundingClientRect()
+      return {
+        width: b.width,
+        boardLeft: b.left,
+        boardRight: b.right,
+        leftRight: left.getBoundingClientRect().right,
+        rightLeft: right.getBoundingClientRect().left,
+      }
+    })
+    if (!geometry) throw new Error('.board, .left-column or .right-column is missing')
+
+    expect(geometry.width, `board width at ${width}px`).toBeGreaterThanOrEqual(360)
+    // Beside, not stacked: the side columns bracket the board horizontally.
+    expect(
+      geometry.leftRight,
+      `.left-column left of the board at ${width}px`,
+    ).toBeLessThanOrEqual(geometry.boardLeft)
+    expect(
+      geometry.rightLeft,
+      `.right-column right of the board at ${width}px`,
+    ).toBeGreaterThanOrEqual(geometry.boardRight)
+  })
+}
+
+/**
+ * The <=768px single-column layout is untouched by the fix above: the new
+ * structural query covers it too (it is a `max-width`), but the board cap
+ * and the centred column are deliberately scoped to `min-width: 769px` so
+ * this breakpoint renders pixel-identically to before. Measured live at
+ * 768x800 both before and after: a 694px board — which is past
+ * `--board-size`'s own 640px cap, because `flex: 1 1 auto` on `.board-row
+ * .board-frame` grows past its `width` and nothing here sets a
+ * `max-width`. Red if the cap leaks below 769px: the board drops to 640px
+ * and the column narrows to 690px, a visible change to a phone layout this
+ * fix has no business touching.
+ */
+test('at 768x800 the phone single-column layout is unchanged: the board still fills the column', async ({
+  page,
+}) => {
+  await coachOffline(page)
+  await page.setViewportSize({ width: 768, height: 800 })
+  await page.goto('/')
+  await expect(page.locator('.board')).toBeVisible()
+  await headerSettled(page)
+
+  const width = await page.evaluate(
+    () => document.querySelector('.board')!.getBoundingClientRect().width,
+  )
+  expect(width).toBeGreaterThan(660)
+  expect(Math.abs(width - 694)).toBeLessThanOrEqual(2)
+})
