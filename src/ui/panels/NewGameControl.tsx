@@ -248,17 +248,16 @@ export function NewGameControl(
                   (and this popover's own submit button, further down the
                   form) can sit well below the fold on mobile, so reaching
                   them scrolls the page down first — and nothing scrolled
-                  it back. Left there, the first status-row change that
-                  grows the header (the opening name filling in on move
-                  one, e.g.) lets Chromium's own scroll anchoring
-                  "compensate" by advancing `window.scrollY` again, to hold
-                  whatever was already on screen in place — this is one
-                  trigger for a page/board shift that has an
-                  older, unrelated root cause (`.status-row` itself
-                  growing with no `overflow-anchor: none` anywhere; see
-                  task-6-report.md), not something this fix removes
-                  entirely. A fresh game is also just a good reason to
-                  look at the top of the page again regardless. */}
+                  it back. Fix round 2: this used to also be one trigger
+                  for a page/board shift on the very next status-row
+                  change (Chromium's own scroll anchoring "compensating"
+                  for `.status-row` growing, e.g. the opening name filling
+                  in on move one) — that root cause is now fixed directly,
+                  in app.css (`html, body { overflow-anchor: none }`; see
+                  its own comment there), not merely worked around here.
+                  `window.scrollTo({ top: 0 })` stays regardless: a fresh
+                  game is simply a good reason to be looking at the top of
+                  the page again. */}
               <NewGame
                 {...newGameProps}
                 onStart={() => {

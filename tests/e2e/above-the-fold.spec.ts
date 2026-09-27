@@ -743,6 +743,30 @@ test('resizing past 900px with the New game popover open releases the keyboard',
   await expect(page.getByTestId('board-frame')).toHaveClass(/black/)
 })
 
+// Fix round 2: `NewGameControl` portals `.new-game-popover` to
+// `document.body` (Fix round 1's clamp work), which takes it out from
+// under `.app *` — the selector the branch's global reduced-motion gate
+// (app.css, bottom of the file) uses for everything else. Red before
+// listing `.new-game-popover` by its own class in that gate: measured
+// live at 375x812 under `prefers-reduced-motion: reduce`, this popover
+// still ran `animation-name: settings-pop-in` while `.game-file-popover`
+// (settings-popover.spec.ts has the same check for `.settings-popover`),
+// a non-portaled sibling with the identical animation, correctly showed
+// `none`. Same assertion shape as settings-popover.spec.ts's own
+// "reduced motion" describe block, so nothing in the reduced-motion net
+// stays blind to the one portaled exception.
+test.describe('reduced motion', () => {
+  test.use({ reducedMotion: 'reduce' })
+
+  test('the New game popover open animation is dropped entirely', async ({ page }) => {
+    await coachOffline(page)
+    await page.setViewportSize({ width: 375, height: 812 })
+    await page.goto('/')
+    await page.getByTestId('new-game-toggle').click()
+    await expect(page.getByTestId('new-game-popover')).toHaveCSS('animation-name', 'none')
+  })
+})
+
 /* --------------------------------------------------------------------
    Additional item A: the move list auto-scrolls to the current ply.
 
@@ -899,8 +923,8 @@ test('the left column never fades when its content already fits', async ({ page 
 
    Breaking change this whole section exists to catch: adding any card
    back into `.board-column` turns this red — verified live (injecting a
-   400px div there produced 348px of overflow and exactly one failure
-   across the specs in this file, the right one).
+   400px div there produced 348px of overflow and 19 failing tests across
+   this file, all of them the right ones for it).
 
    Fix round 1 correction: restoring a fixed `max-height` on the tab panel
    does NOT turn THIS matrix red, and an earlier draft of this comment
@@ -1052,6 +1076,31 @@ for (const height of [760, 700, 620, 500]) {
     await assertPageNeverScrolls(page, { width: 1440, height })
   })
 }
+
+/**
+ * Fix round 2: `tab-review` was never selected anywhere in this file.
+ * Moves is the default tab every other matrix case already exercises,
+ * and Explorer/History both get their own dedicated tests above — Review
+ * is the one panel with no inner scrolling list of its own; it relies
+ * entirely on `.tab-panel`'s own `overflow-y: auto` backstop (app.css),
+ * so its path through the sizing matrix is genuinely untested by
+ * anything above. Cheap insurance rather than a full case: no finished
+ * game is needed to exercise it — the empty state ("Finish a game to
+ * review it.") already renders inside the real `.tab-panel`, at real
+ * layout, which is enough to pin that this panel's sizing path also
+ * leaves the page unscrolled. The risk this closes is theoretical today
+ * (nothing renders here worth measuring until a game finishes), which is
+ * exactly why one cheap case is proportionate and a full review-with-a-
+ * finished-game matrix entry would not be.
+ */
+test('at 1440x800, selecting the Review tab still leaves the page unscrolled', async ({ page }) => {
+  await coachOffline(page)
+  await page.setViewportSize({ width: 1440, height: 800 })
+  await page.goto('/')
+  await page.getByTestId('tab-review').click()
+  await expect(page.locator('.review-hint')).toBeVisible()
+  expect(await pageOverflow(page)).toBe(0)
+})
 
 /**
  * The full id sweep, at 1440x800 — the brief's own chosen size for it,

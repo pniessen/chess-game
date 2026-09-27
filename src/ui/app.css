@@ -61,6 +61,19 @@
   --shadow-card: 0 1px 2px rgba(23, 32, 48, 0.06), 0 4px 14px rgba(23, 32, 48, 0.06);
   --shadow-board: 0 2px 4px rgba(23, 32, 48, 0.12), 0 18px 40px -12px rgba(23, 32, 48, 0.35),
     0 40px 80px -30px rgba(23, 32, 48, 0.3);
+  /* Fix round 2: was three separate copies of this exact value
+     (`.settings-popover`, `.game-file-popover`, `.new-game-popover`) —
+     `--shadow-card` plus one extra layer for a popover floating over the
+     page rather than sitting flush in a column. Not a new colour: the
+     rgba is `--shadow-board`'s own ink. Defined once, here, rather than
+     re-declared per theme: `var(--shadow-card)` inside it still resolves
+     against whichever theme is active on the element that uses
+     `--shadow-popover` (the cascade for a `var()` reference is resolved
+     where the property is USED, not where it is declared), so this one
+     declaration already adapts to dark mode exactly as the three
+     inlined copies did — dark mode never gave this extra layer's own
+     rgba a themed variant either; this token doesn't change that. */
+  --shadow-popover: var(--shadow-card), 0 18px 40px -16px rgba(23, 32, 48, 0.35);
   --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%23536074' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   /* Masked to `currentColor` where it is used, so it needs no dark variant. */
   --icon-sliders: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.6' stroke-linecap='round'%3E%3Cpath d='M2 4.5h4.5M11.5 4.5H14M2 11.5h2.5M9.5 11.5H14'/%3E%3Ccircle cx='9' cy='4.5' r='2'/%3E%3Ccircle cx='7' cy='11.5' r='2'/%3E%3C/svg%3E");
@@ -1272,7 +1285,7 @@ body {
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-card), 0 18px 40px -16px rgba(23, 32, 48, 0.35);
+  box-shadow: var(--shadow-popover);
   /* Well inside the 200 ms state-change budget; the reduced-motion rule at
      the foot of this file drops it entirely. */
   animation: settings-pop-in 140ms ease-out;
@@ -1791,7 +1804,7 @@ body {
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-card), 0 18px 40px -16px rgba(23, 32, 48, 0.35);
+  box-shadow: var(--shadow-popover);
   animation: settings-pop-in 140ms ease-out;
 }
 .game-file-popover:focus { outline: none; }
@@ -1859,7 +1872,7 @@ body {
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-card), 0 18px 40px -16px rgba(23, 32, 48, 0.35);
+  box-shadow: var(--shadow-popover);
   animation: settings-pop-in 140ms ease-out;
 }
 .new-game-popover:focus { outline: none; }
@@ -2102,7 +2115,22 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .app *,
   .app *::before,
-  .app *::after {
+  .app *::after,
+  /* Fix round 2: `NewGameControl` is the only `createPortal` in the
+     codebase (MovePreview is `position: fixed` but stays a DOM
+     descendant of `.app`, so `.app *` already covers it) — portaling
+     `.new-game-popover` to `document.body` (NewGameControl.tsx) takes it
+     out from under `.app *` too, so this gate never matched it. Measured
+     live at 375x812 under `prefers-reduced-motion: reduce` before this
+     fix: `.new-game-popover` still ran `animation: settings-pop-in
+     0.14s` while `.game-file-popover`, a non-portaled sibling with the
+     same animation, correctly showed `animation: none 0s`. Listed by its
+     own class rather than relying on `.app *`, since nothing rooted at
+     `.app` can reach it any more. */
+  .new-game-popover,
+  .new-game-popover *,
+  .new-game-popover *::before,
+  .new-game-popover *::after {
     animation: none !important;
     transition: none !important;
   }

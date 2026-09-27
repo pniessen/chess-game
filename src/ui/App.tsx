@@ -98,9 +98,16 @@ function AppInner({
   // arbitrate which of the two is open: each popover already dismisses
   // itself on a pointerdown outside it, and the OTHER popover's trigger is
   // outside it, so pressing one closes the other before its own click
-  // lands. Lifting the open state here to enforce that would have meant
-  // making SettingsPopover controlled — a change to a component this task
-  // is meant to leave alone — to reproduce a guarantee that already holds.
+  // lands, ON POINTER ACTIVATION. Fix round 2 precision: that is not a
+  // structural guarantee against every way a trigger can activate — it
+  // only fires from a pointerdown outside the open popover, which
+  // Enter/Space on a focused trigger is not. Not reachable today (no
+  // `.focus()` call site in src/ui/ targets a trigger while a popover is
+  // open, and Tab is trapped inside whichever one is open) — this is
+  // precision about the mechanism, not a known defect. Lifting the open
+  // state here to enforce it unconditionally would have meant making
+  // SettingsPopover controlled — a change to a component this task is
+  // meant to leave alone — to close a gap nothing can reach.
   const [gameFileOpen, setGameFileOpen] = useState(false)
   // Task 6 (mobile pass): the same, for New game's mobile-only popover
   // (NewGameControl). Never set true on desktop — nothing there is ever
