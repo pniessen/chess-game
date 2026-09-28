@@ -40,17 +40,28 @@ npm run dev          # http://localhost:5173
 
 `public/engine/` is gitignored and produced by `npm install`'s postinstall
 step, so `git worktree add` gives you the tracked tree **without** the
-engine — even when `node_modules` is already populated. The app then runs
-in two-player mode with a "chess engine is unavailable" banner, every
-Stockfish, hint and eval test fails for environmental reasons, and that
-extra banner shifts the header enough to corrupt layout measurements. A
-green suite is impossible there and a red one is meaningless.
+engine — even when `node_modules` is already populated.
 
-In a fresh worktree, run this before anything else:
+`npm run dev` and `npm run build` now heal that themselves (`predev` and
+`prebuild` both run `scripts/copy-engine.mjs`, which is idempotent), so in
+the common case you do not have to think about it. The one path neither
+hook covers is running tests against an already-running server, or
+`npx vitest run` on its own; `scripts/copy-engine.test.ts` fails loudly
+and by name if the engine is missing there, rather than letting you read
+it as a broken diff.
+
+If you ever need it by hand:
 
 ```sh
 node scripts/copy-engine.mjs   # or: npm install
 ```
+
+Why it is worth a section: without the engine the app runs in two-player
+mode behind a "chess engine is unavailable" banner, every Stockfish, hint
+and eval test fails for environmental reasons, and that extra banner
+shifts the header enough to corrupt layout measurements. A green suite is
+impossible in that state and a red one is meaningless — it has cost more
+than one session an afternoon and a wrong diagnosis.
 
 Running suites in more than one worktree at once? Give each its own port,
 because `reuseExistingServer` will otherwise bind your tests to whichever
