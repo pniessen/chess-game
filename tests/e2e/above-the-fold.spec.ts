@@ -604,23 +604,30 @@ for (const width of [320, 375, 414, 430]) {
 }
 
 /**
- * New game is the entry point to every session on desktop (a prior binding
- * ruling — task-6-report.md) and stays inline there; below 900px it
- * collapses into a popover, exactly like Game file. Red before this task:
+ * New game is the entry point to every session at three-column widths and
+ * stays inline there; below 1020px it collapses into a popover, exactly
+ * like Game file.
+ *
+ * The boundary is 1020/1021, matching `.layout`'s own single-column query
+ * (app.css) exactly: the popover exists for when New game has no side
+ * column to live in. Task 6 first set it to 899px, when `.layout` still
+ * stacked at 768px, which left 900-1020px stacking the layout while New
+ * game stayed inline and spanned the full width of the centred stack.
+ * Red if the two drift apart again. Red before Task 6 itself:
  * `NewGame` rendered inline unconditionally at every width, so `mode`
  * would already be in the document at 500px with no `new-game-toggle`
  * anywhere, and `new-game` (the popover's OWN accordion) is unrelated to
  * this).
  */
-test('New game is inline at 900px and wider, and a popover below it', async ({ page }) => {
+test('New game is inline at 1021px and wider, and a popover below it', async ({ page }) => {
   await coachOffline(page)
 
-  await page.setViewportSize({ width: 900, height: 800 })
+  await page.setViewportSize({ width: 1021, height: 800 })
   await page.goto('/')
   await expect(page.getByTestId('mode')).toBeVisible()
   await expect(page.getByTestId('new-game-toggle')).toHaveCount(0)
 
-  await page.setViewportSize({ width: 899, height: 800 })
+  await page.setViewportSize({ width: 1020, height: 800 })
   // A resize alone has to flip it — useMediaQuery's `change` listener, not
   // just the initial mount.
   await expect(page.getByTestId('new-game-toggle')).toBeVisible()
@@ -659,11 +666,14 @@ test('New game is inline at 900px and wider, and a popover below it', async ({ p
  * (it checks the bounding box and `visibility`, not ancestor-overflow
  * clipping), and Playwright's own `.click()` auto-scrolls the clipping
  * ancestor before clicking, which is exactly why the pre-fix version of
- * "New game is inline at 900px..." above passed anyway — a real tap
+ * "New game is inline at 1021px..." above passed anyway — a real tap
  * would not have reached it. `elementFromPoint` is what actually proves
  * the button is reachable.
  */
 for (const size of [
+  // 1020 is the top of the popover's range now that it tracks `.layout`'s
+  // own single-column query — the widest viewport that still gets one.
+  { width: 1020, height: 800 },
   { width: 899, height: 800 },
   { width: 800, height: 800 },
   { width: 769, height: 700 },
@@ -713,13 +723,13 @@ test('at 375x812 the New game popover opens upward and fits the viewport', async
   await expect(popover.getByTestId('new-game')).toBeInViewport()
 })
 
-// Important #2: resizing past 900px with the popover open used to strand
+// Important #2: resizing past the breakpoint with the popover open used to strand
 // it — the `!mobile` branch drops the popover's markup but never told
 // `usePopover` it had closed, so `overlayOpen` (App.tsx) stayed pinned
 // true and every keyboard shortcut died until the next click anywhere.
 // Red before the `useEffect(() => { if (!mobile && open) close(false) },
 // ...)` guard in NewGameControl.tsx.
-test('resizing past 900px with the New game popover open releases the keyboard', async ({ page }) => {
+test('resizing past the breakpoint with the New game popover open releases the keyboard', async ({ page }) => {
   await coachOffline(page)
   await page.setViewportSize({ width: 500, height: 900 })
   await page.goto('/')

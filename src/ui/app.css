@@ -65,7 +65,7 @@
   /* Masked to `currentColor` where it is used, so it needs no dark variant. */
   --icon-sliders: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.6' stroke-linecap='round'%3E%3Cpath d='M2 4.5h4.5M11.5 4.5H14M2 11.5h2.5M9.5 11.5H14'/%3E%3Ccircle cx='9' cy='4.5' r='2'/%3E%3Ccircle cx='7' cy='11.5' r='2'/%3E%3C/svg%3E");
   --icon-file: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M9 1.75H4.25A1.25 1.25 0 0 0 3 3v10a1.25 1.25 0 0 0 1.25 1.25h7.5A1.25 1.25 0 0 0 13 13V5.75Z'/%3E%3Cpath d='M9 1.75V5.75H13'/%3E%3Cpath d='M5.75 9h4.5M5.75 11.25h3'/%3E%3C/svg%3E");
-  /* Task 6: New game's mobile-only popover trigger (below 900px — see
+  /* Task 6: New game's stacked-layout popover trigger (below 1020px — see
      NewGameControl.tsx). Same masked-to-`currentColor` pattern as the two
      icons above. */
   --icon-plus: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.6' stroke-linecap='round'%3E%3Ccircle cx='8' cy='8' r='6.25'/%3E%3Cpath d='M8 5.25v5.5M5.25 8h5.5'/%3E%3C/svg%3E");
@@ -1715,7 +1715,7 @@ body {
 /* ------------------------------------------------------------------
    Task 6 (mobile pass): New game's mobile-only popover.
 
-   Below 900px `NewGameControl` swaps the always-visible `NewGame` card for
+   Below 1020px `NewGameControl` swaps the always-visible `NewGame` card for
    this trigger + popover pair — same shell as Game file/Settings
    (`usePopover`).
 
@@ -2001,7 +2001,7 @@ body {
      open and a phone screen is itself often taller, proportionally, than
      it is wide — 70vh of a short desktop window clips sooner than the
      same 70vh of a tall phone actually needs to. `.new-game-popover`
-     needs no entry here: it only ever exists below 900px (NewGameControl),
+     needs no entry here: it only ever exists below 1020px (NewGameControl),
      and fix round 1 made its `max-height` a per-instance inline style
      (computed from the trigger's own position — see NewGameControl.tsx),
      not a static rule this block could override. */

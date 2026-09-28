@@ -433,7 +433,7 @@ function AppInner({
               the right column where it fits above the tabs. Level and time
               control stay here too — see SettingsPopover's doc comment for
               why they belong next to the button that starts the next game,
-              not in a settings popover. Task 6: below 900px this collapses
+              not in a settings popover. Task 6: below 1020px this collapses
               into a popover (NewGameControl); inline here otherwise. */}
           <NewGameControl
             mode={choices.mode}

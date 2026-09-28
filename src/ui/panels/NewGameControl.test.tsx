@@ -82,7 +82,7 @@ describe('desktop (matchMedia reports not-mobile)', () => {
   })
 })
 
-describe('mobile (matchMedia reports max-width: 899px)', () => {
+describe('stacked layout (matchMedia reports max-width: 1020px)', () => {
   test('renders a trigger; opening it reveals exactly one `mode` control, never two', () => {
     window.matchMedia = vi.fn(() => fakeMatchMedia(true).mql)
     renderControl()
@@ -150,7 +150,7 @@ describe('resizing across the breakpoint (fix round 1, item 2)', () => {
   // (and `onOpenChange`) stayed stuck `true` — which is exactly what
   // pinned `useShortcuts`' `overlayOpen` true in the live-browser bug this
   // reproduces at the unit level.
-  test('resizing past 900px while open unmounts the popover and reports onOpenChange(false)', () => {
+  test('resizing past the breakpoint while open unmounts the popover and reports onOpenChange(false)', () => {
     const { mql, set } = fakeMatchMedia(true)
     window.matchMedia = vi.fn(() => mql)
     const { onOpenChange } = renderControl()
@@ -172,7 +172,7 @@ describe('resizing across the breakpoint (fix round 1, item 2)', () => {
   // The ordinary case — never opened — must not call onOpenChange at all
   // on a resize; the guard is specifically for "open, then no longer
   // mobile", not every mobile/desktop flip.
-  test('resizing past 900px while CLOSED reports nothing', () => {
+  test('resizing past the breakpoint while CLOSED reports nothing', () => {
     const { mql, set } = fakeMatchMedia(true)
     window.matchMedia = vi.fn(() => mql)
     const { onOpenChange } = renderControl()

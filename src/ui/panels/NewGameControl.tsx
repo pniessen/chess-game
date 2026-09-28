@@ -4,10 +4,20 @@ import { useMediaQuery } from '../app/useMediaQuery'
 import { NewGame } from './NewGame'
 import { usePopover } from './usePopover'
 
-/** Below this, New game collapses into a popover (a prior binding ruling —
- * see task-6-report.md). At and above it, `NewGame` renders exactly as
- * Task 3 left it: inline, above the tabs, no popover chrome at all. */
-const MOBILE_QUERY = '(max-width: 899px)'
+/** Below this, New game collapses into a popover. At and above it,
+ * `NewGame` renders exactly as Task 3 left it: inline, above the tabs, no
+ * popover chrome at all.
+ *
+ * 1020px, matching `.layout`'s own single-column query (app.css) exactly:
+ * the popover is for when New game has no side column to live in, and
+ * below 1020px there IS no right column — the layout is stacked, so an
+ * inline `NewGame` would span the full width of the centred stack under
+ * the board. Task 6 originally set this to 899px, when `.layout` still
+ * stacked at 768px; that left 900-1020px rendering a stacked layout with
+ * an inline, full-width New game card. The two breakpoints are one
+ * decision and are kept in step deliberately: if `.layout`'s query moves,
+ * this moves with it. */
+const MOBILE_QUERY = '(max-width: 1020px)'
 
 /** Fix round 1: fixed footprint for the position math below, matching the
  * popover's own CSS (`.new-game-popover`, app.css) — width and the desktop
@@ -23,8 +33,9 @@ type Placement = { top: number; left: number; width: number; maxHeight: number }
 
 /**
  * Task 6 (mobile pass): New game gets the same treatment Game file already
- * has (Task 4) — but ONLY below 900px. At desktop widths `NewGame` is the
- * entry point to every session and stays in the open, unchanged.
+ * has (Task 4) — but ONLY below 1020px, where the layout is stacked. At
+ * the three-column widths above it `NewGame` is the entry point to every
+ * session and stays in the open, unchanged.
  *
  * Reuses `usePopover` (the shell behind Settings and Game file) rather
  * than re-deriving a focus trap — called unconditionally, before the
@@ -84,7 +95,8 @@ export function NewGameControl(
   const mobile = useMediaQuery(MOBILE_QUERY)
   const { open, toggle, close, triggerRef, popRef, handleKeyDown } = usePopover({ onOpenChange })
 
-  // Fix round 1, issue 2: resizing past 900px while the popover is open
+  // Fix round 1, issue 2: resizing past the breakpoint while the popover
+  // is open
   // used to strand it. The `!mobile` branch below drops the popover's
   // MARKUP, but nothing ever told `usePopover` it had closed — `open`
   // (and, through `onOpenChange`, App.tsx's `newGameOpen`) stayed `true`

@@ -155,7 +155,7 @@ test('shortcuts never fire while the settings popover owns the keyboard', async 
 })
 
 // Task 6: New game is the same kind of popover as Game file/Settings below
-// 900px (NewGameControl) — red before `newGameOpen` was wired into
+// 1020px (NewGameControl) — red before `newGameOpen` was wired into
 // `overlayOpen` (App.tsx): 'f' would flip the board right behind the open
 // popover.
 test('shortcuts never fire while the New game popover owns the keyboard', async ({ page }) => {
