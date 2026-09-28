@@ -40,6 +40,53 @@ describe('CoachClient', () => {
     expect(down.getSnapshot().status).toBe('offline')
   })
 
+  // Breaks if checkHealth stops retrying a TIMED-OUT probe. Found in
+  // production on 2026-09-28: the badge read "coaching offline" on first
+  // load of the Netlify deployment while /api/health, called by hand from
+  // that same page, answered {ok:true,claude:true} — a serverless cold
+  // start had exceeded the single 5s attempt, and nothing re-probed.
+  test('health: a cold start that times out once is retried, not latched offline', async () => {
+    const timeout = () => {
+      const err = new Error('The operation was aborted due to timeout')
+      err.name = 'TimeoutError'
+      return err
+    }
+    let calls = 0
+    const fetch = vi.fn(async () => {
+      calls++
+      if (calls === 1) throw timeout()
+      return json(200, { ok: true, claude: true })
+    })
+    const c = new CoachClient({ fetch })
+    await c.checkHealth()
+    expect(calls, 'the probe should be attempted twice').toBe(2)
+    expect(c.getSnapshot().status).toBe('online')
+  })
+
+  // The retry is for cold starts, not for servers that are genuinely down:
+  // a real answer (network error, non-ok, malformed body) must latch
+  // offline on the FIRST attempt, or every offline user waits 20s to be
+  // told what the first 5s already established.
+  test('health: a non-timeout failure is not retried', async () => {
+    const fetch = vi.fn(async () => { throw new TypeError('fetch failed') })
+    const c = new CoachClient({ fetch })
+    await c.checkHealth()
+    expect(fetch).toHaveBeenCalledTimes(1)
+    expect(c.getSnapshot().status).toBe('offline')
+  })
+
+  test('health: two timeouts in a row do latch offline', async () => {
+    const fetch = vi.fn(async () => {
+      const err = new Error('timeout')
+      err.name = 'TimeoutError'
+      throw err
+    })
+    const c = new CoachClient({ fetch })
+    await c.checkHealth()
+    expect(fetch).toHaveBeenCalledTimes(2)
+    expect(c.getSnapshot().status).toBe('offline')
+  })
+
   test('a hint returns Claude text and marks the coach online', async () => {
     const fetch = vi.fn(async () => json(200, { text: ' Take the centre. ' }))
     const c = new CoachClient({ fetch })
