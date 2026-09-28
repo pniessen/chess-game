@@ -33,7 +33,7 @@ const EXPLICIT_PORT = Boolean(process.env['PW_PORT'])
  * spec, and only that spec, also runs in WebKit and Firefox; everything
  * else stays on Chromium, where it has always run.
  */
-const CROSS_BROWSER = /popover-focus-trap\.spec\.ts/
+const CROSS_BROWSER = /popover-focus-trap(\.mobile)?\.spec\.ts/
 
 export default defineConfig({
   testDir: './tests/e2e',
