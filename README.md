@@ -36,6 +36,30 @@ npm install          # postinstall copies the Stockfish worker into public/engin
 npm run dev          # http://localhost:5173
 ```
 
+### Working in a git worktree
+
+`public/engine/` is gitignored and produced by `npm install`'s postinstall
+step, so `git worktree add` gives you the tracked tree **without** the
+engine — even when `node_modules` is already populated. The app then runs
+in two-player mode with a "chess engine is unavailable" banner, every
+Stockfish, hint and eval test fails for environmental reasons, and that
+extra banner shifts the header enough to corrupt layout measurements. A
+green suite is impossible there and a red one is meaningless.
+
+In a fresh worktree, run this before anything else:
+
+```sh
+node scripts/copy-engine.mjs   # or: npm install
+```
+
+Running suites in more than one worktree at once? Give each its own port,
+because `reuseExistingServer` will otherwise bind your tests to whichever
+dev server answers first, regardless of which checkout it belongs to:
+
+```sh
+PW_PORT=5199 npx playwright test
+```
+
 For Claude coaching, add your key and run the coach server alongside it
 (Vite proxies `/api` to it, so the key never reaches the browser):
 

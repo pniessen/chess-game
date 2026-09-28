@@ -10,7 +10,14 @@ describe('perft', () => {
     for (let depth = 1; depth <= 3; depth++) {
       test(`${pos.name} depth ${depth}`, () => {
         expect(perft(new Position(pos.fen), depth)).toBe(pos.nodes[depth - 1])
-      }, depth === 3 ? 60_000 : 10_000)
+        // Depth 3's cap is wall-clock, and this is a pure CPU benchmark
+        // with no I/O to absorb contention: measured around 112-119s for
+        // the whole file on a quiet machine, but the old 60s per-test cap
+        // timed out for two unrelated sessions on the same afternoon when
+        // several suites ran at once. A gate whose pass/fail depends on
+        // how busy the machine is tells you nothing, so the cap is set
+        // well clear of the real runtime rather than close to it.
+      }, depth === 3 ? 180_000 : 10_000)
     }
   }
 })

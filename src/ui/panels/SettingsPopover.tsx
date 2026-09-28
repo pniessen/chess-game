@@ -55,20 +55,37 @@ export function SettingsPopover({
   // live in `usePopover`, lifted out of this file verbatim so the Game file
   // popover could reuse them.
   //
-  // `documentEscape` stays OFF here, and the reason is concrete, not just
-  // "that is how Task 12 shipped": NOTHING below is conditionally
-  // rendered. Every control in this popover — every radio, the sound
-  // checkbox, the volume slider, the eval switch, Done — is mounted for
-  // as long as the popover is, whatever the game behind it does. So the
-  // focusable element under the user's focus can never be torn out from
-  // under them, focus can never fall to `<body>`, and the popover's own
-  // `onKeyDown` always sees Escape. (Verified in round 1 review: a full
-  // engine-vs-engine game played to checkmate with this open never once
-  // moved focus out, not even when the game-end card appeared.)
+  // `documentEscape` stays OFF here. Every control in this popover — every
+  // radio, the sound checkbox, the volume slider, the eval switch, Done —
+  // is mounted for as long as the popover is, whatever the game behind it
+  // does: nothing here is conditionally rendered, so this component never
+  // tears a focused element out from under the user by itself.
   //
-  // If you ever add content here that renders conditionally — a "saved"
+  // Fix round 2 precision: that is not the same claim as "focus can never
+  // fall out of this popover" — it can, from OUTSIDE it, and the earlier
+  // version of this comment overstated the guarantee. `GameEndCard`
+  // programmatically calls `card?.focus()` on mount (its own file, plain
+  // `useEffect`), unconditionally, whenever a game ends — including while
+  // this popover is open and holds focus. That `focus()` fires a
+  // `focusout` with a NON-NULL `relatedTarget` (the card, a real element,
+  // not `<body>`), so `usePopover`'s own guard — which only reacts to a
+  // `relatedTarget === null` — correctly declines to intervene, by
+  // design, and the popover's React focus trap goes inert while the
+  // popover stays visually open. Verified live: two-player Bullet 1+0,
+  // open this popover, focus something inside it, let the clock run out;
+  // focus lands on the game-end card, not `<body>`, exactly as above.
+  //
+  // The conclusion — `documentEscape: false` is safe here — still holds,
+  // but not for the reason this comment used to give. What actually
+  // covers this hole is `GameEndCard`'s own focus restore (back to
+  // whatever had focus when the game ended, once the card itself closes)
+  // plus the two-layer Escape this produces (once to close/dismiss the
+  // card, again to close the popover) — not the absence of conditionally
+  // rendered content. The real risk this component still has none of is
+  // narrower than advertised: something INSIDE this popover unmounting
+  // while it holds focus. Add conditional content — a "saved"
   // confirmation, a reset-confirm step, anything that can appear and
-  // vanish — that reasoning dies with it. Pass `documentEscape: true`
+  // vanish from WITHIN this popover — and pass `documentEscape: true`
   // when you do; `GameFilePopover` has the long version of why.
   const { open, toggle, close, triggerRef, popRef, handleKeyDown } = usePopover({ onOpenChange })
 

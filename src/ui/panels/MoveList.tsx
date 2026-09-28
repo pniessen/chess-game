@@ -58,9 +58,9 @@ export function MoveList({
   //
   // Fix round 1: the first version of this used the browser's own
   // `Element.scrollIntoView({ block: 'nearest' })`, which walks every
-  // scrollable ANCESTOR, not just this list — and on mobile (≤768px,
-  // where `.right-column` gives up its own scroll container, Task 5's
-  // mobile override) the walk continued past it to the document itself,
+  // scrollable ANCESTOR, not just this list — and in the single-column
+  // layout (≤1020px, where `.right-column` gives up its own scroll
+  // container) the walk continued past it to the document itself,
   // which genuinely can scroll there. Measured live: playing a single
   // move while the Moves tab was merely active yanked the whole PAGE down
   // to reveal it, moving the board out from under whatever the reader was

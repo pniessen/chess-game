@@ -61,6 +61,19 @@
   --shadow-card: 0 1px 2px rgba(23, 32, 48, 0.06), 0 4px 14px rgba(23, 32, 48, 0.06);
   --shadow-board: 0 2px 4px rgba(23, 32, 48, 0.12), 0 18px 40px -12px rgba(23, 32, 48, 0.35),
     0 40px 80px -30px rgba(23, 32, 48, 0.3);
+  /* Fix round 2: was three separate copies of this exact value
+     (`.settings-popover`, `.game-file-popover`, `.new-game-popover`) —
+     `--shadow-card` plus one extra layer for a popover floating over the
+     page rather than sitting flush in a column. Not a new colour: the
+     rgba is `--shadow-board`'s own ink. Defined once, here, rather than
+     re-declared per theme: `var(--shadow-card)` inside it still resolves
+     against whichever theme is active on the element that uses
+     `--shadow-popover` (the cascade for a `var()` reference is resolved
+     where the property is USED, not where it is declared), so this one
+     declaration already adapts to dark mode exactly as the three
+     inlined copies did — dark mode never gave this extra layer's own
+     rgba a themed variant either; this token doesn't change that. */
+  --shadow-popover: var(--shadow-card), 0 18px 40px -16px rgba(23, 32, 48, 0.35);
   --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%23536074' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   /* Masked to `currentColor` where it is used, so it needs no dark variant. */
   --icon-sliders: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.6' stroke-linecap='round'%3E%3Cpath d='M2 4.5h4.5M11.5 4.5H14M2 11.5h2.5M9.5 11.5H14'/%3E%3Ccircle cx='9' cy='4.5' r='2'/%3E%3Ccircle cx='7' cy='11.5' r='2'/%3E%3C/svg%3E");
@@ -145,6 +158,62 @@
 /* ------------------------------------------------------------------
    Page
    ------------------------------------------------------------------ */
+
+/* Turn off CSS scroll anchoring for the PAGE's scroller.
+
+   Chromium anchors a nonzero scroll offset to a node it picks among the
+   viewport scroller's descendants — something visible near the top of the
+   scrollport, which on a phone is the board — and silently adjusts
+   `window.scrollY` to hold that node still whenever layout moves it. The
+   header above the board moves it constantly, and never in response to
+   anything the reader did: the opening name fills in (and wraps to a
+   second line) on move one, the `engine-status` spinner resolves, the
+   coach badge arrives once the health check fails, the resume and
+   share-conflict banners come and go. Each one jumps the page and the
+   board under a reader who has scrolled down into it. Measured at
+   375x667: playing e4/c5 grows `.status-row` 76.75px -> 119.48px and
+   drags `window.scrollY` 200 -> 229 with it; declining the resume banner
+   shrinks the header and drops it 200 -> 84.
+
+   Why not on the growing elements themselves. `overflow-anchor: none`
+   only makes an element (and its subtree) ineligible to BE the anchor; it
+   does nothing about an element whose growth displaces an anchor below it.
+   `.status-row { overflow-anchor: none }` is therefore a no-op here —
+   measured, 200 -> 229 with it exactly as without — because `.status-row`
+   is never the anchor, it is the box doing the pushing. The anchor is
+   whatever happens to be on screen, so no element-level fix exists; the
+   scroll container is the only scope that works, and one rule there covers
+   every growing element above the fold, present and future.
+
+   Why `body` and not `html` alone, which is what the spec names as the
+   viewport scroller's element. Measured, `html` alone is NOT enough in
+   Chromium: it fixes the growing case (200 -> 200) but leaves the
+   shrinking one untouched (200 -> 85, the board pinned at the same
+   viewport offset either way). `body` alone fixes both, because what
+   actually works in Chromium is the subtree rule — `none` on an element
+   inside a scroller prunes its whole subtree from candidacy, and with
+   `body` pruned the viewport scroller is left with no candidate at all.
+   `html` is kept alongside it because it is the spec's own lever for
+   "disable anchoring for this scroll container", so an engine that
+   implements that reading honours it; it costs nothing, and only Chromium
+   is measured here.
+
+   This does NOT touch the inner scroll containers — `.left-column`,
+   `.right-column`, `.tabs`, `.move-list`, the explorer results. Verified
+   on a synthetic two-level page: `none` on an ANCESTOR of a scroller has
+   no effect on that scroller's own anchoring (its candidate walk starts at
+   the scroller and never sees the rule), while `none` on a wrapper INSIDE
+   one does prune it. `body` is an ancestor of all of them, so their
+   anchoring is left exactly as it was.
+
+   Pinned by two tests in tests/e2e/above-the-fold.spec.ts ("never moves
+   the page under a reader scrolled into it") — one growing element, one
+   shrinking one, deliberately different elements. */
+html,
+body {
+  overflow-anchor: none;
+}
+
 body {
   /* The board/panels never rely on the page's default (transparent)
      background or inherited (black) text color — a dark host would
@@ -476,11 +545,23 @@ body {
      page's overflow was here. */
   min-height: 0;
   max-height: var(--board-size);
-  /* A backstop, not the mechanism: .tabs below gives up its height first,
-     so this only ever scrolls once .tabs has hit its own min-height (i.e.
-     on a viewport short enough that New game + a usable tab card no longer
-     fit). Clipping instead would make the bottom of New game unreachable
-     there, since the page has no scrollbar of its own any more. */
+  /* A backstop, not the preferred mechanism: .tabs below gives up its
+     height first, so in the current code this only ever scrolls once
+     .tabs has hit its own min-height (i.e. on a viewport short enough
+     that New game + a usable tab card no longer fit). Clipping instead
+     would make the bottom of New game unreachable there, since the page
+     has no scrollbar of its own any more.
+
+     It is a genuine backstop, though, not merely cosmetic: it also
+     catches a fixed-cap regression on `.tabs`/`.move-list` — restoring
+     either alone still leaves the PAGE itself unscrolled (Task 7 fix
+     round 1, verified live) because THIS rule absorbs it into an
+     internal scrollbar instead. (`.move-list`'s own rule separately
+     fails a different, legitimate test that pins ITS OWN sizing — see
+     its comment — which is not the same claim as this one.) Pinned
+     directly, by computed style, in tests/e2e/above-the-fold.spec.ts's
+     "the right column's own height cap is what keeps a tall tab panel
+     from pushing the page" test. */
   overflow-y: auto;
   /* See .left-column: a reserved gutter instead of a 15px reflow the first
      time a classic scrollbar appears in this fixed 280px track. */
@@ -699,13 +780,36 @@ body {
   list-style: none;
   margin: 0;
   padding: 4px 8px 10px;
-  /* Task 5: was `max-height: 420px`. A constant cap is what put 948px of
-     page into an 800px viewport with a long game loaded — the list simply
-     grew to 420px and shoved everything under it past the fold. It now
-     takes the panel's height instead (`min-height: 0` so it may shrink
-     below its content, which a flex item otherwise refuses to do) and
-     scrolls there: measured 248px at 1440x800 and 206px at 1280x720 under a
-     324px New game card. */
+  /* Task 5: was `max-height: 420px`. At the time, a constant cap here is
+     what put 948px of page into an 800px viewport with a long game loaded
+     — the list simply grew to 420px and shoved everything under it past
+     the fold. It now takes the panel's height instead (`min-height: 0` so
+     it may shrink below its content, which a flex item otherwise refuses
+     to do) and scrolls there: measured 248px at 1440x800 and 206px at
+     1280x720 under a 324px New game card.
+
+     Task 7 fix round 1 correction: restoring the literal `max-height:
+     420px` here TODAY no longer reproduces that 948px page overflow —
+     verified live, `document.documentElement.scrollHeight` stays equal
+     to the viewport. The 948px figure above is a real historical
+     measurement, not a live regression test: `.right-column`'s own
+     `max-height: var(--board-size)` / `overflow-y: auto` cap (below) now
+     absorbs a fixed cap here into an internal scrollbar instead of the
+     page, whether or not this rule's own flex-based sizing is doing
+     anything — see `.right-column`'s own comment, and
+     tests/e2e/above-the-fold.spec.ts's "the right column's own height cap
+     is what keeps a tall tab panel from pushing the page" test, which
+     pins THAT cap directly.
+
+     Restoring `max-height: 420px` here does still fail something, though
+     — correctly, and for an unrelated reason: tests/e2e/above-the-fold.
+     spec.ts's own "with a 70-move game ..., the moves list scrolls and
+     the page does not" test separately asserts this rule's OWN computed
+     `max-height` is `'none'`, i.e. that this list itself no longer uses a
+     fixed cap. That is a distinct, legitimate mechanism check (this
+     rule's own sizing), not the page-scroll invariant `.right-column`'s
+     cap now carries — the two are not the same claim, and this comment
+     used to conflate them. */
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
@@ -1181,7 +1285,7 @@ body {
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-card), 0 18px 40px -16px rgba(23, 32, 48, 0.35);
+  box-shadow: var(--shadow-popover);
   /* Well inside the 200 ms state-change budget; the reduced-motion rule at
      the foot of this file drops it entirely. */
   animation: settings-pop-in 140ms ease-out;
@@ -1700,7 +1804,7 @@ body {
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-card), 0 18px 40px -16px rgba(23, 32, 48, 0.35);
+  box-shadow: var(--shadow-popover);
   animation: settings-pop-in 140ms ease-out;
 }
 .game-file-popover:focus { outline: none; }
@@ -1721,15 +1825,15 @@ body {
 
    Fix round 1: the popover itself is portaled to `document.body` and
    positioned `fixed` from JS (NewGameControl.tsx), same technique as
-   `MovePreview.tsx` — `.new-game-anchor` (still just the trigger's normal-
-   flow wrapper inside `.right-column`) is NOT its containing block any
-   more. It was, in the first version (`position: absolute` on the
-   popover, `position: relative` here) — and `.right-column`'s own
-   `overflow-y: auto` (Task 5) clipped it to a sliver, since an
-   absolutely-positioned descendant of a scrolling ancestor cannot escape
-   that ancestor's box, `z-index` or no. `position: fixed` escapes every
-   ancestor's overflow by definition, which is the actual fix; the anchor
-   needs no `position` of its own for it.
+   `MovePreview.tsx` — the trigger's own normal-flow wrapper inside
+   `.right-column` is NOT its containing block any more, and carries no
+   rule of its own here. It was, in the first version (`position:
+   absolute` on the popover, `position: relative` on that wrapper) — and
+   `.right-column`'s own `overflow-y: auto` (Task 5) clipped it to a
+   sliver, since an absolutely-positioned descendant of a scrolling
+   ancestor cannot escape that ancestor's box, `z-index` or no. `position:
+   fixed` escapes every ancestor's overflow by definition, which is the
+   actual fix; the wrapper needs no `position` of its own for it any more.
    ------------------------------------------------------------------ */
 .app .new-game-trigger {
   display: inline-flex;
@@ -1768,7 +1872,7 @@ body {
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-card), 0 18px 40px -16px rgba(23, 32, 48, 0.35);
+  box-shadow: var(--shadow-popover);
   animation: settings-pop-in 140ms ease-out;
 }
 .new-game-popover:focus { outline: none; }
@@ -2053,26 +2157,47 @@ body {
 /* ------------------------------------------------------------------
    Task 5: a floor for the tab card, on SHORT viewports only.
 
-   The right column's height is capped at `--board-size` and `.tabs` is the
-   part of it that gives, so the panel's height is a straight subtraction
-   (measured at 1440x800, and width-independent):
+   Task 7 re-derivation: the 620px threshold below was inherited from
+   Task 5's own comment without being re-checked, and that comment's own
+   arithmetic (a 56px tab header, a 514px subtraction) does not match a
+   live measurement — re-measured here with Playwright, at 1440x800 and
+   confirmed width-independent (900/1280/1920 all agree): New game is
+   324.4px, not 324, and the tab header (`.tabs-header`) is 37.8px, not
+   56.
 
-     panel = --board-size - (New game 324 + column gap 12 + tab header 56)
-     (the header's 56px is the 38px tab row plus its 8px margins and the
-      card's own 1px top and bottom borders — all measured, not guessed)
-           = (100svh - --chrome 122) - 392
-           = viewport height - 514
+   The right column's height is capped at `--board-size` and `.tabs` is
+   the part of it that gives once the column's natural content (New game
+   + a full tab panel) exceeds that cap, so `.tabs`'s squeezed height is a
+   straight subtraction — confirmed live across 762/720/700/660/640/630
+   down to 618px of viewport height, importing a 70-move game so the
+   Moves panel has enough content to force the squeeze:
 
-   Above ~620px of viewport height that leaves 100px or more and no floor is
-   needed — the card cannot shrink past its own header there, so the tabs
-   stay clickable on their own. Below it the subtraction runs the panel down
-   towards nothing, and `overflow: hidden` on `.tabs` (which is what lets it
-   shrink at all) would eventually clip the tab row itself out of reach,
-   with no page scrollbar left to get at it.
+     tabs = --board-size - (New game 324.4 + column gap 12)
+          = (100svh - --chrome 122) - 336.4
+          = viewport height - 458.4
 
-   So below that threshold the card refuses to go under 160px — the header
-   plus about three move rows — and `.right-column`'s own `overflow-y: auto`
-   takes over, scrolling the column instead. The floor is deliberately NOT
+   `.tabs`'s own floor is 160px (the header plus about three move rows),
+   so the floor is needed exactly where that subtraction would take it
+   below 160 — solving `viewport height - 458.4 < 160` gives a crossover
+   at viewport height 618.4, confirmed live: measured tabs height (floor
+   temporarily removed) is 161.6px at 620px of viewport height and 159.6px
+   at 618px, either side of the 160px line. `max-height: 620px` sits
+   1.6px above that crossover — still the right number: `.tabs` never
+   needs to be told to floor above it (the query is a no-op at 619-620px,
+   where the natural height already clears 160 on its own), and the small
+   margin below the exact 618.4px crossover absorbs sub-pixel differences
+   between browsers/font rendering that the bare arithmetic above can't
+   promise to hold to the pixel. It is NOT robust to New game's own height
+   changing, though: that 324.4px is a live input to the 618.4px crossover
+   above, not a constant this query can see, so a future change to New
+   game's height (an extra row, a taller select, a longer label wrapping)
+   shifts the real crossover without this number following it — anyone
+   changing New game's height needs to re-run this derivation.
+
+   Below the threshold the card refuses to go under 160px, and
+   `.right-column`'s own `overflow-y: auto` takes over, scrolling the
+   column instead of clipping the tab row itself out of reach with no
+   page scrollbar left to get at it. The floor is deliberately NOT
    unconditional: measured, applying it at every height padded the empty
    Moves card from 70px to 160px and the empty History card from 96px to
    160px, a visibly empty box beside a full-height board, to buy something
@@ -2084,7 +2209,22 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .app *,
   .app *::before,
-  .app *::after {
+  .app *::after,
+  /* Fix round 2: `NewGameControl` is the only `createPortal` in the
+     codebase (MovePreview is `position: fixed` but stays a DOM
+     descendant of `.app`, so `.app *` already covers it) — portaling
+     `.new-game-popover` to `document.body` (NewGameControl.tsx) takes it
+     out from under `.app *` too, so this gate never matched it. Measured
+     live at 375x812 under `prefers-reduced-motion: reduce` before this
+     fix: `.new-game-popover` still ran `animation: settings-pop-in
+     0.14s` while `.game-file-popover`, a non-portaled sibling with the
+     same animation, correctly showed `animation: none 0s`. Listed by its
+     own class rather than relying on `.app *`, since nothing rooted at
+     `.app` can reach it any more. */
+  .new-game-popover,
+  .new-game-popover *,
+  .new-game-popover *::before,
+  .new-game-popover *::after {
     animation: none !important;
     transition: none !important;
   }
