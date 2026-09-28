@@ -15,6 +15,11 @@ const NOTICE: Record<'rate-limited' | 'timeout' | 'auth' | 'upstream', string> =
   upstream: 'Claude could not answer — using built-in coaching for now.',
 }
 
+/** The health probe's first budget: generous for a warm server, no more. */
+const HEALTH_FIRST_MS = 5_000
+/** Its retry budget, sized to cover a serverless cold start. */
+const HEALTH_RETRY_MS = 15_000
+
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v)
 }
@@ -77,22 +82,53 @@ export class CoachClient {
     if (this.snap.notice !== null) this.update({ notice: null })
   }
 
+  /**
+   * Probe `/api/health` and set the badge from it.
+   *
+   * Two attempts, not one. The first has a short 5s budget, because on a
+   * warm server this answers in milliseconds and a slow first paint is
+   * worse than a slow badge. But on a serverless host the very first
+   * request of the day pays a cold start, which routinely exceeds 5s —
+   * and a single attempt that timed out used to latch the badge to
+   * `offline` with nothing ever re-probing, so a first-time visitor was
+   * told coaching was unavailable on a deployment where it was working
+   * perfectly. Reloading fixed it, which is not a thing to ask of
+   * someone who has just arrived.
+   *
+   * Observed in production on 2026-09-28: the badge read "coaching
+   * offline" on first load while `/api/health`, called by hand from that
+   * same page moments later, returned `{ok: true, claude: true}`.
+   *
+   * So a TIMEOUT specifically gets one retry, on a budget long enough to
+   * cover a cold start. Anything else — a non-ok response, malformed
+   * JSON, a network error — is a real answer and still latches `offline`
+   * immediately, because retrying those just delays the truth.
+   */
   async checkHealth(): Promise<void> {
     const seq = ++this.requestSeq
     if (!this.enabled) {
       this.setStatus(seq, 'offline')
       return
     }
-    try {
-      const res = await this.fetchImpl('/api/health', { signal: AbortSignal.timeout(5_000) })
-      const body: unknown = res.ok ? await res.json() : null
-      if (!isRecord(body) || body['ok'] !== true) {
-        this.setStatus(seq, 'offline')
+    for (const [attempt, budget] of [HEALTH_FIRST_MS, HEALTH_RETRY_MS].entries()) {
+      try {
+        const res = await this.fetchImpl('/api/health', { signal: AbortSignal.timeout(budget) })
+        const body: unknown = res.ok ? await res.json() : null
+        if (!isRecord(body) || body['ok'] !== true) {
+          this.setStatus(seq, 'offline')
+          return
+        }
+        this.setStatus(seq, body['claude'] === true ? 'online' : 'no-key')
         return
+      } catch (err) {
+        // `AbortSignal.timeout` aborts with a TimeoutError; anything else
+        // (a DNS failure, a refused connection) is a real answer.
+        const timedOut = isRecord(err) && err['name'] === 'TimeoutError'
+        if (!timedOut || attempt > 0) {
+          this.setStatus(seq, 'offline')
+          return
+        }
       }
-      this.setStatus(seq, body['claude'] === true ? 'online' : 'no-key')
-    } catch {
-      this.setStatus(seq, 'offline')
     }
   }
 
