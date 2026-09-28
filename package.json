@@ -7,7 +7,9 @@
     "node": ">=22.9"
   },
   "scripts": {
+    "predev": "node scripts/copy-engine.mjs",
     "dev": "vite",
+    "prebuild": "node scripts/copy-engine.mjs",
     "build": "tsc -b && tsc -p tsconfig.node.json && vite build",
     "preview": "vite preview",
     "test": "vitest run",
