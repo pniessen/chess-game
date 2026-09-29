@@ -67,6 +67,11 @@ function gameToken(gameId: string, env: Env): string {
   return createHmac('sha256', env['OWNER_TOKEN'] ?? '').update(gameId).digest('hex')
 }
 
+/** Whether `token` is the bearer minted for `gameId`. Closed when no owner token is configured. */
+export function checkGameToken(env: Env, gameId: string, token: string): boolean {
+  return Boolean(env['OWNER_TOKEN']) && safeEqual(token, gameToken(gameId, env))
+}
+
 interface Budget {
   /** Dollars actually charged this month. */
   spent: number
@@ -97,7 +102,8 @@ async function writeBudget(store: CoachStore, month: string, b: Budget): Promise
 }
 
 async function readGame(store: CoachStore, gameId: string): Promise<Game | null> {
-  const v = await store.get(`games/${gameId}`, { type: 'json' }).catch(() => null)
+  // Like the budget and the lock, a failed read propagates: it must not look like "no such game".
+  const v = await store.get(`games/${gameId}`, { type: 'json' })
   if (!isRecord(v) || !isClaudeModelKey(v['white']) || !isClaudeModelKey(v['black'])) return null
   return {
     white: v['white'],
@@ -188,15 +194,19 @@ export async function authorizeMove(
 /**
  * Record what a move cost. It counts against the game's reservation first,
  * so the month's "left" only moves when a game ends or overspends.
+ * Returns what the game has spent so far.
  */
-export async function chargeMove(store: CoachStore, _now: number, gameId: string, costUsd: number): Promise<void> {
+export async function chargeMove(store: CoachStore, _now: number, gameId: string, costUsd: number): Promise<number> {
   const game = await readGame(store, gameId)
-  if (!game || game.ended || !(costUsd > 0)) return
+  if (!game) return 0
+  if (game.ended || !(costUsd > 0)) return game.spent
   const held = Math.max(0, game.reserved - game.spent)
   const fromReservation = Math.min(costUsd, held)
   const budget = await readBudget(store, game.month)
   await writeBudget(store, game.month, { spent: budget.spent + costUsd, reserved: budget.reserved - fromReservation })
-  await store.setJSON(`games/${gameId}`, { ...game, spent: round(game.spent + costUsd) })
+  const spent = round(game.spent + costUsd)
+  await store.setJSON(`games/${gameId}`, { ...game, spent })
+  return spent
 }
 
 /**
@@ -222,5 +232,14 @@ async function settleGame(store: CoachStore, now: number, gameId: string, record
   const budget = await readBudget(store, game.month)
   await writeBudget(store, game.month, { spent: budget.spent, reserved: budget.reserved - unused })
   await store.setJSON(`games/${gameId}`, { ...game, ended: true })
-  await store.setJSON(`games/saved/${gameId}`, { ...record, gameId, white: game.white, black: game.black, endedAt: now })
+  await store.setJSON(`games/saved/${gameId}`, {
+    ...record,
+    gameId,
+    white: game.white,
+    black: game.black,
+    // Money comes from the server-tracked game; whatever the caller put in the record is overwritten.
+    spent: round(game.spent),
+    reserved: round(game.reserved),
+    endedAt: now,
+  })
 }

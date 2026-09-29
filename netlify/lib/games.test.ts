@@ -6,6 +6,7 @@ import {
   authorizeMove,
   budgetLeft,
   chargeMove,
+  checkGameToken,
   checkOwner,
   endGame,
   startGame,
@@ -134,6 +135,26 @@ describe('chargeMove and endGame', () => {
     expect(await budgetLeft(store, NOW)).toBeCloseTo(GAMES_LIMITS.monthlyUsd - 0.05, 6)
     expect(store.data.get(`games/saved/${g.gameId}`)).toMatchObject({ pgn: '1. e4 *' })
     expect((await startGame(store, NOW + 1, ENV, SIDES)).ok).toBe(true)
+  })
+  test('the saved record takes its money from the server-tracked game, not the caller', async () => {
+    const g = await start()
+    await chargeMove(store, NOW, g.gameId, 0.05)
+    await endGame(store, NOW, g.gameId, { pgn: '1. e4 *', spent: 999, reserved: 999, costUsd: 999 })
+    const saved = store.data.get(`games/saved/${g.gameId}`) as Record<string, number>
+    expect(saved['spent']).toBeCloseTo(0.05, 6)
+    expect(saved['reserved']).toBeCloseTo(RESERVE_PER_GAME_USD.haiku + RESERVE_PER_GAME_USD.sonnet, 6)
+  })
+  test('chargeMove reports the game total so far', async () => {
+    const g = await start()
+    expect(await chargeMove(store, NOW, g.gameId, 0.05)).toBeCloseTo(0.05, 6)
+    expect(await chargeMove(store, NOW, g.gameId, 0)).toBeCloseTo(0.05, 6)
+    expect(await chargeMove(store, NOW, g.gameId, 0.01)).toBeCloseTo(0.06, 6)
+  })
+  test('checkGameToken accepts only that game\'s token', async () => {
+    const g = await start()
+    expect(checkGameToken(ENV, g.gameId, g.token)).toBe(true)
+    expect(checkGameToken(ENV, 'other', g.token)).toBe(false)
+    expect(checkGameToken({}, g.gameId, g.token)).toBe(false)
   })
   test('ending twice does not refund twice', async () => {
     const g = await start()

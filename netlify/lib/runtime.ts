@@ -3,8 +3,10 @@
  * `netlify/` takes its store, its clock and its environment as arguments,
  * which is what keeps the pipeline unit-testable.
  */
+import Anthropic from '@anthropic-ai/sdk'
 import { getDeployStore, getStore } from '@netlify/blobs'
-import { createClaude, type Claude } from '../../server/claude'
+import { MOVE_TIMEOUT_MS } from '../../src/claude/models'
+import { createClaude, type Claude, type MessagesClient } from '../../server/claude'
 import { anthropicConfig } from './anthropic'
 import { isProductionHost, type CoachStore } from './limits'
 
@@ -38,4 +40,25 @@ export function coachStore(requestUrl: string | undefined): CoachStore {
 export function coachClaude(env: Record<string, string | undefined>): Claude | null {
   const config = anthropicConfig(env)
   return config ? createClaude(config) : null
+}
+
+/**
+ * Owner-only Claude games: their own store, kept apart from the coach's
+ * counters. Same production/deploy-scoped split as `coachStore`.
+ */
+export function gamesStore(requestUrl: string | undefined): CoachStore {
+  const options = { name: 'chess-games', consistency: 'strong' } as const
+  const store = isProductionHost(requestUrl) ? getStore(options) : getDeployStore(options)
+  return store as unknown as CoachStore
+}
+
+/**
+ * The client that plays the moves, or null with no usable key. One attempt
+ * with a bounded wait: a failed move is retried by the browser, which can
+ * see the clock, not by the SDK.
+ */
+export function gameMessagesClient(env: Record<string, string | undefined>): MessagesClient | null {
+  const config = anthropicConfig(env)
+  if (!config) return null
+  return new Anthropic({ apiKey: config.apiKey, baseURL: config.baseURL, timeout: MOVE_TIMEOUT_MS, maxRetries: 0 })
 }

@@ -2,7 +2,10 @@ import { existsSync } from 'node:fs'
 import type { Server } from 'node:http'
 import { fileURLToPath } from 'node:url'
 import { createApp } from './app'
+import Anthropic from '@anthropic-ai/sdk'
+import { MOVE_TIMEOUT_MS } from '../src/claude/models'
 import { createClaude } from './claude'
+import { memoryStore } from './memoryStore'
 
 /**
  * The relay is unauthenticated and holds the Anthropic API key, so it must
@@ -21,6 +24,12 @@ export function startServer(env: NodeJS.ProcessEnv = process.env): Promise<Serve
   const app = createApp({
     claude: apiKey ? createClaude({ apiKey }) : null,
     // `npm start` builds first; in dev, Vite serves the app and proxies /api here.
+    // Owner-only Claude games: in-memory, so a restart forgets budget and lock (fine on a developer's machine).
+    games: {
+      client: apiKey ? new Anthropic({ apiKey, timeout: MOVE_TIMEOUT_MS, maxRetries: 0 }) : null,
+      store: memoryStore(),
+      env,
+    },
     staticDir: existsSync(distDir) ? distDir : null,
   })
 
