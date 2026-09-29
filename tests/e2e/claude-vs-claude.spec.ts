@@ -115,7 +115,7 @@ test('two illegal-reply answers hand the move to Stockfish, marked with a gear',
   await expect(page.getByTestId('move-1')).toBeVisible()
   expect(calls.move[0]).toEqual([])
   expect(calls.move[1]).toEqual([])
-  expect(calls.move[2]?.length).toBe(1)
+  await expect.poll(() => calls.move[2]?.length).toBe(1)
 })
 
 test('without an owner token the mode is not offered; saving one offers it', async ({ page }) => {
