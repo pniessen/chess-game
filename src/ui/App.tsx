@@ -27,6 +27,7 @@ import { useSettings } from './app/useSettings'
 import { useAppearance } from './app/useAppearance'
 import { useMoveSounds, useSoundPlayer } from './app/useSound'
 import { useCoachClient } from './app/useCoachClient'
+import { useOwnerToken } from './app/useOwnerToken'
 import { useEngineHealth } from './app/useEngineHealth'
 import { useEngineLoading } from './app/useEngineLoading'
 import { useEngineAnalysis } from './app/useEngineAnalysis'
@@ -84,6 +85,9 @@ function AppInner({
 
   const sound = useSoundPlayer(settings.soundEnabled, settings.volume)
   const { coach, coachState } = useCoachClient()
+  // Claude vs Claude: only a build with a server (coaching on) and a stored
+  // owner token ever offers the mode.
+  const ownerToken = useOwnerToken()
 
   const snapshot = useMatch(controller)
   // Phase 3: game <-> puzzles. Entering pauses a live match through the
@@ -344,6 +348,11 @@ function AppInner({
               onChange={updateSettings}
               onPreviewVolume={() => sound.play('move')}
               onOpenChange={setSettingsOpen}
+              ownerToken={
+                ownerToken.enabled
+                  ? { isSet: ownerToken.isSet, onSave: ownerToken.save, onClear: ownerToken.clear }
+                  : undefined
+              }
             />
           </>
         }
