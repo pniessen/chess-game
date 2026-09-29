@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 
 interface ImportMetaEnv {
-  /** "on" in a local production build (npm start) that offers Claude vs Claude; unset in the public builds. */
+  /** "on" only in the local production build `npm run start:claude` makes; unset in npm start and the public builds. */
   readonly VITE_CLAUDE_GAMES?: string
 }

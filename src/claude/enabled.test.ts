@@ -7,7 +7,7 @@ describe('claudeGamesEnabled', () => {
     expect(claudeGamesEnabled({ DEV: true, VITE_CLAUDE_GAMES: 'off' })).toBe(true)
   })
 
-  test("on in a production build only with VITE_CLAUDE_GAMES=on (a local npm start)", () => {
+  test("on in a production build only with VITE_CLAUDE_GAMES=on (npm run start:claude)", () => {
     expect(claudeGamesEnabled({ DEV: false, VITE_CLAUDE_GAMES: 'on' })).toBe(true)
   })
 

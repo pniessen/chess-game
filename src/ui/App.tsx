@@ -98,9 +98,11 @@ function AppInner({
   const sound = useSoundPlayer(settings.soundEnabled, settings.volume)
   const { coach, coachState } = useCoachClient()
   // Claude vs Claude runs only against the local server, so only a build
-  // with the flag (dev, or VITE_CLAUDE_GAMES=on) offers it: see
-  // claude/enabled.ts. CLAUDE_GAMES is a build-time constant, so every
-  // `CLAUDE_GAMES && …` below is dropped from a public build's bundle.
+  // with the flag (`npm run dev`, or `npm run start:claude`, which sets
+  // VITE_CLAUDE_GAMES=on) offers it: see claude/enabled.ts. CLAUDE_GAMES is
+  // a build-time constant, so every `CLAUDE_GAMES && …` below is dropped
+  // from a public build's bundle, which has no Claude-vs-Claude UI or
+  // /api/game calls.
 
   const snapshot = useMatch(controller)
   // Phase 3: game <-> puzzles. Entering pauses a live match through the

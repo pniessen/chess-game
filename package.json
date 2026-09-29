@@ -21,6 +21,7 @@
     "puzzles": "tsx scripts/build-puzzles.ts",
     "curate-puzzles": "tsx scripts/curate-puzzles.ts",
     "start": "npm run build && npm run server",
+    "start:claude": "VITE_CLAUDE_GAMES=on npm run build && npm run server",
     "postinstall": "node scripts/copy-engine.mjs"
   },
   "dependencies": {
