@@ -119,12 +119,39 @@ describe('CoachClient', () => {
     expect(c.getSnapshot().notice).toBeNull()
   })
 
-  test('no-key: calls are skipped entirely', async () => {
-    const fetch = vi.fn(async () => json(200, { ok: true, claude: false }))
+  // Breaks if a health probe's "no key" goes back to latching the session.
+  // Seen in production on 2026-09-29: the first load after hours idle got
+  // {ok:true,claude:false} from /api/health while every later probe — 160
+  // of them, 40 in parallel — said claude:true. The client took that one
+  // answer as final and never asked Claude again, so every hint fell back
+  // to the built-in text until a reload.
+  test("no-key from the health probe is provisional: the next hint still asks, and a real answer clears it", async () => {
+    const fetch = vi.fn(async (url: RequestInfo | URL) =>
+      String(url).endsWith('/api/health')
+        ? json(200, { ok: true, claude: false })
+        : json(200, { text: 'Claude says e4.' }),
+    )
     const c = new CoachClient({ fetch })
     await c.checkHealth()
+    expect(c.getSnapshot().status).toBe('no-key')
+
+    expect(await c.hint(HINT)).toBe('Claude says e4.')
+    expect(fetch).toHaveBeenCalledTimes(2)
+    expect(c.getSnapshot().status).toBe('online')
+  })
+
+  // The server's own "no-key" answer to a hint or review IS final for the
+  // session: it also means "rate-limited" or "today's budget is spent"
+  // (netlify/lib/handler.ts LIMIT_MESSAGE), and asking again on every hint
+  // would only burn function invocations to hear it again.
+  test('no-key from a hint or review answer: later calls are skipped entirely', async () => {
+    const fetch = vi.fn(async () => json(503, { error: { kind: 'no-key', message: 'paused' } }))
+    const c = new CoachClient({ fetch })
     expect(await c.hint(HINT)).toBeNull()
-    expect(fetch).toHaveBeenCalledTimes(1) // only the health check
+    expect(c.getSnapshot().status).toBe('no-key')
+    expect(await c.hint(HINT)).toBeNull()
+    expect(await c.review(REVIEW)).toBeNull()
+    expect(fetch).toHaveBeenCalledTimes(1) // only the first hint
   })
 
   test("a caller's abort returns null without changing status", async () => {

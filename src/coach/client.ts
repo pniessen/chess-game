@@ -49,6 +49,20 @@ export class CoachClient {
   private snap: CoachSnapshot = { status: 'unknown', notice: null }
   private noticeShown = false
   private badRequestWarned = false
+  /**
+   * True once a hint or review has been ANSWERED `no-key` — no key, the
+   * visitor's rate limit, or today's budget (all three share that kind;
+   * see netlify/lib/handler.ts). That answer is final for the session, and
+   * every later call skips the network.
+   *
+   * Deliberately NOT set by the health probe. Its `claude: false` sets the
+   * badge but is only a snapshot: on 2026-09-29 the Netlify deployment
+   * answered it once, on the first load after hours idle, while every later
+   * probe said `claude: true`. Treated as final, that one answer switched
+   * Claude off for the whole session. Now the next hint asks anyway, and the
+   * server's answer — text, or a real `no-key` — settles it.
+   */
+  private keyRefused = false
   private readonly listeners = new Set<() => void>()
   private readonly fetchImpl: typeof fetch
   private readonly timeoutMs: number
@@ -161,7 +175,7 @@ export class CoachClient {
 
   private async post(path: string, body: unknown, signal?: AbortSignal): Promise<string | null> {
     if (!this.enabled) return null
-    if (this.snap.status === 'no-key') return null
+    if (this.keyRefused) return null
     if (signal?.aborted) return null
     const seq = ++this.requestSeq
 
@@ -197,6 +211,7 @@ export class CoachClient {
       return null
     }
     if (kind === 'no-key') {
+      this.keyRefused = true
       this.setStatus(seq, 'no-key')
       return null
     }

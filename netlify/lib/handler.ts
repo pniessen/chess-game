@@ -58,8 +58,26 @@ export interface CoachDeps {
 }
 
 /** `GET /api/health`. Reports whether a key is configured — never anything about its value. */
-export function handleHealth(env: Record<string, string | undefined>): Response {
+/** The variables Netlify's AI Gateway injects into a function at startup. */
+const GATEWAY_VARS = ['NETLIFY_AI_GATEWAY_KEY', 'NETLIFY_AI_GATEWAY_URL', 'ANTHROPIC_BASE_URL'] as const
+
+export function handleHealth(
+  env: Record<string, string | undefined>,
+  log: (message: string, detail: unknown) => void = console.warn,
+): Response {
   const configured = Boolean(env['ANTHROPIC_API_KEY']?.trim())
+  if (!configured) {
+    // On 2026-09-29 the live site answered `claude: false` once, on the
+    // first load after hours idle, though nothing but the gateway supplies
+    // a key and every other probe said true. Which of the gateway's
+    // variables this instance started with says whether the injection
+    // failed wholesale or only the key was missing. Presence only: a value
+    // is never read into the log.
+    log(
+      'coach health: no ANTHROPIC_API_KEY in this instance',
+      Object.fromEntries(GATEWAY_VARS.map((name) => [name, Boolean(env[name]?.trim())])),
+    )
+  }
   return json(200, { ok: true, claude: configured } satisfies HealthResponse)
 }
 
