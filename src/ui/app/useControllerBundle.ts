@@ -4,6 +4,8 @@ import { EngineClient, createWorkerTransport } from '../../engine/client'
 import { EngineSupervisor } from '../../engine/supervisor'
 import { loadSettings } from '../../storage/storage'
 import { timeControlFor } from './matchConfig'
+import { createGameClient, type ClaudeMover } from '../../claude/gameClient'
+import { CLAUDE_GAMES } from '../../claude/enabled'
 
 /**
  * Build the real MatchController, wired to a real Stockfish worker — but
@@ -23,10 +25,17 @@ function buildController(): {
   controller: MatchController
   engine: EngineSupervisor | null
   engineAvailable: boolean
+  /**
+   * Claude vs Claude's mover (it sends nothing until begin()); null on a
+   * build without the flag, whose bundle then carries no game client at all.
+   */
+  claude: ClaudeMover | null
 } {
+  const claude = CLAUDE_GAMES ? createGameClient() : null
+  const withClaude = claude ? { claude } : {}
   try {
     const engine = new EngineSupervisor({ createClient: () => new EngineClient(createWorkerTransport()) })
-    return { controller: new MatchController({ engine }), engine, engineAvailable: true }
+    return { controller: new MatchController({ engine, ...withClaude }), engine, engineAvailable: true, claude }
   } catch {
     const stub: EngineLike = {
       waitReady: () => Promise.reject(new Error('engine unavailable')),
@@ -37,7 +46,7 @@ function buildController(): {
       stop: () => {},
       dispose: () => {},
     }
-    return { controller: new MatchController({ engine: stub }), engine: null, engineAvailable: false }
+    return { controller: new MatchController({ engine: stub, ...withClaude }), engine: null, engineAvailable: false, claude }
   }
 }
 

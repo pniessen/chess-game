@@ -1,8 +1,31 @@
 import { LEVELS } from '../../engine/strength'
 import { TIME_CONTROLS } from '../../clock/types'
 import type { Level } from '../../storage/storage'
+import { CLAUDE_MODELS, type ClaudeModelKey } from '../../claude/models'
+import { claudeEstimateUsd } from '../app/matchConfig'
+import { CLAUDE_GAMES } from '../../claude/enabled'
 
-export type Mode = 'two-player' | 'one-player' | 'zero-player'
+export type Mode = 'two-player' | 'one-player' | 'zero-player' | 'claude-vs-claude'
+
+/**
+ * Claude vs Claude's part of the panel; omitted on a build without the flag
+ * (see claude/enabled.ts), which offers no such mode.
+ */
+export interface NewGameClaude {
+  white: ClaudeModelKey
+  black: ClaudeModelKey
+  onWhiteChange: (model: ClaudeModelKey) => void
+  onBlackChange: (model: ClaudeModelKey) => void
+  /**
+   * Dollars left this month; undefined while loading, null when unreadable —
+   * the local server is not running or has no key, so Start is disabled.
+   */
+  budgetLeftUsd: number | null | undefined
+}
+
+const MODEL_KEYS = Object.keys(CLAUDE_MODELS) as ClaudeModelKey[]
+
+const usd = (n: number) => `$${n.toFixed(2)}`
 
 export function NewGame({
   mode,
@@ -16,6 +39,7 @@ export function NewGame({
   onColorChange,
   onStart,
   onPuzzles,
+  claude,
 }: {
   mode: Mode
   level: Level
@@ -28,7 +52,15 @@ export function NewGame({
   onColorChange: (color: 'white' | 'black') => void
   onStart: () => void
   onPuzzles?: () => void
+  claude?: NewGameClaude
 }) {
+  // Every Claude branch starts with CLAUDE_GAMES, a build-time constant: in a
+  // public build it is `false`, so the minifier drops the option, the model
+  // selects and the hint (and the mode's name with them) from the bundle.
+  const isClaude = CLAUDE_GAMES && mode === 'claude-vs-claude'
+  const offerClaude = CLAUDE_GAMES && claude !== undefined
+  // The budget request failed: the local server is not running or has no key.
+  const claudeUnavailable = isClaude && claude !== undefined && claude.budgetLeftUsd === null
   return (
     <div className="new-game">
       <label>
@@ -45,6 +77,12 @@ export function NewGame({
           <option value="zero-player" disabled={!engineAvailable}>
             Engine vs engine
           </option>
+          {offerClaude ? (
+            // Needs the engine too: a failed Claude reply falls back to Stockfish.
+            <option value="claude-vs-claude" disabled={!engineAvailable}>
+              Claude vs Claude
+            </option>
+          ) : null}
         </select>
       </label>
       <label>
@@ -52,7 +90,7 @@ export function NewGame({
         <select
           data-testid="level"
           value={level}
-          disabled={mode === 'two-player'}
+          disabled={mode === 'two-player' || isClaude}
           onChange={(e) => onLevelChange(Number(e.target.value) as Level)}
         >
           {LEVELS.map((p) => (
@@ -79,6 +117,7 @@ export function NewGame({
         <select
           data-testid="time-control"
           value={timeControlId}
+          disabled={isClaude}
           onChange={(e) => onTimeControlChange(e.target.value)}
         >
           {TIME_CONTROLS.map((t) => (
@@ -88,8 +127,56 @@ export function NewGame({
           ))}
         </select>
       </label>
+      {isClaude && claude ? (
+        <div className="claude-setup">
+          <label>
+            White
+            <select
+              data-testid="claude-white"
+              value={claude.white}
+              onChange={(e) => claude.onWhiteChange(e.target.value as ClaudeModelKey)}
+            >
+              {MODEL_KEYS.map((k) => (
+                <option key={k} value={k}>
+                  {CLAUDE_MODELS[k].label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Black
+            <select
+              data-testid="claude-black"
+              value={claude.black}
+              onChange={(e) => claude.onBlackChange(e.target.value as ClaudeModelKey)}
+            >
+              {MODEL_KEYS.map((k) => (
+                <option key={k} value={k}>
+                  {CLAUDE_MODELS[k].label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <p className="claude-note" data-testid="claude-estimate">
+            Estimated cost: {usd(claudeEstimateUsd(claude.white, claude.black))}
+          </p>
+          <p className="claude-note" data-testid="claude-budget">
+            Budget left this month:{' '}
+            {claude.budgetLeftUsd === undefined
+              ? '…'
+              : claude.budgetLeftUsd === null
+                ? 'unavailable'
+                : usd(claude.budgetLeftUsd)}
+          </p>
+          {claudeUnavailable ? (
+            <p className="claude-note" role="status" data-testid="claude-unavailable-hint">
+              Claude games are unavailable. Start the local server (npm run server) with ANTHROPIC_API_KEY in .env.
+            </p>
+          ) : null}
+        </div>
+      ) : null}
       <div className="new-game-actions">
-        <button data-testid="new-game" onClick={onStart}>
+        <button data-testid="new-game" disabled={claudeUnavailable} onClick={onStart}>
           New game
         </button>
         {onPuzzles ? (

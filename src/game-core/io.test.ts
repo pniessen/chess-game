@@ -76,3 +76,23 @@ describe('gameFromSan', () => {
     expect(r).toEqual({ ok: false, error: 'Illegal move: e4' })
   })
 })
+
+describe('PGN move comments', () => {
+  test('a comment keyed by ply index follows its move, and the PGN still imports', () => {
+    const pgn = exportPgn(playedGame(), {}, { 0: 'Take the centre.', 2: 'Develop, hit e5.' })
+    expect(pgn).toMatch(/1\. e4 \{Take the centre\.\} e5 2\. Nf3 \{Develop, hit e5\.\}/)
+    const back = importPgn(pgn)
+    expect(back.ok && back.game.moves.map((m) => m.san)).toEqual(['e4', 'e5', 'Nf3'])
+  })
+
+  // Red if a brace in Claude's text can end the comment early and corrupt the PGN.
+  test('braces inside a comment are neutralised', () => {
+    const pgn = exportPgn(playedGame(), {}, { 1: 'mirror {it}' })
+    expect(pgn).toContain('{mirror (it)}')
+    expect(importPgn(pgn).ok).toBe(true)
+  })
+
+  test('no comments argument leaves the export unchanged', () => {
+    expect(exportPgn(playedGame(), { Date: '2026.01.01' })).toBe(exportPgn(playedGame(), { Date: '2026.01.01' }, {}))
+  })
+})

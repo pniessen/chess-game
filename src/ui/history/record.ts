@@ -1,3 +1,4 @@
+import { CLAUDE_MODELS } from '../../claude/models'
 import type { Game } from '../../game-core/game'
 import { exportPgn } from '../../game-core/io'
 import type { Color } from '../../game-core/types'
@@ -6,7 +7,8 @@ import type { MatchConfig, MatchPhase, Seat } from '../../match/types'
 import type { HistoryEntry } from '../../storage/storage'
 
 export function seatLabel(seat: Seat): string {
-  return seat.kind === 'human' ? 'Human' : `Stockfish (level ${seat.level})`
+  if (seat.kind === 'human') return 'Human'
+  return seat.kind === 'engine' ? `Stockfish (level ${seat.level})` : CLAUDE_MODELS[seat.model].label
 }
 
 export function newHistoryId(): string {
@@ -25,7 +27,12 @@ export function historyEntryFor(opts: {
   id: string
 }): HistoryEntry | null {
   const { phase, game, config } = opts
-  if (phase.kind !== 'finished' || phase.reason === 'engine-error' || game.moves.length === 0) return null
+  if (
+    phase.kind !== 'finished' ||
+    phase.reason === 'engine-error' ||
+    phase.reason === 'claude-unavailable' ||
+    game.moves.length === 0
+  ) return null
   const result = resultTagOf(phase)
   if (result === '*') return null
   const white = seatLabel(config.white)

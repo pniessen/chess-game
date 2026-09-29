@@ -1,4 +1,5 @@
 import type { Color, DrawReason, GameStatus } from '../../game-core/types'
+import { CLAUDE_MAX_PLIES } from '../../claude/models'
 import type { MatchConfig, MatchPhase } from '../../match/types'
 
 const DRAW_TEXT: Record<DrawReason, string> = {
@@ -33,6 +34,13 @@ export function describeResult(phase: MatchPhase, displayed: GameStatus): string
       }
       case 'engine-error':
         return 'Game halted — engine error'
+      case 'claude-unavailable':
+        if (phase.detail === 'budget') return "This month's Claude games budget is used up — game stopped"
+        if (phase.detail === 'server-restarted') return 'Game lost — the local server restarted'
+        return 'Claude is unavailable — game stopped'
+      case 'adjudicated':
+        // Plies / 2: a chess "move" is one White and one Black ply.
+        return `Draw by adjudication — ${CLAUDE_MAX_PLIES / 2} moves`
     }
   }
   return displayed.kind === 'in-progress' && displayed.inCheck ? 'Check' : ''

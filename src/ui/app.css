@@ -423,7 +423,7 @@ body {
      viewport (URL bar hidden), so a `vh`-sized board would be taller than
      the actually-visible viewport exactly when the URL bar is showing. */
   --chrome: 122px;
-  --board-size: clamp(360px, min(640px, calc(100svh - var(--chrome, 180px))), 640px);
+  --board-size: clamp(360px, min(640px, calc(100svh - var(--chrome, 180px) - var(--claude-why-h, 0px))), 640px);
   display: grid;
   grid-template-columns: 232px minmax(0, var(--board-size)) 280px;
   grid-template-areas: 'left board right';
@@ -531,6 +531,50 @@ body {
      intrinsic size), which can force the track wider than the space
      actually available and push it back into the side columns. */
   min-width: 0;
+}
+
+/* Claude vs Claude. The rationale caption sits under the board, so in a
+   Claude game the board gives up its height (`--claude-why-h`: the caption's
+   two lines plus the column's 16px gap) wherever the board is sized from the
+   viewport — the page gains no scroll, and the caption, a fixed two lines,
+   never moves the board as reasons come and go. Every other game has no
+   caption and `--claude-why-h` unset, so its board is exactly as before. */
+.layout.claude-game { --claude-why-h: 53px; }
+.claude-why {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: var(--board-size);
+  height: 2.7em;
+  margin: 0;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  font-size: 0.85rem;
+  line-height: 1.35;
+  font-style: italic;
+  text-align: center;
+  color: var(--muted);
+}
+.claude-status {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 12px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-card);
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+}
+.claude-status p { margin: 0; }
+.claude-thinking { min-height: 1.35em; font-weight: 600; color: var(--ink); }
+.claude-cost { color: var(--muted); }
+.fallback-mark {
+  margin-left: 3px;
+  font-size: 0.85em;
+  color: var(--muted);
 }
 
 .right-column {
@@ -1187,6 +1231,19 @@ body {
   padding-top: 2px;
 }
 .new-game-actions button { flex: 1 1 0; padding-block: 9px; }
+
+/* Claude vs Claude: the two model selects and the cost lines under them. */
+.claude-setup {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.claude-note {
+  margin: 0;
+  font-size: 0.8em;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
 
 /* Task 4: GameIO's own wrapper, now the body of the Game file popover
    rather than a card of its own — so no surface, border or shadow here;
@@ -1976,6 +2033,7 @@ body {
   }
   .board-column { display: contents; }
   .board-row { order: 1; }
+  .claude-why { order: 1; }
   /* Task 2: Controls now nests inside .left-column (order 2) instead of
      being a direct .board-column child ordered on its own — it renders
      after the clocks/captured/scoreboard already in there, which is the
@@ -2088,7 +2146,7 @@ body {
        20); the panel is 280px, 20px away. */
     --board-size: clamp(
       320px,
-      min(640px, calc(100cqh - 1.25rem), calc(100cqw - 350px)),
+      min(640px, calc(100cqh - 1.25rem - var(--claude-why-h, 0px)), calc(100cqw - 350px)),
       640px
     );
     grid-template-columns: minmax(0, 1fr) 280px;
@@ -2181,7 +2239,7 @@ body {
     --below-board: 185px;
     --board-size: clamp(
       320px,
-      min(640px, calc(100cqw - 50px), calc(100cqh - 1.25rem - var(--below-board))),
+      min(640px, calc(100cqw - 50px), calc(100cqh - 1.25rem - var(--below-board) - var(--claude-why-h, 0px))),
       640px
     );
     justify-items: center;

@@ -129,9 +129,13 @@ export function useMatchRecords(snapshot: MatchSnapshot, finalOpeningName: strin
     //  - zero-player (both seats engine): no human played, so the game is
     //    not scored at all — counting it would make the scoreboard
     //    meaningless.
+    //  - any Claude seat: not scored either. Claude vs Claude has no human
+    //    player, and the scoreboard is a record against Stockfish / at the
+    //    board, not against Claude. History still records the game.
     const whiteHuman = snapshot.config.white.kind === 'human'
     const blackHuman = snapshot.config.black.kind === 'human'
     if (!whiteHuman && !blackHuman) return
+    if (snapshot.config.white.kind === 'claude' || snapshot.config.black.kind === 'claude') return
     const next = { ...score }
     if (whiteHuman && blackHuman) {
       if (snapshot.phase.winner === null) next.draws++

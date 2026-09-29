@@ -78,6 +78,15 @@ export class Position {
     }))
   }
 
+  /**
+   * Every legal move in SAN, with promotions expanded into four separate strings.
+   * The expansion matters: a collapsed promotion undercounts in perft and
+   * would hide a whole class of move-generation bug.
+   */
+  legalSans(): string[] {
+    return this.chess.moves()
+  }
+
   legalMovesFrom(square: Square): MoveIntent[] {
     return this.chess.moves({ square, verbose: true }).map((m) => ({
       from: m.from,

@@ -1,7 +1,7 @@
 import { renderHook } from '@testing-library/react'
 import { beforeEach, describe, expect, test } from 'vitest'
 import { gameFromSan } from '../../game-core/io'
-import type { MatchConfig, MatchSnapshot } from '../../match/types'
+import { NO_CLAUDE, type MatchConfig, type MatchSnapshot } from '../../match/types'
 import { loadHistory, loadInProgress, loadScore } from '../../storage/storage'
 import { useMatchRecords } from './useMatchRecords'
 
@@ -17,7 +17,7 @@ function snapshotOf(sans: string[], config: MatchConfig, finished: boolean): Mat
   const phase: MatchSnapshot['phase'] = finished
     ? { kind: 'finished', status: game.status(), reason: 'normal', winner: 'w' }
     : { kind: 'awaiting-human', side: game.current().turn() }
-  return { phase, game, clock, config }
+  return { phase, game, clock, config, claude: NO_CLAUDE }
 }
 
 beforeEach(() => localStorage.clear())
@@ -91,5 +91,17 @@ describe('useMatchRecords', () => {
     // ...but the UNRELATED saved game the resume banner is still offering
     // survives, exactly as the banner promises.
     expect(loadInProgress()?.pgn).toBe('1. d4 d5 *')
+  })
+
+  // Red if a Claude game counts as a human result (a human seat against
+  // Claude is not a v1 mode, but must not score as one-player either).
+  test.each([
+    ['Claude vs Claude', { white: { kind: 'claude', model: 'opus' }, black: { kind: 'claude', model: 'haiku' } }],
+    ['human vs Claude', { white: human, black: { kind: 'claude', model: 'opus' } }],
+  ] as const)('a %s finish is recorded but never scored', (_name, seats) => {
+    const cfg = { ...seats, timeControl: { kind: 'untimed' } } as MatchConfig
+    renderHook(() => useMatchRecords(snapshotOf(SCHOLARS_MATE, cfg, true), null))
+    expect(loadScore()).toEqual({ wins: 0, losses: 0, draws: 0 })
+    expect(loadHistory()).toHaveLength(1)
   })
 })

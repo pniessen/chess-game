@@ -1,4 +1,4 @@
-import type { MatchConfig, MatchPhase } from '../../match/types'
+import { isBotSeat, type MatchConfig, type MatchPhase } from '../../match/types'
 
 export function Controls({
   phase,
@@ -35,7 +35,8 @@ export function Controls({
   onStep: () => void
   onSpeedChange: (ms: number) => void
 }) {
-  const hasEngineSeat = config.white.kind === 'engine' || config.black.kind === 'engine'
+  // Any seat the controller moves for — an engine or Claude.
+  const hasEngineSeat = isBotSeat(config.white) || isBotSeat(config.black)
   const isPaused = phase.kind === 'paused'
   const isRunning = phase.kind === 'engine-thinking' || phase.kind === 'awaiting-human'
   // Disable what does not apply rather than hide it, so the layout doesn't jump.

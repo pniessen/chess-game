@@ -142,6 +142,27 @@ describe('in-progress game storage', () => {
     expect(loadInProgress()).toEqual({ pgn: '1. e4 *', setup: null, scored: false, recorded: false })
   })
 
+  test('a Claude seat round-trips with its model key', () => {
+    const setup = {
+      white: { kind: 'claude', model: 'opus' },
+      black: { kind: 'claude', model: 'haiku' },
+      timeControl: { kind: 'untimed' },
+      engineDelayMs: 500,
+    } as const
+    saveInProgress({ pgn: '1. e4 *', setup, scored: false, recorded: false })
+    expect(loadInProgress()).toEqual({ pgn: '1. e4 *', setup, scored: false, recorded: false })
+  })
+
+  test('a Claude seat with an unknown or missing model key makes the setup unreadable (null)', () => {
+    for (const black of [{ kind: 'claude', model: 'gpt' }, { kind: 'claude' }, { kind: 'claude', model: 3 }]) {
+      localStorage.setItem(
+        'chess-game:in-progress',
+        JSON.stringify({ v: 2, pgn: '1. e4 *', setup: { ...SETUP, black }, scored: false }),
+      )
+      expect(loadInProgress()).toEqual({ pgn: '1. e4 *', setup: null, scored: false, recorded: false })
+    }
+  })
+
   test('garbage loads as no game at all', () => {
     localStorage.setItem('chess-game:in-progress', '{not json')
     expect(loadInProgress()).toBeNull()
@@ -179,6 +200,11 @@ describe('history', () => {
     // The 5 OLDEST entries (g0..g4) were dropped: the last (oldest kept)
     // entry is g5, the 6th-oldest id.
     expect(all[HISTORY_LIMIT - 1]?.id).toBe('g5')
+  })
+
+  test('an adjudicated draw round-trips', () => {
+    addHistoryEntry({ ...entry('adj'), result: '1/2-1/2', termination: 'adjudicated' })
+    expect(loadHistory()[0]).toMatchObject({ id: 'adj', result: '1/2-1/2', termination: 'adjudicated' })
   })
 
   test('accuracy can be added later', () => {

@@ -63,3 +63,41 @@ describe('resignableSide', () => {
     expect(resignableSide(cfg(engine, engine), { kind: 'awaiting-human', side: 'w' })).toBeNull()
   })
 })
+
+describe('describeResult: Claude', () => {
+  test('a claude-unavailable finish says the game stopped', () => {
+    const inProgress = { kind: 'in-progress', inCheck: false } as const
+    expect(
+      describeResult({ kind: 'finished', status: inProgress, reason: 'claude-unavailable', winner: null }, inProgress),
+    ).toBe('Claude is unavailable — game stopped')
+  })
+
+  // 160 plies is move 80 in the move list: chess counts a move as one White
+  // and one Black ply, so the headline says 80 moves, not 160.
+  test('an adjudicated finish is a draw by adjudication at 80 moves (160 plies)', () => {
+    const inProgress = { kind: 'in-progress', inCheck: false } as const
+    expect(
+      describeResult({ kind: 'finished', status: inProgress, reason: 'adjudicated', winner: null }, inProgress),
+    ).toBe('Draw by adjudication — 80 moves')
+  })
+
+  test('a claude-unavailable finish on budget says the budget is used up', () => {
+    const inProgress = { kind: 'in-progress', inCheck: false } as const
+    expect(
+      describeResult(
+        { kind: 'finished', status: inProgress, reason: 'claude-unavailable', winner: null, detail: 'budget' },
+        inProgress,
+      ),
+    ).toBe("This month's Claude games budget is used up — game stopped")
+  })
+
+  test('a claude-unavailable finish after a local-server restart says the game is lost', () => {
+    const inProgress = { kind: 'in-progress', inCheck: false } as const
+    expect(
+      describeResult(
+        { kind: 'finished', status: inProgress, reason: 'claude-unavailable', winner: null, detail: 'server-restarted' },
+        inProgress,
+      ),
+    ).toBe('Game lost — the local server restarted')
+  })
+})

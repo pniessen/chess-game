@@ -39,3 +39,31 @@ describe('buildConfig', () => {
     expect(c.timeControl).toEqual({ kind: 'timed', initialMs: 600_000, incrementMs: 5_000 })
   })
 })
+
+describe('buildConfig: Claude vs Claude', () => {
+  const base = { level: 4 as const, timeControlId: 'blitz-5-3', color: 'black' as const, engineAvailable: true }
+
+  test('two Claude seats with the chosen models, untimed, 500 ms pace', () => {
+    const c = buildConfig({ ...base, mode: 'claude-vs-claude', claudeWhite: 'opus', claudeBlack: 'haiku' })
+    expect(c).toEqual({
+      white: { kind: 'claude', model: 'opus' },
+      black: { kind: 'claude', model: 'haiku' },
+      timeControl: { kind: 'untimed' },
+      engineDelayMs: 500,
+    })
+  })
+
+  // Red if Claude vs Claude starts without the Stockfish its fallback needs.
+  test('no engine degrades it to two humans like the other bot modes', () => {
+    const c = buildConfig({ ...base, mode: 'claude-vs-claude', claudeWhite: 'opus', claudeBlack: 'haiku', engineAvailable: false })
+    expect([c.white.kind, c.black.kind]).toEqual(['human', 'human'])
+  })
+})
+
+describe('claudeEstimateUsd', () => {
+  test('the two per-game reserves summed, divided by 1.5', async () => {
+    const { claudeEstimateUsd } = await import('./matchConfig')
+    expect(claudeEstimateUsd('fable', 'opus')).toBeCloseTo((2.18 + 0.87) / 1.5)
+    expect(claudeEstimateUsd('haiku', 'haiku')).toBeCloseTo(0.08)
+  })
+})

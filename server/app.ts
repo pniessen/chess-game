@@ -2,6 +2,9 @@ import express, { type NextFunction, type Request, type Response } from 'express
 import { LIMITS, type CoachErrorResponse, type HealthResponse } from '../src/coach/protocol'
 import type { Claude } from './claude'
 import { runCoach, type CoachEndpoint } from './coach'
+import type { MessagesClient } from './claude'
+import { handleGame, type GameEndpoint } from './gameHandler'
+import type { GameStore } from './store'
 
 function sendError(res: Response, status: number, error: CoachErrorResponse['error']): void {
   res.status(status).json({ error } satisfies CoachErrorResponse)
@@ -29,7 +32,16 @@ function isAllowedHost(hostHeader: string | undefined): boolean {
   }
 }
 
-export function createApp(deps: { claude: Claude | null; staticDir?: string | null }) {
+export interface GamesDeps {
+  client: MessagesClient | null
+  store: GameStore
+  /** Random per process; game tokens are HMACs under it. */
+  secret: Buffer
+  /** Random per process; stored in the games lock so a restart frees it at once. */
+  boot: string
+}
+
+export function createApp(deps: { claude: Claude | null; staticDir?: string | null; games?: GamesDeps }) {
   const app = express()
   app.disable('x-powered-by')
 
@@ -59,6 +71,40 @@ export function createApp(deps: { claude: Claude | null; staticDir?: string | nu
 
   app.post('/api/hint', relay('hint'))
   app.post('/api/review', relay('review'))
+
+  // Claude games, served only by this local relay. The rules and the HTTP
+  // mapping live in ./gameHandler; this only turns an Express request into a
+  // fetch `Request` and the `Response` back.
+  const games = deps.games
+  if (games) {
+    const game =
+      (endpoint: GameEndpoint) =>
+      async (req: Request, res: Response): Promise<void> => {
+        const headers = new Headers()
+        for (const [name, value] of Object.entries(req.headers)) {
+          if (typeof value === 'string') headers.set(name, value)
+        }
+        const hasBody = req.method !== 'GET' && req.method !== 'HEAD'
+        const request = new globalThis.Request(`http://${req.headers.host ?? 'localhost'}${req.originalUrl}`, {
+          method: req.method,
+          headers,
+          body: hasBody ? JSON.stringify(req.body ?? null) : undefined,
+        })
+        const response = await handleGame(endpoint, request, games)
+        res
+          .status(response.status)
+          .type(response.headers.get('content-type') ?? 'application/json')
+          .set('cache-control', 'no-store')
+          .send(await response.text())
+      }
+    app.post('/api/game/start', game('start'))
+    app.post('/api/game/move', game('move'))
+    app.post('/api/game/end', game('end'))
+    app.get('/api/game/budget', game('budget'))
+    // Wrong method on a known path: the handler's own 405, not the generic 404.
+    app.all(['/api/game/start', '/api/game/move', '/api/game/end'], game('start'))
+    app.all('/api/game/budget', game('budget'))
+  }
 
   app.use('/api', (_req, res) => {
     sendError(res, 404, { kind: 'bad-request', message: 'No such endpoint.' })

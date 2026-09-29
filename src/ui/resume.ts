@@ -2,9 +2,13 @@ import { TIME_CONTROLS, type TimeControl } from '../clock/types'
 import type { MatchConfig } from '../match/types'
 import type { Level, StoredSetup } from '../storage/storage'
 import type { Mode } from './panels/NewGame'
+import { CLAUDE_GAMES } from '../claude/enabled'
 
-/** What the running match's config looks like when persisted. */
-export function setupOf(config: MatchConfig): StoredSetup {
+/**
+ * What the running match's config looks like when persisted. A Claude seat
+ * persists as its model key alone: no game token, cost or game id is kept.
+ */
+export function setupOf(config: MatchConfig): StoredSetup | null {
   return {
     white: config.white,
     black: config.black,
@@ -26,6 +30,12 @@ export interface ResumePlan {
    * be scored, since two-player scoring would misreport it.
    */
   degraded: boolean
+  /**
+   * True when the match must load paused: a game with a Claude seat never
+   * asks Claude on its own after a reload (that spends money); the owner
+   * resumes it, which starts a fresh server game.
+   */
+  paused: boolean
 }
 
 function timeControlIdOf(tc: TimeControl): string | null {
@@ -56,11 +66,34 @@ export function planResume(
     humanColor: null,
     timeControlId: timeControlIdOf(timeControl),
     degraded,
+    paused: false,
   })
 
   if (!setup) return twoPlayer(fallbackTimeControl, false)
 
   const { white, black, timeControl } = setup
+  if (white.kind === 'claude' || black.kind === 'claude') {
+    // Claude needs no local engine to be resumed (its fallback does, and says
+    // so when it cannot move). Two Claude seats are their own mode; anything
+    // else with a Claude seat is not a mode the panel offers, so it shows the
+    // neutral one.
+    const claudeVsClaude = white.kind === 'claude' && black.kind === 'claude'
+    return {
+      config: {
+        white,
+        black,
+        timeControl,
+        ...(setup.engineDelayMs !== undefined ? { engineDelayMs: setup.engineDelayMs } : {}),
+      },
+      // CLAUDE_GAMES first, so a public build's bundle never names the mode.
+      mode: CLAUDE_GAMES && claudeVsClaude ? 'claude-vs-claude' : 'two-player',
+      level: null,
+      humanColor: null,
+      timeControlId: timeControlIdOf(timeControl),
+      degraded: false,
+      paused: true,
+    }
+  }
   const engineSeat = white.kind === 'engine' ? white : black.kind === 'engine' ? black : null
   if (!engineSeat) return twoPlayer(timeControl, false)
   if (!engineAvailable) return twoPlayer(timeControl, true)
@@ -83,5 +116,6 @@ export function planResume(
     humanColor: zeroPlayer ? null : white.kind === 'human' ? 'white' : 'black',
     timeControlId: timeControlIdOf(timeControl),
     degraded: false,
+    paused: false,
   }
 }

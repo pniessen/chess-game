@@ -9,6 +9,8 @@ test('resultTagOf', () => {
   expect(resultTagOf({ kind: 'finished', status: { kind: 'draw', reason: 'stalemate' }, reason: 'normal', winner: null })).toBe('1/2-1/2')
   expect(resultTagOf({ kind: 'finished', status, reason: 'engine-error', winner: null })).toBe('*')
   expect(resultTagOf({ kind: 'awaiting-human', side: 'w' })).toBe('*')
+  expect(resultTagOf({ kind: 'finished', status, reason: 'adjudicated', winner: null })).toBe('1/2-1/2')
+  expect(resultTagOf({ kind: 'finished', status, reason: 'claude-unavailable', winner: null, detail: 'budget' })).toBe('*')
 })
 
 test('humanSideOf', () => {

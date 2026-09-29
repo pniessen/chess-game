@@ -1,5 +1,8 @@
 import { useLayoutEffect, useRef, useState } from 'react'
 import type { PlayedMove } from '../../game-core/types'
+import type { ClaudeNote } from '../../match/types'
+
+export const FALLBACK_TITLE = 'Stockfish played this move after Claude failed twice'
 import { moveQualityTitle, type MoveQuality } from '../review/reviewView'
 import { MARK } from '../../review/summary'
 import { toMovePairs } from './movePairs'
@@ -19,6 +22,7 @@ export function MoveList({
   orientation = 'white',
   theme = 'classic',
   pieceSet = 'rhosgfx',
+  claudeNotes,
 }: {
   moves: readonly PlayedMove[]
   currentPly: number
@@ -31,6 +35,8 @@ export function MoveList({
   orientation?: 'white' | 'black'
   theme?: string
   pieceSet?: string
+  /** Claude vs Claude: notes by ply index (0 = first move); a fallback move gets a ⚙. */
+  claudeNotes?: Readonly<Record<number, ClaudeNote>>
 }) {
   const pairs = toMovePairs(moves)
   const jump = (ply: number) => {
@@ -101,6 +107,7 @@ export function MoveList({
     if (!e) return <span className="move empty">…</span>
     const quality = marks?.get(e.ply)
     const symbol = quality ? MARK[quality.classification] : undefined
+    const fallback = claudeNotes?.[e.ply - 1]?.fallback === true
     return (
       <button
         ref={(el) => {
@@ -130,6 +137,11 @@ export function MoveList({
         }}
       >
         {e.san}
+        {fallback ? (
+          <span className="fallback-mark" data-testid={`fallback-${e.ply}`} title={FALLBACK_TITLE}>
+            ⚙
+          </span>
+        ) : null}
         {symbol && quality ? (
           <span
             className={`mark mark-${quality.classification}`}

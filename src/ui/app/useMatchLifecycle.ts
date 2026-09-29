@@ -3,6 +3,7 @@ import type { Game } from '../../game-core/game'
 import { gameFromSan, importPgn } from '../../game-core/io'
 import type { MatchController } from '../../match/controller'
 import type { MatchConfig } from '../../match/types'
+import type { ClaudeModelKey } from '../../claude/models'
 import type { OpeningEntry } from '../../openings/book'
 import { clearInProgress, type HistoryEntry, type Level, type Settings } from '../../storage/storage'
 import type { Mode } from '../panels/NewGame'
@@ -10,6 +11,8 @@ import { planResume, setupOf } from '../resume'
 import { reviewKeyOf } from '../gameKey'
 import { buildConfig, timeControlFor } from './matchConfig'
 import type { MatchRecords } from './useMatchRecords'
+import type { ClaudeSession } from './useClaudeSession'
+import { isClaudeGame } from './claudeRecord'
 
 export interface NewGameChoices {
   mode: Mode
@@ -20,6 +23,11 @@ export interface NewGameChoices {
   setLevel: (level: Level) => void
   setTimeControlId: (id: string) => void
   setColor: (color: 'white' | 'black') => void
+  /** Claude vs Claude's two models. */
+  claudeWhite: ClaudeModelKey
+  claudeBlack: ClaudeModelKey
+  setClaudeWhite: (model: ClaudeModelKey) => void
+  setClaudeBlack: (model: ClaudeModelKey) => void
 }
 
 /**
@@ -37,6 +45,7 @@ export function useMatchLifecycle({
   resetInput,
   onMatchReset,
   onShowMoves,
+  claude = null,
 }: {
   controller: MatchController
   settings: Settings
@@ -49,6 +58,12 @@ export function useMatchLifecycle({
   onMatchReset: () => void
   /** Brings the Moves tab to the front. */
   onShowMoves: () => void
+  /**
+   * Claude vs Claude's server session. A Claude game starts only after its
+   * `begin` succeeds; any other start or load ends it first. Null in tests
+   * and builds that never play Claude.
+   */
+  claude?: ClaudeSession | null
 }) {
   const { pendingResume, setResumeChoice, scoredRef, recordedRef, historyRef } = records
   const [orientation, setOrientation] = useState<'white' | 'black'>(settings.orientation)
@@ -56,6 +71,48 @@ export function useMatchLifecycle({
   const [level, setLevel] = useState<Level>(settings.level)
   const [timeControlId, setTimeControlId] = useState(settings.timeControlId)
   const [color, setColor] = useState<'white' | 'black'>(settings.orientation)
+  const [claudeWhite, setClaudeWhite] = useState<ClaudeModelKey>('haiku')
+  const [claudeBlack, setClaudeBlack] = useState<ClaudeModelKey>('haiku')
+
+  /** The New game panel's two model selects follow a Claude game that is resumed or rematched. */
+  const showClaudeModels = (config: MatchConfig) => {
+    if (config.white.kind === 'claude') setClaudeWhite(config.white.model)
+    if (config.black.kind === 'claude') setClaudeBlack(config.black.model)
+  }
+  const configFromChoices = () =>
+    buildConfig({ mode, level, timeControlId, color, engineAvailable, claudeWhite, claudeBlack })
+
+  /**
+   * Run `start` for `config`: a Claude game only once the server has begun
+   * one (a refusal starts nothing; the session's `error` says why), anything
+   * else at once, after ending whatever Claude session the current match had.
+   */
+  const gate = (config: MatchConfig, start: () => void) => {
+    if (claude && isClaudeGame(config)) {
+      void claude.begin(config.white.model, config.black.model).then((ok) => {
+        if (ok) start()
+      })
+      return
+    }
+    claude?.replace()
+    start()
+  }
+
+  /**
+   * Resume and Step: a paused Claude game with no server session (a reload,
+   * or a game whose session ended) begins one first and plays only if it
+   * did. Anything else runs at once.
+   */
+  const withClaudeSession = (run: () => void) => {
+    const { config } = controller.snapshot()
+    if (claude && isClaudeGame(config) && !claude.isOpen()) {
+      void claude.begin(config.white.model, config.black.model).then((ok) => {
+        if (ok) run()
+      })
+      return
+    }
+    run()
+  }
 
   const startMatch = (config: MatchConfig) => {
     controller.start(config)
@@ -81,24 +138,34 @@ export function useMatchLifecycle({
    * fill, and the board simply waited), and hand back what the New game
    * panel should say, so the panel cannot drift out of step with the
    * running match and silently feed stale values to the NEXT new game.
+   *
+   * A Claude rematch is the same two models, and like any Claude start it
+   * begins a server game first: nothing starts (and Claude is never asked to
+   * move) unless that succeeds.
    */
   const handleRematch = () => {
     const { config } = controller.snapshot()
     const plan = planResume(setupOf(config), engineAvailable, timeControlFor(timeControlId))
     // planResume works from a stored setup, which carries no start
     // position; a rematch of a game that began from one starts there again.
-    startMatch({ ...plan.config, ...(config.startFen !== undefined ? { startFen: config.startFen } : {}) })
-    setMode(plan.mode)
-    if (plan.level !== null) setLevel(plan.level)
-    if (plan.humanColor !== null) setColor(plan.humanColor)
-    if (plan.timeControlId !== null) setTimeControlId(plan.timeControlId)
+    const next = { ...plan.config, ...(config.startFen !== undefined ? { startFen: config.startFen } : {}) }
+    gate(next, () => {
+      startMatch(next)
+      setMode(plan.mode)
+      showClaudeModels(plan.config)
+      if (plan.level !== null) setLevel(plan.level)
+      if (plan.humanColor !== null) setColor(plan.humanColor)
+      if (plan.timeControlId !== null) setTimeControlId(plan.timeControlId)
+    })
   }
 
   const handleNewGame = () => {
-    const config = buildConfig({ mode, level, timeControlId, color, engineAvailable })
-    startMatch(config)
-    updateSettings({ level, timeControlId, ...(mode === 'one-player' ? { orientation: color } : {}) })
-    setOrientation(mode === 'one-player' ? color : 'white')
+    const config = configFromChoices()
+    gate(config, () => {
+      startMatch(config)
+      updateSettings({ level, timeControlId, ...(mode === 'one-player' ? { orientation: color } : {}) })
+      setOrientation(mode === 'one-player' ? color : 'white')
+    })
   }
 
   /**
@@ -111,7 +178,13 @@ export function useMatchLifecycle({
    * treated as scored: the user never played that result here (or, for a
    * resumed game, it was counted when it happened).
    */
-  const loadMatch = (config: MatchConfig, history: Game, alreadyScored: boolean, alreadyRecorded = false) => {
+  const loadMatchNow = (
+    config: MatchConfig,
+    history: Game,
+    alreadyScored: boolean,
+    alreadyRecorded = false,
+    paused = false,
+  ) => {
     scoredRef.current = alreadyScored || history.status().kind !== 'in-progress'
     // Required fix (Task 13 review, round 1, Finding 3): recording is
     // decoupled from scoring — it depends ONLY on whether the loaded game is
@@ -128,9 +201,15 @@ export function useMatchLifecycle({
     // exactly as it wouldn't have without the reload.
     recordedRef.current = alreadyRecorded || history.status().kind !== 'in-progress'
     historyRef.current = null
-    controller.load(config, history)
+    controller.load(config, history, { paused })
     resetInput()
     onMatchReset()
+  }
+
+  /** Every load but a Claude start-from-opening (which is gated): ends any Claude session first. */
+  const loadMatch: typeof loadMatchNow = (...args) => {
+    claude?.replace()
+    loadMatchNow(...args)
   }
 
   const handleImport = (imported: Game) => {
@@ -146,9 +225,13 @@ export function useMatchLifecycle({
   const handleStartOpening = (entry: OpeningEntry) => {
     const built = gameFromSan(entry.moves)
     if (!built.ok) return
-    loadMatch(buildConfig({ mode, level, timeControlId, color, engineAvailable }), built.game, false)
-    setOrientation(mode === 'one-player' ? color : 'white')
-    onShowMoves()
+    const config = configFromChoices()
+    const game = built.game
+    gate(config, () => {
+      loadMatchNow(config, game, false)
+      setOrientation(mode === 'one-player' ? color : 'white')
+      onShowMoves()
+    })
   }
 
   /**
@@ -156,7 +239,7 @@ export function useMatchLifecycle({
    * and review. Replaying never adds a second history entry or changes the
    * score (loadMatch treats it as already-scored, like an import).
    *
-   * A resignation/flag isn't a rules result `load()` can reconstruct by
+   * A resignation/flag/adjudication isn't a rules result `load()` can reconstruct by
    * itself (the position after the last recorded move may still be
    * 'in-progress'), so it's re-applied explicitly via `finishAs()`.
    */
@@ -170,9 +253,14 @@ export function useMatchLifecycle({
     // review/accuracy guard must key on is read back from the controller,
     // not captured from `parsed`.
     historyRef.current = { id: entry.id, key: reviewKeyOf(controller.snapshot().game) }
-    if (parsed.game.status().kind === 'in-progress' && entry.termination !== 'normal') {
-      const winner = entry.result === '1-0' ? 'w' : entry.result === '0-1' ? 'b' : null
-      if (winner) controller.finishAs(entry.termination, winner)
+    const { termination } = entry
+    if (parsed.game.status().kind === 'in-progress' && termination !== 'normal') {
+      if (termination === 'adjudicated') {
+        controller.finishAs('adjudicated', null)
+      } else {
+        const winner = entry.result === '1-0' ? 'w' : entry.result === '0-1' ? 'b' : null
+        if (winner) controller.finishAs(termination, winner)
+      }
     }
     setMode('two-player')
     setOrientation('white')
@@ -186,8 +274,9 @@ export function useMatchLifecycle({
       // Restore the ORIGINAL mode: a resumed one-player game must stay
       // one-player (as two-player, a loss to the engine scored as a "win").
       const plan = planResume(pendingResume.setup, engineAvailable, timeControlFor(timeControlId))
-      loadMatch(plan.config, result.game, pendingResume.scored || plan.degraded, pendingResume.recorded)
+      loadMatch(plan.config, result.game, pendingResume.scored || plan.degraded, pendingResume.recorded, plan.paused)
       setMode(plan.mode)
+      showClaudeModels(plan.config)
       if (plan.level !== null) setLevel(plan.level)
       if (plan.humanColor !== null) setColor(plan.humanColor)
       if (plan.timeControlId !== null) setTimeControlId(plan.timeControlId)
@@ -203,7 +292,20 @@ export function useMatchLifecycle({
 
   const handleFlip = () => setOrientation((o) => (o === 'white' ? 'black' : 'white'))
 
-  const choices: NewGameChoices = { mode, level, timeControlId, color, setMode, setLevel, setTimeControlId, setColor }
+  const choices: NewGameChoices = {
+    mode,
+    level,
+    timeControlId,
+    color,
+    setMode,
+    setLevel,
+    setTimeControlId,
+    setColor,
+    claudeWhite,
+    claudeBlack,
+    setClaudeWhite,
+    setClaudeBlack,
+  }
   return {
     choices,
     orientation,
@@ -215,5 +317,6 @@ export function useMatchLifecycle({
     handleReplay,
     handleResumeAccept,
     handleResumeDecline,
+    withClaudeSession,
   }
 }

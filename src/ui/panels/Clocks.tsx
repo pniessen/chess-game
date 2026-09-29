@@ -71,11 +71,14 @@ export function Clocks({
   clock,
   readClock,
   orientation,
+  names,
 }: {
   clock: ClockState
   /** A fresh read of the live clock; omit for a static display. */
   readClock?: () => ClockState
   orientation: 'white' | 'black'
+  /** Player names in place of White / Black (Claude vs Claude: the model labels). */
+  names?: { w: string; b: string }
 }) {
   // A polled reading, tagged with the snapshot clock it was taken under: a
   // new snapshot (a move, a pause) makes any older polled reading moot.
@@ -92,7 +95,7 @@ export function Clocks({
   const top = orientation === 'white' ? 'b' : 'w'
   const bottom = orientation === 'white' ? 'w' : 'b'
   const props = (side: 'w' | 'b') => ({
-    label: side === 'w' ? 'White' : 'Black',
+    label: names?.[side] ?? (side === 'w' ? 'White' : 'Black'),
     ms: side === 'w' ? shown.whiteMs : shown.blackMs,
     running: shown.running === side,
     flagged: shown.flagged === side,

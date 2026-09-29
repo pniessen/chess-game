@@ -5,6 +5,7 @@ import { EvalBar } from './Board/EvalBar'
 import { Promotion } from './Board/Promotion'
 import type { MatchController } from '../match/controller'
 import type { EngineSupervisor } from '../engine/supervisor'
+import type { ClaudeMover } from '../claude/gameClient'
 import { useEvaluation } from './useEvaluation'
 import { useMatch } from './useMatch'
 import { Captured } from './panels/Captured'
@@ -27,6 +28,14 @@ import { useSettings } from './app/useSettings'
 import { useAppearance } from './app/useAppearance'
 import { useMoveSounds, useSoundPlayer } from './app/useSound'
 import { useCoachClient } from './app/useCoachClient'
+import { useClaudeBudget } from './app/useClaudeBudget'
+import { useClaudeSession } from './app/useClaudeSession'
+import { claudeErrorText } from './app/claudeText'
+import { ClaudeStatus, ClaudeWhy } from './app/ClaudePanel'
+import { claudeComments, claudeHeaders } from './app/claudeRecord'
+import { shortModelLabel } from '../claude/models'
+import { CLAUDE_GAMES } from '../claude/enabled'
+import type { Seat } from '../match/types'
 import { useEngineHealth } from './app/useEngineHealth'
 import { useEngineLoading } from './app/useEngineLoading'
 import { useEngineAnalysis } from './app/useEngineAnalysis'
@@ -59,6 +68,7 @@ export function App() {
       controller={bundle.controller}
       engine={bundle.engine}
       engineConstructed={bundle.engineAvailable}
+      claudeMover={bundle.claude}
     />
   )
 }
@@ -72,9 +82,12 @@ function AppInner({
   controller,
   engine,
   engineConstructed,
+  claudeMover = null,
 }: {
   controller: MatchController
   engine: EngineSupervisor | null
+  /** Claude vs Claude's server client; the lifecycle begins and ends its games. */
+  claudeMover?: ClaudeMover | null
   /** Whether the engine was built successfully at construction time (a *synchronous* outcome). */
   engineConstructed: boolean
 }) {
@@ -84,6 +97,12 @@ function AppInner({
 
   const sound = useSoundPlayer(settings.soundEnabled, settings.volume)
   const { coach, coachState } = useCoachClient()
+  // Claude vs Claude runs only against the local server, so only a build
+  // with the flag (`npm run dev`, or `npm run start:claude`, which sets
+  // VITE_CLAUDE_GAMES=on) offers it: see claude/enabled.ts. CLAUDE_GAMES is
+  // a build-time constant, so every `CLAUDE_GAMES && …` below is dropped
+  // from a public build's bundle, which has no Claude-vs-Claude UI or
+  // /api/game calls.
 
   const snapshot = useMatch(controller)
   // Phase 3: game <-> puzzles. Entering pauses a live match through the
@@ -171,6 +190,7 @@ function AppInner({
   // useEndCard) and is closed again by every start/load, through the
   // lifecycle's `onMatchReset` below.
   const endCard = useEndCard(snapshot)
+  const claudeSession = useClaudeSession(controller, claudeMover)
   const lifecycle = useMatchLifecycle({
     controller,
     settings,
@@ -180,8 +200,10 @@ function AppInner({
     resetInput: input.resetInput,
     onMatchReset: endCard.reset,
     onShowMoves: () => setTab('moves'),
+    claude: claudeSession,
   })
   const { choices, orientation } = lifecycle
+  const claudeBudget = useClaudeBudget(CLAUDE_GAMES && choices.mode === 'claude-vs-claude')
 
   // Task 14: a valid share link takes precedence over the normal start —
   // but ONLY when there is nothing to conflict with. When a saved
@@ -296,6 +318,17 @@ function AppInner({
 
   const highlights = highlightsFor({ selection, position, lastMove, displayedStatus })
 
+  // A game with a Claude seat shows who is thinking, what it has cost, each
+  // move's reason and the model names; every other game renders as before.
+  const claudeGame =
+    CLAUDE_GAMES && (snapshot.config.white.kind === 'claude' || snapshot.config.black.kind === 'claude')
+  const seatName = (seat: Seat, fallback: string) => (seat.kind === 'claude' ? shortModelLabel(seat.model) : fallback)
+  const clockNames = claudeGame
+    ? { w: seatName(snapshot.config.white, 'White'), b: seatName(snapshot.config.black, 'Black') }
+    : undefined
+  const exportGame = () =>
+    claudeGame ? downloadPgn(game, claudeHeaders(snapshot), claudeComments(snapshot)) : downloadPgn(game)
+
   return (
     <main className="app">
       <h1>Chess</h1>
@@ -349,11 +382,23 @@ function AppInner({
         }
       />
 
+      {CLAUDE_GAMES && claudeSession.error ? (
+        <p className="share-error-banner" role="alert" data-testid="claude-error">
+          {claudeErrorText(claudeSession.error)}
+          <button data-testid="claude-error-dismiss" onClick={claudeSession.dismissError}>
+            Dismiss
+          </button>
+        </p>
+      ) : null}
+
       {shortcuts.helpOpen ? <ShortcutsOverlay onClose={shortcuts.closeHelp} /> : null}
 
-      <div className="layout">
+      <div className={claudeGame ? 'layout claude-game' : 'layout'}>
         <div className="left-column" ref={leftColumnRef}>
-          <Clocks clock={snapshot.clock} readClock={readClock} orientation={orientation} />
+          <Clocks clock={snapshot.clock} readClock={readClock} orientation={orientation} names={clockNames} />
+          {claudeGame ? (
+            <ClaudeStatus phase={snapshot.phase} config={snapshot.config} spentUsd={snapshot.claude.spentUsd} />
+          ) : null}
           <Captured moves={game.moves.slice(0, game.ply)} pieceSet={settings.pieceSetId} />
           <Scoreboard score={records.score} />
           {/* Task 2: moved out of .board-column, below the fold behind a
@@ -377,17 +422,23 @@ function AppInner({
             onResign={input.handleResign}
             onHint={handleHint}
             onPause={() => controller.pause()}
-            onResume={() => {
-              // Both snap the display back to the live ply, which can be
-              // exactly one move on from the browsed position: a jump, not
-              // a move, so the board cuts to it.
-              input.cut()
-              controller.resume()
-            }}
-            onStep={() => {
-              input.cut()
-              controller.step()
-            }}
+            // A paused Claude game with no server session (after a reload)
+            // begins one first; both run at once for any other game.
+            onResume={() =>
+              lifecycle.withClaudeSession(() => {
+                // Both snap the display back to the live ply, which can be
+                // exactly one move on from the browsed position: a jump, not
+                // a move, so the board cuts to it.
+                input.cut()
+                controller.resume()
+              })
+            }
+            onStep={() =>
+              lifecycle.withClaudeSession(() => {
+                input.cut()
+                controller.step()
+              })
+            }
             onSpeedChange={(ms) => controller.setSpeed(ms)}
           />
         </div>
@@ -417,11 +468,12 @@ function AppInner({
                   endCard.dismiss()
                   handleReview()
                 }}
-                onExport={() => downloadPgn(game)}
+                onExport={exportGame}
                 onDismiss={endCard.dismiss}
               />
             ) : null}
           </div>
+          {claudeGame ? <ClaudeWhy notes={snapshot.claude.notes} ply={game.ply} /> : null}
           <span className="sr-only" data-testid="ply-count">
             {game.moves.length}
           </span>
@@ -455,6 +507,17 @@ function AppInner({
             onStart={lifecycle.handleNewGame}
             onPuzzles={openPuzzles}
             onOpenChange={setNewGameOpen}
+            claude={
+              CLAUDE_GAMES
+                ? {
+                    white: choices.claudeWhite,
+                    black: choices.claudeBlack,
+                    onWhiteChange: choices.setClaudeWhite,
+                    onBlackChange: choices.setClaudeBlack,
+                    budgetLeftUsd: claudeBudget,
+                  }
+                : undefined
+            }
           />
           <RightTabs
             active={tab}
@@ -468,6 +531,7 @@ function AppInner({
               orientation,
               theme: settings.themeId,
               pieceSet: settings.pieceSetId,
+              ...(claudeGame ? { claudeNotes: snapshot.claude.notes } : {}),
             }}
             explorer={{ book, unavailable: bookFailed, current: opening, onStart: lifecycle.handleStartOpening }}
             review={{
