@@ -79,3 +79,28 @@ test('humanSidesOf reads the stored seat labels', () => {
   expect(humanSidesOf({ white: 'Human', black: 'Human' })).toEqual(['w', 'b'])
   expect(humanSidesOf({ white: 'Stockfish (level 1)', black: 'Stockfish (level 1)' })).toEqual([])
 })
+
+test('a Claude seat is labelled with its model', () => {
+  expect(seatLabel({ kind: 'claude', model: 'opus' })).toBe('Claude Opus 5.5')
+  expect(seatLabel({ kind: 'claude', model: 'haiku' })).toBe('Claude Haiku 4.5')
+})
+
+test('a finished Claude vs Claude game is recorded with both models as the players', () => {
+  const game = scholar()
+  const e = historyEntryFor({
+    phase: { kind: 'finished', status: game.status(), reason: 'normal', winner: 'w' },
+    game,
+    config: {
+      white: { kind: 'claude', model: 'fable' },
+      black: { kind: 'claude', model: 'sonnet' },
+      timeControl: { kind: 'untimed' },
+    },
+    opening: null,
+    now: NOW,
+    id: 'c',
+  })
+  expect(e?.white).toBe('Claude Fable 5.1')
+  expect(e?.black).toBe('Claude Sonnet 5.5')
+  expect(e?.pgn).toContain('[White "Claude Fable 5.1"]')
+  expect(humanSidesOf(e!)).toEqual([])
+})

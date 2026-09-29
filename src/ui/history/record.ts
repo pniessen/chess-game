@@ -1,3 +1,4 @@
+import { CLAUDE_MODELS } from '../../claude/models'
 import type { Game } from '../../game-core/game'
 import { exportPgn } from '../../game-core/io'
 import type { Color } from '../../game-core/types'
@@ -7,7 +8,7 @@ import type { HistoryEntry } from '../../storage/storage'
 
 export function seatLabel(seat: Seat): string {
   if (seat.kind === 'human') return 'Human'
-  return seat.kind === 'engine' ? `Stockfish (level ${seat.level})` : `Claude (${seat.model})`
+  return seat.kind === 'engine' ? `Stockfish (level ${seat.level})` : CLAUDE_MODELS[seat.model].label
 }
 
 export function newHistoryId(): string {

@@ -92,4 +92,16 @@ describe('useMatchRecords', () => {
     // survives, exactly as the banner promises.
     expect(loadInProgress()?.pgn).toBe('1. d4 d5 *')
   })
+
+  // Red if a Claude game counts as a human result (a human seat against
+  // Claude is not a v1 mode, but must not score as one-player either).
+  test.each([
+    ['Claude vs Claude', { white: { kind: 'claude', model: 'opus' }, black: { kind: 'claude', model: 'haiku' } }],
+    ['human vs Claude', { white: human, black: { kind: 'claude', model: 'opus' } }],
+  ] as const)('a %s finish is recorded but never scored', (_name, seats) => {
+    const cfg = { ...seats, timeControl: { kind: 'untimed' } } as MatchConfig
+    renderHook(() => useMatchRecords(snapshotOf(SCHOLARS_MATE, cfg, true), null))
+    expect(loadScore()).toEqual({ wins: 0, losses: 0, draws: 0 })
+    expect(loadHistory()).toHaveLength(1)
+  })
 })
