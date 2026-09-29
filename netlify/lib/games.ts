@@ -87,7 +87,8 @@ interface Game {
 }
 
 async function readBudget(store: CoachStore, month: string): Promise<Budget> {
-  const v = await store.get(budgetKey(month), { type: 'json' }).catch(() => null)
+  // Read errors propagate on purpose: a failed read must not look like an empty ledger (fail closed).
+  const v = await store.get(budgetKey(month), { type: 'json' })
   return isRecord(v) ? { spent: num(v['spent']), reserved: num(v['reserved']) } : { spent: 0, reserved: 0 }
 }
 
@@ -111,7 +112,8 @@ async function readGame(store: CoachStore, gameId: string): Promise<Game | null>
 }
 
 async function readLock(store: CoachStore): Promise<{ gameId: string; until: number } | null> {
-  const v = await store.get(LOCK_KEY, { type: 'json' }).catch(() => null)
+  // As with the budget, a failed read must not look like "no lock".
+  const v = await store.get(LOCK_KEY, { type: 'json' })
   return isRecord(v) && typeof v['gameId'] === 'string' ? { gameId: v['gameId'], until: num(v['until']) } : null
 }
 
@@ -139,6 +141,9 @@ export async function startGame(
 
   const lock = await readLock(store)
   if (lock && lock.until > now) return { ok: false, kind: 'busy' }
+  // An expired lock means that game was abandoned (crash, closed tab): settle it so its
+  // reservation is not held until the month rolls over. Saved as a minimal `abandoned` record.
+  if (lock) await settleGame(store, now, lock.gameId, { abandoned: true })
 
   const month = utcMonth(now)
   const reserve = round(RESERVE_PER_GAME_USD[white] + RESERVE_PER_GAME_USD[black])
@@ -204,15 +209,18 @@ export async function endGame(
   gameId: string,
   record: Record<string, unknown>,
 ): Promise<void> {
-  const game = await readGame(store, gameId)
-  if (game && !game.ended) {
-    const unused = Math.max(0, game.reserved - game.spent)
-    const budget = await readBudget(store, game.month)
-    await writeBudget(store, game.month, { spent: budget.spent, reserved: budget.reserved - unused })
-    await store.setJSON(`games/${gameId}`, { ...game, ended: true })
-    await store.setJSON(`games/saved/${gameId}`, { ...record, gameId, white: game.white, black: game.black, endedAt: now })
-  }
+  await settleGame(store, now, gameId, record)
   const lock = await readLock(store)
   if (lock?.gameId === gameId) await store.setJSON(LOCK_KEY, { gameId, until: 0 })
 }
 
+/** Mark a game ended and return its unused reservation to its own month. No-op if already ended. */
+async function settleGame(store: CoachStore, now: number, gameId: string, record: Record<string, unknown>): Promise<void> {
+  const game = await readGame(store, gameId)
+  if (!game || game.ended) return
+  const unused = Math.max(0, game.reserved - game.spent)
+  const budget = await readBudget(store, game.month)
+  await writeBudget(store, game.month, { spent: budget.spent, reserved: budget.reserved - unused })
+  await store.setJSON(`games/${gameId}`, { ...game, ended: true })
+  await store.setJSON(`games/saved/${gameId}`, { ...record, gameId, white: game.white, black: game.black, endedAt: now })
+}

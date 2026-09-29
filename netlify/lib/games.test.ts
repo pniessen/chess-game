@@ -149,3 +149,22 @@ describe('chargeMove and endGame', () => {
     expect(await startGame(store, t + 1, ENV, SIDES)).toEqual({ ok: false, kind: 'busy' })
   })
 })
+
+describe('abandoned games and failing reads', () => {
+  test('starting after the lock expired settles the abandoned game', async () => {
+    const a = await start()
+    await chargeMove(store, NOW, a.gameId, 0.05)
+    const t = NOW + GAMES_LIMITS.lockTtlMs + 1
+    const b = await start(t)
+    expect(store.data.get(`games/${a.gameId}`)).toMatchObject({ ended: true })
+    expect(store.data.get(`games/saved/${a.gameId}`)).toMatchObject({ abandoned: true })
+    const reserveB = RESERVE_PER_GAME_USD.haiku + RESERVE_PER_GAME_USD.sonnet
+    expect(b.budgetLeftUsd).toBeCloseTo(GAMES_LIMITS.monthlyUsd - 0.05 - reserveB, 6)
+    expect(store.data.get('games/budget/2026-09')).toMatchObject({ reserved: expect.closeTo(reserveB, 6) })
+  })
+  test('a store whose reads fail makes the guards reject, not open', async () => {
+    const broken = { get: async () => Promise.reject(new Error('blob down')), setJSON: async () => undefined }
+    await expect(startGame(broken, NOW, ENV, SIDES)).rejects.toThrow('blob down')
+    await expect(budgetLeft(broken, NOW)).rejects.toThrow('blob down')
+  })
+})
