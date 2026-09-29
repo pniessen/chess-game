@@ -1,0 +1,151 @@
+// @vitest-environment node
+import { beforeEach, describe, expect, test } from 'vitest'
+import { RESERVE_PER_GAME_USD } from '../../src/claude/models'
+import {
+  GAMES_LIMITS,
+  authorizeMove,
+  budgetLeft,
+  chargeMove,
+  checkOwner,
+  endGame,
+  startGame,
+} from './games'
+import { fakeStore } from './limits.test'
+
+const NOW = Date.UTC(2026, 8, 29, 12, 0, 0)
+const ENV = { OWNER_TOKEN: 'fake-owner-token' }
+const SIDES = { white: 'haiku', black: 'sonnet' } as const
+
+let store: ReturnType<typeof fakeStore>
+beforeEach(() => {
+  store = fakeStore()
+})
+
+async function start(now = NOW, sides: { white: string; black: string } = SIDES) {
+  const r = await startGame(store, now, ENV, sides)
+  if (!r.ok) throw new Error(`start failed: ${r.kind}`)
+  return r
+}
+
+describe('checkOwner', () => {
+  test('a missing or empty OWNER_TOKEN never matches, even an empty header', () => {
+    expect(checkOwner('anything', {})).toBe(false)
+    expect(checkOwner('', { OWNER_TOKEN: '' })).toBe(false)
+    expect(checkOwner(null, { OWNER_TOKEN: '' })).toBe(false)
+  })
+  test('wrong, null and right headers', () => {
+    expect(checkOwner('nope', ENV)).toBe(false)
+    expect(checkOwner(null, ENV)).toBe(false)
+    expect(checkOwner('fake-owner-token', ENV)).toBe(true)
+  })
+})
+
+describe('startGame', () => {
+  test('rejects unknown model keys', async () => {
+    const r = await startGame(store, NOW, ENV, { white: 'gpt', black: 'haiku' })
+    expect(r).toEqual({ ok: false, kind: 'bad-request' })
+  })
+  test('reserves both sides and reports what is left', async () => {
+    const r = await start()
+    const reserve = RESERVE_PER_GAME_USD.haiku + RESERVE_PER_GAME_USD.sonnet
+    expect(r.budgetLeftUsd).toBeCloseTo(GAMES_LIMITS.monthlyUsd - reserve, 6)
+    expect(await budgetLeft(store, NOW)).toBeCloseTo(GAMES_LIMITS.monthlyUsd - reserve, 6)
+    expect(r.token).toMatch(/^[0-9a-f]{64}$/)
+  })
+  test('a second game while the lock is held is busy', async () => {
+    await start()
+    expect(await startGame(store, NOW + 1000, ENV, SIDES)).toEqual({ ok: false, kind: 'busy' })
+  })
+  test('an expired lock does not block a new game', async () => {
+    await start()
+    const r = await startGame(store, NOW + GAMES_LIMITS.lockTtlMs + 1, ENV, SIDES)
+    expect(r.ok).toBe(true)
+  })
+  test('too little budget left is refused', async () => {
+    await store.setJSON('games/budget/2026-09', { spent: 19.9, reserved: 0 })
+    expect(await startGame(store, NOW, ENV, { white: 'fable', black: 'fable' })).toEqual({ ok: false, kind: 'budget' })
+  })
+  test('a new month resets the budget', async () => {
+    await store.setJSON('games/budget/2026-09', { spent: 19.99, reserved: 0 })
+    expect(await budgetLeft(store, Date.UTC(2026, 9, 1))).toBe(GAMES_LIMITS.monthlyUsd)
+  })
+})
+
+describe('authorizeMove', () => {
+  test('an owner move is authorised with the side model', async () => {
+    const g = await start()
+    const a = { gameId: g.gameId, token: g.token, plies: 0 }
+    expect(await authorizeMove(store, NOW, ENV, { ...a, side: 'white' })).toEqual({ ok: true, model: 'haiku' })
+    expect(await authorizeMove(store, NOW, ENV, { ...a, side: 'black' })).toEqual({ ok: true, model: 'sonnet' })
+  })
+  test('a bad token or unknown game is forbidden', async () => {
+    const g = await start()
+    expect(await authorizeMove(store, NOW, ENV, { gameId: g.gameId, token: 'bad', side: 'white', plies: 0 })).toEqual({
+      ok: false,
+      kind: 'forbidden',
+    })
+    expect(await authorizeMove(store, NOW, ENV, { gameId: 'nope', token: g.token, side: 'white', plies: 0 })).toEqual({
+      ok: false,
+      kind: 'forbidden',
+    })
+  })
+  test('a move refreshes the lock', async () => {
+    const g = await start()
+    const later = NOW + GAMES_LIMITS.lockTtlMs - 1000
+    await authorizeMove(store, later, ENV, { gameId: g.gameId, token: g.token, side: 'white', plies: 0 })
+    expect(await startGame(store, later + GAMES_LIMITS.lockTtlMs - 1000, ENV, SIDES)).toEqual({ ok: false, kind: 'busy' })
+  })
+  test('a lost lock is forbidden', async () => {
+    const g = await start()
+    const t = NOW + GAMES_LIMITS.lockTtlMs + 1
+    await start(t)
+    expect(await authorizeMove(store, t, ENV, { gameId: g.gameId, token: g.token, side: 'white', plies: 0 })).toEqual({
+      ok: false,
+      kind: 'forbidden',
+    })
+  })
+  test('ply 160 is over', async () => {
+    const g = await start()
+    const a = { gameId: g.gameId, token: g.token, side: 'white' as const }
+    expect(await authorizeMove(store, NOW, ENV, { ...a, plies: 159 })).toMatchObject({ ok: true })
+    expect(await authorizeMove(store, NOW, ENV, { ...a, plies: 160 })).toEqual({ ok: false, kind: 'over' })
+  })
+  test('spent at or over the reservation is budget', async () => {
+    const g = await start()
+    await chargeMove(store, NOW, g.gameId, RESERVE_PER_GAME_USD.haiku + RESERVE_PER_GAME_USD.sonnet)
+    expect(await authorizeMove(store, NOW, ENV, { gameId: g.gameId, token: g.token, side: 'white', plies: 2 })).toEqual({
+      ok: false,
+      kind: 'budget',
+    })
+  })
+})
+
+describe('chargeMove and endGame', () => {
+  test('charges do not change what is left until the game ends', async () => {
+    const g = await start()
+    const before = await budgetLeft(store, NOW)
+    await chargeMove(store, NOW, g.gameId, 0.05)
+    expect(await budgetLeft(store, NOW)).toBeCloseTo(before, 6)
+  })
+  test('ending releases the lock and the unused reservation, and saves the record', async () => {
+    const g = await start()
+    await chargeMove(store, NOW, g.gameId, 0.05)
+    await endGame(store, NOW, g.gameId, { pgn: '1. e4 *', costUsd: 0.05 })
+    expect(await budgetLeft(store, NOW)).toBeCloseTo(GAMES_LIMITS.monthlyUsd - 0.05, 6)
+    expect(store.data.get(`games/saved/${g.gameId}`)).toMatchObject({ pgn: '1. e4 *' })
+    expect((await startGame(store, NOW + 1, ENV, SIDES)).ok).toBe(true)
+  })
+  test('ending twice does not refund twice', async () => {
+    const g = await start()
+    await endGame(store, NOW, g.gameId, {})
+    await endGame(store, NOW, g.gameId, {})
+    expect(await budgetLeft(store, NOW)).toBe(GAMES_LIMITS.monthlyUsd)
+  })
+  test('ending an old game does not release a newer game lock', async () => {
+    const g = await start()
+    const t = NOW + GAMES_LIMITS.lockTtlMs + 1
+    await start(t)
+    await endGame(store, t, g.gameId, {})
+    expect(await startGame(store, t + 1, ENV, SIDES)).toEqual({ ok: false, kind: 'busy' })
+  })
+})
