@@ -83,15 +83,19 @@ export const MOVE_TIMEOUT_MS = 45_000
 export const CLAUDE_SESSION_IDLE_MS = 25 * 60_000
 
 /**
- * Dollars held back per side for one 80-ply game (40 moves each). Source: the
- * Claude-vs-Claude brainstorm (2026-09-29), which estimated a side at list
- * prices (skill pricing cached 2026-09-25) as fable ~$1.45, opus ~$0.58,
- * sonnet ~$0.07, haiku ~$0.04; each is x1.5, rounded up to the cent. These are
- * estimates, not measurements: Task 10 retunes them from real `usage`.
+ * Dollars held back per side for one game, sized to reach the 160-ply cap
+ * (80 moves a side). Measured 2026-09-29 against the API directly (plan Task
+ * 10): the dearest opening move was fable $0.0086, opus $0.0036, sonnet
+ * $0.0018, haiku $0.0008, and a move's cost grows with the history in its
+ * prompt — a 102-ply Haiku game's dearest move was $0.00135, 1.7x its opening
+ * one. So each reserve is 80 moves x the dearest opening move x 1.75 for that
+ * growth x 1.25 margin, rounded to the cent. The first, estimated values
+ * (0.11 sonnet, 0.06 haiku) would have stopped a Haiku game near ply 130 with
+ * "budget used up". Retune from the ledger's saved games if play drifts.
  */
 export const RESERVE_PER_GAME_USD: Record<ClaudeModelKey, number> = {
-  fable: 2.18,
-  opus: 0.87,
-  sonnet: 0.11,
-  haiku: 0.06,
+  fable: 1.5,
+  opus: 0.63,
+  sonnet: 0.32,
+  haiku: 0.14,
 }

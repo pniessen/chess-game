@@ -127,3 +127,27 @@ owner-token field and no `/api/game/*` functions.
 - **Unavailable server:** if the local server is not running or has no key, the mode shows why
   (budget request fails) and Start is disabled.
 - **Phase 0 (Task 10)** runs locally against Peter's own key.
+
+## Phase 0 results (measured 2026-09-29, local server, Peter's own key)
+
+Three moves per model from the start position (both seats the same model), then one full
+Haiku-vs-Haiku game. Latency is client-side wall clock per `/api/game/move`; cost is the
+server-charged `costUsd` from `usage` at list price.
+
+| Model | Median / max latency | Cost per move (opening) | Illegal replies / retries |
+|---|---|---|---|
+| Haiku 4.5 | 2.2 s / 2.3 s | $0.0006–0.0008 | 0 / 0 |
+| Sonnet 5.5 (effort low) | 2.4 s / 2.9 s | $0.0015–0.0018 | 0 / 0 |
+| Opus 5.5 (effort low) | 3.5 s / 3.7 s | $0.0029–0.0036 | 0 / 0 |
+| Fable 5.1 (effort low) | 3.9 s / 4.6 s | $0.0072–0.0086 | 0 / 0 |
+| Haiku vs Haiku, full game | 2.2 s / 3.3 s over 102 plies (drawn) | $0.00095 median, $0.00135 max; $0.0945 for the game | 0 / 0 |
+
+- Structured output with the legal-move enum is accepted on all four models; no reply ever left
+  the list.
+- Per-move cost grows with the history in the prompt (1.7x from the opening to ply ~100 for
+  Haiku), so the first estimated reserves were too low for Sonnet and Haiku: a Haiku game would
+  have hit its reservation near ply 130. `RESERVE_PER_GAME_USD` is retuned to reach the 160-ply
+  cap: fable 1.50, opus 0.63, sonnet 0.32, haiku 0.14 per side.
+- `MOVE_TIMEOUT_MS` stays 45 s: the slowest move measured was 4.6 s, but Fable and Opus were only
+  measured in the opening, where adaptive thinking is lightest.
+- Total spent on Phase 0: $0.134.
