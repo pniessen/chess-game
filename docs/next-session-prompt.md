@@ -55,6 +55,25 @@ Both deployments were current at `63f68fd`. Verify rather than assume when it ma
   suite stubs `/api`, which is how a cold-start health-probe bug shipped invisibly. If coach
   behaviour changes, look at the live site.
 
+## Claude vs Claude (owner-only)
+
+Branch `feat/claude-vs-claude` adds a mode where two Claude models play each other; spec
+`docs/superpowers/specs/2026-09-29-claude-vs-claude-design.md`, plan
+`docs/superpowers/plans/2026-09-29-claude-vs-claude.md`.
+
+- **Owner-only via `OWNER_TOKEN`.** Peter sets it in Netlify's environment; nobody else
+  handles the value. Use a long random value (at least 32 random bytes, e.g.
+  `openssl rand -base64 48`): the Settings field it is typed into ships in the public build,
+  and wrong-token 403s are not rate-limited. Without it the mode is hidden and
+  `/api/game/*` answers 403.
+- **Money:** a $20 per UTC month ledger in the `chess-games` Netlify Blobs store — one
+  global store across every deploy (production, drafts, branch deploys and permalinks share
+  one cap and one one-game lock). Finished games are saved under `games/saved/<id>`.
+- **Constants** (model ids, list prices, per-game reserves, move timeout, the 160-ply
+  adjudication cap, the 25-minute session idle limit) live in `src/claude/models.ts`.
+- **Task 10 (live measurement) is still pending:** it needs `OWNER_TOKEN` set, then plays
+  real games to measure `usage` and retune `RESERVE_PER_GAME_USD`.
+
 ## Environment traps that have already cost this repo real time
 
 - A fresh worktree has `node_modules` but an empty `public/engine/` (postinstall never ran).

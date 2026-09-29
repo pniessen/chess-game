@@ -71,7 +71,7 @@ Behaviour:
 
 ### Task 4: Endpoints (Netlify + Express)
 
-**Files:** Create `netlify/functions/game-start.ts`, `game-move.ts`, `game-end.ts`, `game-budget.ts`; `netlify/lib/gameHandler.ts` + test; modify `netlify/lib/runtime.ts` (a `gamesStore()` named `chess-games`, production vs deploy-scoped like `coachStore`), `server/app.ts` (the same four routes behind `x-owner-token`, using an in-memory store; the local relay stays loopback-only).
+**Files:** Create `netlify/functions/game-start.ts`, `game-move.ts`, `game-end.ts`, `game-budget.ts`; `netlify/lib/gameHandler.ts` + test; modify `netlify/lib/runtime.ts` (a `gamesStore()` named `chess-games`: always the global `getStore({ name: 'chess-games', consistency: 'strong' })` on every deploy — deliberately unlike `coachStore`'s production/deploy-scoped split, so production, drafts and previews share one dollar cap and one lock), `server/app.ts` (the same four routes behind `x-owner-token`, using an in-memory store; the local relay stays loopback-only).
 
 **Interfaces:** `handleGame(endpoint: 'start' | 'move' | 'end' | 'budget', request: Request, deps: { store; env; client: MessagesClient | null; now? }): Promise<Response>`.
 - All: POST (budget: GET), origin check reused from `isAllowedOrigin`, `x-owner-token` → 403 `{ error: { kind: 'forbidden' } }` when wrong or unset.

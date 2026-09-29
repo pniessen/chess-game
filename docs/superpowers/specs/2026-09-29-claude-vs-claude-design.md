@@ -17,19 +17,19 @@ replay gallery, ratings. The design leaves room for each (see "Later").
 
 | # | Question | Ruling |
 |---|---|---|
-| Q5 | Funding | **$20 per calendar month (UTC)**, counted in real dollars from each response's `usage` × the model's list price, in its own store namespace. Paid through the Netlify AI Gateway like coaching, so the Netlify account's credit ceiling must allow ~$25/month in total — Peter's setting to change, not the code's. The coach's $5 plan and counters are untouched. |
+| Q5 | Funding | **$20 per calendar month (UTC)**, counted in real dollars from each response's `usage` × the model's list price, in its own store namespace: the `chess-games` Netlify Blobs store, **one global store across all deploys** (production, drafts, branch deploys and deploy permalinks share one ledger and one lock, unlike the coach's deploy-scoped previews), so the $20 is one cap. A move that times out is charged a conservative estimate (estimated input + the whole output cap), since the API may still bill it. Paid through the Netlify AI Gateway like coaching, so the Netlify account's credit ceiling must allow ~$25/month in total — Peter's setting to change, not the code's. The coach's $5 plan and counters are untouched. |
 | Q9 | Who can start a game | **Owner only**: a secret `OWNER_TOKEN` that Peter sets in Netlify's environment (never handled by Claude), entered once in a Settings field and kept in that browser's localStorage. Without it the Claude seat option is hidden and the endpoints answer 403. |
 | — | Models | **All four**: `claude-fable-5-1`, `claude-opus-5-5`, `claude-sonnet-5-5`, `claude-haiku-4-5-20251001`, all listed by the AI Gateway docs (updated 2026-09-17). The browser sends a model *key* from an allow-list; only the server maps it to an ID. |
 | Q1 (R) | Phase | A new `bot-thinking` phase with `by: 'engine' \| 'claude'`, so the UI can say "Opus 5.5 is thinking… 7s". |
 | Q2 (R) | Approach | Claude picks the move itself from the FEN, the SAN history and the list of legal moves; the reply is structured output whose `move` is an **enum of the legal SANs**. Stockfish only supplies the spectator eval through the existing analysis path. |
 | Q3 (R) | A failed reply | Retry once with a one-line correction; then play Stockfish's best move (via `EngineLane`) marked ⚙ in the move list; after **5** fallbacks by one side the game ends `claude-unavailable`, no winner, position kept. |
 | Q4 (R) | Rationale | Yes, ≤ 20 words, shown under the board and saved as a PGN comment. |
-| Q6 (R) | Effort | Low for Fable and Opus; thinking off for Sonnet and Haiku. Medium needs background functions (Netlify's 60 s sync limit) and is later. |
+| Q6 (R) | Effort | Low for Fable and Opus; adaptive thinking at effort low for Sonnet (the 5.x models reject `thinking: disabled`, Task 2's ruling); Haiku 4.5 does not think and is sent no effort. Medium needs background functions (Netlify's 60 s sync limit) and is later. |
 | Q7 (R) | Clock | Untimed only. |
 | Q8 (R) | Pause mid-move | Let the paid call finish, hold the reply, play it on resume. |
 | Q10 (R) | Caching moves | No answer cache; only the held (game, ply) reply above. |
 | Q11 (R) | Concurrency | One Claude game site-wide, a store lock with a 30-minute TTL. |
-| Q12 (R) | Long games | Draw by adjudication at 160 plies. |
+| Q12 (R) | Long games | Draw by adjudication at 160 plies (`CLAUDE_MAX_PLIES`): the controller finishes the game with the `adjudicated` FinishReason (winner none, PGN `1/2-1/2`, kept in History as a draw, headline "Draw by adjudication — 80 moves") before asking for ply 161; the server's 409 at the cap stays as a backstop. |
 | Q13 (R) | Context | Full SAN history in each prompt. |
 | Q14 (R) | Thinking summaries | Not shown in v1. |
 
