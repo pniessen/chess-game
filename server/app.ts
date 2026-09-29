@@ -37,6 +37,8 @@ export interface GamesDeps {
   store: GameStore
   /** Random per process; game tokens are HMACs under it. */
   secret: Buffer
+  /** Random per process; stored in the games lock so a restart frees it at once. */
+  boot: string
 }
 
 export function createApp(deps: { claude: Claude | null; staticDir?: string | null; games?: GamesDeps }) {

@@ -7,7 +7,7 @@ import { createApp } from './app'
 import Anthropic from '@anthropic-ai/sdk'
 import { MOVE_TIMEOUT_MS } from '../src/claude/models'
 import { createClaude } from './claude'
-import { randomBytes } from 'node:crypto'
+import { randomBytes, randomUUID } from 'node:crypto'
 import { fileStore } from './fileStore'
 
 /**
@@ -38,11 +38,13 @@ export function startServer(env: NodeJS.ProcessEnv = process.env): Promise<Serve
     claude: apiKey ? createClaude({ apiKey }) : null,
     // `npm start` builds first; in dev, Vite serves the app and proxies /api here.
     // Local-only Claude games: the budget, lock and saved games persist under gamesDir (see gamesDirFor).
-    // Tokens are HMACs under a secret that lives only as long as this process.
+    // Tokens are HMACs under a secret that lives only as long as this process; the boot id
+    // marks the games lock as this process's, so after a restart a stale lock is settled at once.
     games: {
       client: apiKey ? new Anthropic({ apiKey, timeout: MOVE_TIMEOUT_MS, maxRetries: 0 }) : null,
       store: fileStore(gamesDir),
       secret: randomBytes(32),
+      boot: randomUUID(),
     },
     staticDir: existsSync(distDir) ? distDir : null,
   })

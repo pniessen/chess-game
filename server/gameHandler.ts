@@ -33,6 +33,8 @@ export interface GameDeps {
   store: GameStore
   /** Random per process; game tokens are HMACs under it. */
   secret: Buffer
+  /** Random per process; a games lock taken under another boot is from a server that has restarted. */
+  boot: string
   /** Null when no Anthropic key is configured. */
   client: MessagesClient | null
   now?: () => number
@@ -145,7 +147,7 @@ export async function handleGame(endpoint: GameEndpoint, request: Request, deps:
 async function start(body: Record<string, unknown>, deps: GameDeps, now: number): Promise<Response> {
   const { white, black } = body
   if (!isClaudeModelKey(white) || !isClaudeModelKey(black)) return fail(400, 'bad-request')
-  const r = await startGame(deps.store, now, deps.secret, { white, black })
+  const r = await startGame(deps.store, now, deps.secret, { white, black }, deps.boot)
   if (!r.ok) return fail(r.kind === 'busy' ? 409 : r.kind === 'budget' ? 402 : 400, r.kind)
   return json(200, { gameId: r.gameId, token: r.token, budgetLeftUsd: r.budgetLeftUsd })
 }

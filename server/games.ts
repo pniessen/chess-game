@@ -2,7 +2,8 @@
  * Spending and access controls for the local-only Claude-vs-Claude games.
  *
  * Every game spends real money, so the endpoints behind this module are
- * only served by the local relay on the owner's machine, allow one game at a time, and draw on a monthly dollar budget. Each game reserves its
+ * only served by the local relay on the owner's machine, allow one game at
+ * a time, and draw on a monthly dollar budget. Each game reserves its
  * worst-case cost when it starts; moves are charged as they happen and the
  * unused part of the reservation goes back when the game ends.
  *
@@ -110,10 +111,25 @@ async function readGame(store: GameStore, gameId: string): Promise<Game | null> 
   }
 }
 
-async function readLock(store: GameStore): Promise<{ gameId: string; until: number } | null> {
+/**
+ * The one-game lock. `boot` is the id of the server process that took it; a
+ * lock from another boot belongs to a game whose token no longer verifies
+ * (the secret died with that process), so that game can never end itself.
+ */
+interface Lock {
+  gameId: string
+  until: number
+  /** Absent in locks written before boot ids existed: such a lock counts as another boot. */
+  boot?: string
+}
+
+async function readLock(store: GameStore): Promise<Lock | null> {
   // As with the budget, a failed read must not look like "no lock".
   const v = await store.get(LOCK_KEY, { type: 'json' })
-  return isRecord(v) && typeof v['gameId'] === 'string' ? { gameId: v['gameId'], until: num(v['until']) } : null
+  if (!isRecord(v) || typeof v['gameId'] !== 'string') return null
+  const lock: Lock = { gameId: v['gameId'], until: num(v['until']) }
+  if (typeof v['boot'] === 'string') lock.boot = v['boot']
+  return lock
 }
 
 /** Dollars still available this month: neither spent nor held for a game in progress. */
@@ -124,13 +140,15 @@ export async function budgetLeft(store: GameStore, now: number): Promise<number>
 
 /**
  * Begin a game: check the lock, reserve the worst-case cost, and mint the
- * token the browser sends with each move.
+ * token the browser sends with each move. `boot` is this server process's id;
+ * a lock taken under any other boot is treated as expired.
  */
 export async function startGame(
   store: GameStore,
   now: number,
   secret: Buffer,
   sides: { white: string; black: string },
+  boot: string,
 ): Promise<
   | { ok: true; gameId: string; token: string; budgetLeftUsd: number }
   | { ok: false; kind: 'busy' | 'budget' | 'bad-request' }
@@ -139,9 +157,11 @@ export async function startGame(
   if (!isClaudeModelKey(white) || !isClaudeModelKey(black)) return { ok: false, kind: 'bad-request' }
 
   const lock = await readLock(store)
-  if (lock && lock.until > now) return { ok: false, kind: 'busy' }
-  // An expired lock means that game was abandoned (crash, closed tab): settle it so its
-  // reservation is not held until the month rolls over. Saved as a minimal `abandoned` record.
+  if (lock && lock.until > now && lock.boot === boot) return { ok: false, kind: 'busy' }
+  // An expired lock means that game was abandoned (crash, closed tab); a lock from an earlier
+  // boot means the server restarted, so that game's token is dead and its /end can never come.
+  // Either way settle it so its reservation is not held until the month rolls over. Saved as a
+  // minimal `abandoned` record.
   if (lock) await settleGame(store, now, lock.gameId, { abandoned: true })
 
   const month = utcMonth(now)
@@ -153,7 +173,7 @@ export async function startGame(
   await writeBudget(store, month, { spent: budget.spent, reserved: budget.reserved + reserve })
   const game: Game = { white, black, reserved: reserve, spent: 0, plies: 0, startedAt: now, month }
   await store.setJSON(`games/${gameId}`, game)
-  await store.setJSON(LOCK_KEY, { gameId, until: now + GAMES_LIMITS.lockTtlMs })
+  await store.setJSON(LOCK_KEY, { gameId, until: now + GAMES_LIMITS.lockTtlMs, boot } satisfies Lock)
   return { ok: true, gameId, token: gameToken(gameId, secret), budgetLeftUsd: await budgetLeft(store, now) }
 }
 
@@ -180,7 +200,8 @@ export async function authorizeMove(
   if (req.plies >= GAMES_LIMITS.plyCap) return { ok: false, kind: 'over' }
   if (round(game.spent) >= round(game.reserved)) return { ok: false, kind: 'budget' }
 
-  await store.setJSON(LOCK_KEY, { gameId: req.gameId, until: now + GAMES_LIMITS.lockTtlMs })
+  // Keeps the boot that took the lock: only the process whose secret verified the token gets here.
+  await store.setJSON(LOCK_KEY, { ...lock, until: now + GAMES_LIMITS.lockTtlMs } satisfies Lock)
   return { ok: true, model: game[req.side] }
 }
 
@@ -223,7 +244,7 @@ export async function endGame(
 ): Promise<void> {
   await settleGame(store, now, gameId, record)
   const lock = await readLock(store)
-  if (lock?.gameId === gameId) await store.setJSON(LOCK_KEY, { gameId, until: 0 })
+  if (lock?.gameId === gameId) await store.setJSON(LOCK_KEY, { ...lock, until: 0 } satisfies Lock)
 }
 
 /** Mark a game ended and return its unused reservation to its own month. No-op if already ended. */

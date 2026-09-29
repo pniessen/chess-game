@@ -8,6 +8,7 @@ import { fakeStore } from '../netlify/lib/limits.test'
 
 const NOW = Date.UTC(2026, 8, 29, 12, 0, 0)
 const SECRET = Buffer.from('fake-process-secret')
+const BOOT = 'fake-boot'
 const BASE = 'http://127.0.0.1:8787'
 const ORIGIN = 'http://localhost:5173'
 
@@ -42,6 +43,7 @@ interface Opts {
   raw?: string
   client?: MessagesClient | null
   secret?: Buffer
+  boot?: string
   store?: Parameters<typeof handleGame>[2]['store']
 }
 
@@ -57,6 +59,7 @@ async function call(endpoint: 'start' | 'move' | 'end' | 'budget', o: Opts = {})
   }), {
     store: o.store ?? store,
     secret: o.secret ?? SECRET,
+    boot: o.boot ?? BOOT,
     client: o.client === undefined ? fakeClient() : o.client,
     now: () => NOW,
   })
@@ -105,6 +108,15 @@ describe('gates', () => {
     expect((await call('move', { body, secret: Buffer.from('a-different-process') })).res.status).toBe(403)
     expect((await call('end', { body: { ...body, pgn: '*', fallbacks: { w: 0, b: 0 } }, secret: Buffer.from('a-different-process') })).res.status).toBe(403)
     expect((await call('move', { body })).res.status).toBe(200)
+  })
+  test('after a server restart the old game cannot end itself, and the next start settles it instead of 409', async () => {
+    const g = await startGame()
+    const restarted = { secret: Buffer.from('a-different-process'), boot: 'another-boot' }
+    const end = { gameId: g.gameId, token: g.token, pgn: '*', fallbacks: { w: 0, b: 0 } }
+    expect((await call('end', { body: end, ...restarted })).res.status).toBe(403)
+    const r = await call('start', { body: { white: 'haiku', black: 'sonnet' }, ...restarted })
+    expect(r.res.status).toBe(200)
+    expect(store.data.get(`games/saved/${g.gameId}`)).toMatchObject({ abandoned: true })
   })
   test('a foreign origin is refused, a missing one on POST too; wrong method is 405', async () => {
     expect((await call('start', { origin: 'https://evil.example' })).res.status).toBe(403)

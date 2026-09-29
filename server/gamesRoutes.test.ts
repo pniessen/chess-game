@@ -27,7 +27,7 @@ const client: MessagesClient = {
 async function start(withGames = true): Promise<string> {
   const app = createApp({
     claude: null,
-    games: withGames ? { client, store: memoryStore(), secret: Buffer.from('fake-process-secret') } : undefined,
+    games: withGames ? { client, store: memoryStore(), secret: Buffer.from('fake-process-secret'), boot: 'test-boot' } : undefined,
   })
   server = await new Promise<Server>((resolve) => {
     const s = app.listen(0, '127.0.0.1', () => resolve(s))
