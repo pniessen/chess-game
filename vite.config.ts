@@ -1,7 +1,7 @@
 /// <reference types="vitest/config" />
 import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
-import { publicBuildRefusal } from './scripts/publicBuildGuard'
+import { publicBuildRefusal } from './scripts/publicBuildGuard.ts'
 
 // The coach server (npm run server). Dev and preview both proxy /api to it,
 // so the browser only ever talks to its own origin and never sees the key.
