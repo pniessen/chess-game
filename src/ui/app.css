@@ -1188,6 +1188,19 @@ body {
 }
 .new-game-actions button { flex: 1 1 0; padding-block: 9px; }
 
+/* Claude vs Claude: the two model selects and the cost lines under them. */
+.claude-setup {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.claude-note {
+  margin: 0;
+  font-size: 0.8em;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
 /* Task 4: GameIO's own wrapper, now the body of the Game file popover
    rather than a card of its own — so no surface, border or shadow here;
    `.game-file-popover` supplies all of that. */

@@ -3,6 +3,7 @@ import type { Game } from '../../game-core/game'
 import { gameFromSan, importPgn } from '../../game-core/io'
 import type { MatchController } from '../../match/controller'
 import type { MatchConfig } from '../../match/types'
+import type { ClaudeModelKey } from '../../claude/models'
 import type { OpeningEntry } from '../../openings/book'
 import { clearInProgress, type HistoryEntry, type Level, type Settings } from '../../storage/storage'
 import type { Mode } from '../panels/NewGame'
@@ -20,6 +21,11 @@ export interface NewGameChoices {
   setLevel: (level: Level) => void
   setTimeControlId: (id: string) => void
   setColor: (color: 'white' | 'black') => void
+  /** Claude vs Claude's two models. */
+  claudeWhite: ClaudeModelKey
+  claudeBlack: ClaudeModelKey
+  setClaudeWhite: (model: ClaudeModelKey) => void
+  setClaudeBlack: (model: ClaudeModelKey) => void
 }
 
 /**
@@ -56,6 +62,16 @@ export function useMatchLifecycle({
   const [level, setLevel] = useState<Level>(settings.level)
   const [timeControlId, setTimeControlId] = useState(settings.timeControlId)
   const [color, setColor] = useState<'white' | 'black'>(settings.orientation)
+  const [claudeWhite, setClaudeWhite] = useState<ClaudeModelKey>('haiku')
+  const [claudeBlack, setClaudeBlack] = useState<ClaudeModelKey>('haiku')
+
+  /** The New game panel's two model selects follow a Claude game that is resumed or rematched. */
+  const showClaudeModels = (config: MatchConfig) => {
+    if (config.white.kind === 'claude') setClaudeWhite(config.white.model)
+    if (config.black.kind === 'claude') setClaudeBlack(config.black.model)
+  }
+  const configFromChoices = () =>
+    buildConfig({ mode, level, timeControlId, color, engineAvailable, claudeWhite, claudeBlack })
 
   const startMatch = (config: MatchConfig) => {
     controller.start(config)
@@ -89,13 +105,14 @@ export function useMatchLifecycle({
     // position; a rematch of a game that began from one starts there again.
     startMatch({ ...plan.config, ...(config.startFen !== undefined ? { startFen: config.startFen } : {}) })
     setMode(plan.mode)
+    showClaudeModels(plan.config)
     if (plan.level !== null) setLevel(plan.level)
     if (plan.humanColor !== null) setColor(plan.humanColor)
     if (plan.timeControlId !== null) setTimeControlId(plan.timeControlId)
   }
 
   const handleNewGame = () => {
-    const config = buildConfig({ mode, level, timeControlId, color, engineAvailable })
+    const config = configFromChoices()
     startMatch(config)
     updateSettings({ level, timeControlId, ...(mode === 'one-player' ? { orientation: color } : {}) })
     setOrientation(mode === 'one-player' ? color : 'white')
@@ -152,7 +169,7 @@ export function useMatchLifecycle({
   const handleStartOpening = (entry: OpeningEntry) => {
     const built = gameFromSan(entry.moves)
     if (!built.ok) return
-    loadMatch(buildConfig({ mode, level, timeControlId, color, engineAvailable }), built.game, false)
+    loadMatch(configFromChoices(), built.game, false)
     setOrientation(mode === 'one-player' ? color : 'white')
     onShowMoves()
   }
@@ -194,6 +211,7 @@ export function useMatchLifecycle({
       const plan = planResume(pendingResume.setup, engineAvailable, timeControlFor(timeControlId))
       loadMatch(plan.config, result.game, pendingResume.scored || plan.degraded, pendingResume.recorded, plan.paused)
       setMode(plan.mode)
+      showClaudeModels(plan.config)
       if (plan.level !== null) setLevel(plan.level)
       if (plan.humanColor !== null) setColor(plan.humanColor)
       if (plan.timeControlId !== null) setTimeControlId(plan.timeControlId)
@@ -209,7 +227,20 @@ export function useMatchLifecycle({
 
   const handleFlip = () => setOrientation((o) => (o === 'white' ? 'black' : 'white'))
 
-  const choices: NewGameChoices = { mode, level, timeControlId, color, setMode, setLevel, setTimeControlId, setColor }
+  const choices: NewGameChoices = {
+    mode,
+    level,
+    timeControlId,
+    color,
+    setMode,
+    setLevel,
+    setTimeControlId,
+    setColor,
+    claudeWhite,
+    claudeBlack,
+    setClaudeWhite,
+    setClaudeBlack,
+  }
   return {
     choices,
     orientation,

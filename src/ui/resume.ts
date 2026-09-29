@@ -72,8 +72,11 @@ export function planResume(
 
   const { white, black, timeControl } = setup
   if (white.kind === 'claude' || black.kind === 'claude') {
-    // Claude needs no local engine; a Claude game is not a scored engine game
-    // either, so the mode shown is the neutral one until Task 8 adds its own.
+    // Claude needs no local engine to be resumed (its fallback does, and says
+    // so when it cannot move). Two Claude seats are their own mode; anything
+    // else with a Claude seat is not a mode the panel offers, so it shows the
+    // neutral one.
+    const claudeVsClaude = white.kind === 'claude' && black.kind === 'claude'
     return {
       config: {
         white,
@@ -81,7 +84,7 @@ export function planResume(
         timeControl,
         ...(setup.engineDelayMs !== undefined ? { engineDelayMs: setup.engineDelayMs } : {}),
       },
-      mode: 'two-player',
+      mode: claudeVsClaude ? 'claude-vs-claude' : 'two-player',
       level: null,
       humanColor: null,
       timeControlId: timeControlIdOf(timeControl),

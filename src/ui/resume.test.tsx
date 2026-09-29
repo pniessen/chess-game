@@ -157,3 +157,21 @@ describe('a Claude game resumes paused', () => {
     expect(screen.queryByTestId('result')).not.toHaveTextContent(/./)
   })
 })
+
+describe('a Claude vs Claude game resumes in its own mode', () => {
+  const SETUP = {
+    white: { kind: 'claude', model: 'fable' },
+    black: { kind: 'claude', model: 'haiku' },
+    timeControl: { kind: 'untimed' },
+    engineDelayMs: 300,
+  } as const
+
+  // Red if the New game panel says two-player for a resumed Claude game.
+  test('mode claude-vs-claude, the seats and pace kept, paused', () => {
+    const plan = planResume(SETUP, true, { kind: 'untimed' })
+    expect(plan.mode).toBe('claude-vs-claude')
+    expect(plan.config).toEqual(SETUP)
+    expect(plan.humanColor).toBeNull()
+    expect(plan.paused).toBe(true)
+  })
+})

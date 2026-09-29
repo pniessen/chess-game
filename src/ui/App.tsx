@@ -28,6 +28,7 @@ import { useAppearance } from './app/useAppearance'
 import { useMoveSounds, useSoundPlayer } from './app/useSound'
 import { useCoachClient } from './app/useCoachClient'
 import { useOwnerToken } from './app/useOwnerToken'
+import { useClaudeBudget } from './app/useClaudeBudget'
 import { useEngineHealth } from './app/useEngineHealth'
 import { useEngineLoading } from './app/useEngineLoading'
 import { useEngineAnalysis } from './app/useEngineAnalysis'
@@ -186,6 +187,7 @@ function AppInner({
     onShowMoves: () => setTab('moves'),
   })
   const { choices, orientation } = lifecycle
+  const claudeBudget = useClaudeBudget(choices.mode === 'claude-vs-claude' && ownerToken.isSet)
 
   // Task 14: a valid share link takes precedence over the normal start —
   // but ONLY when there is nothing to conflict with. When a saved
@@ -464,6 +466,18 @@ function AppInner({
             onStart={lifecycle.handleNewGame}
             onPuzzles={openPuzzles}
             onOpenChange={setNewGameOpen}
+            claude={
+              ownerToken.enabled
+                ? {
+                    available: ownerToken.isSet,
+                    white: choices.claudeWhite,
+                    black: choices.claudeBlack,
+                    onWhiteChange: choices.setClaudeWhite,
+                    onBlackChange: choices.setClaudeBlack,
+                    budgetLeftUsd: claudeBudget,
+                  }
+                : undefined
+            }
           />
           <RightTabs
             active={tab}
