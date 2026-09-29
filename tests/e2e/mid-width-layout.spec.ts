@@ -48,14 +48,32 @@ async function hitTestable(page: Page, id: string): Promise<void> {
   expect(hit, `${id} hit-testable at its centre`).toBe(true)
 }
 
+/** Every measurement waits for the header's final shape: the engine's
+ * "Loading engine…" chip leaves and the "coaching offline" badge arrives
+ * (the health probe fails under `coachOffline`), and in this band either
+ * can re-wrap the header and resize the board under a measurement taken
+ * mid-way. Same helper as above-the-fold.spec.ts. */
+async function settledHeader(page: Page): Promise<void> {
+  await expect(page.locator('.board')).toBeVisible()
+  await expect(page.getByTestId('engine-status')).toHaveCount(0)
+  await expect(page.getByTestId('coach-badge')).toBeVisible()
+}
+
 async function open(page: Page, size: { width: number; height: number }, long: boolean): Promise<void> {
   await coachOffline(page)
   await page.setViewportSize(size)
   await page.goto('/')
-  await page.getByTestId('undo').waitFor()
+  await settledHeader(page)
   if (long) {
     await importGame(page, LONG_GAME)
     await expect(page.getByTestId('ply-count')).toHaveText('140')
+    // Playwright's own click on Import scrolls a stacked page before it
+    // presses (measured: 188px at 769x1024, and 282px on the stacked
+    // layout this replaced), which a person's click does not: the same
+    // import through DOM `click()`s leaves scrollY at 0, and
+    // `elementFromPoint` finds Import itself at its centre. Undo it, so the
+    // fold is measured where a person would see it.
+    await page.evaluate(() => window.scrollTo(0, 0))
   }
 }
 
@@ -79,9 +97,14 @@ for (const size of LANDSCAPE) {
       await open(page, size, long)
       expect(await pageOverflow(page)).toEqual({ x: 0, y: 0 })
 
-      const board = await box(page, '.board')
-      const left = await box(page, '.left-column')
-      const right = await box(page, '.right-column')
+      // One evaluate, so no relayout can land between the three reads.
+      const { board, left, right } = await page.evaluate(() => {
+        const r = (s: string) => {
+          const b = document.querySelector(s)!.getBoundingClientRect()
+          return { x: b.x, y: b.y, width: b.width, height: b.height }
+        }
+        return { board: r('.board'), left: r('.left-column'), right: r('.right-column') }
+      })
       expect(board.width).toBeGreaterThanOrEqual(320)
       expect(Math.abs(board.width - board.height)).toBeLessThanOrEqual(1)
       expect(left.x, 'side panel right of the board').toBeGreaterThanOrEqual(board.x + board.width)
