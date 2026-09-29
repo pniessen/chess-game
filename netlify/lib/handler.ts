@@ -12,6 +12,7 @@
 import { LIMITS, type CoachErrorResponse, type HealthResponse } from '../../src/coach/protocol'
 import type { Claude } from '../../server/claude'
 import { coachError, runCoach, type CoachEndpoint, type CoachOutcome } from '../../server/coach'
+import { anthropicConfig } from './anthropic'
 import {
   COACH_LIMITS,
   answerKey,
@@ -57,24 +58,26 @@ export interface CoachDeps {
   now?: () => number
 }
 
-/** `GET /api/health`. Reports whether a key is configured — never anything about its value. */
 /** The variables Netlify's AI Gateway injects into a function at startup. */
 const GATEWAY_VARS = ['NETLIFY_AI_GATEWAY_KEY', 'NETLIFY_AI_GATEWAY_URL', 'ANTHROPIC_BASE_URL'] as const
 
+/**
+ * `GET /api/health`. Reports whether a usable key is configured — by the
+ * same rule the hint and review functions use (`anthropicConfig`) — and
+ * never anything about its value.
+ */
 export function handleHealth(
   env: Record<string, string | undefined>,
   log: (message: string, detail: unknown) => void = console.warn,
 ): Response {
-  const configured = Boolean(env['ANTHROPIC_API_KEY']?.trim())
+  const configured = anthropicConfig(env) !== null
   if (!configured) {
-    // On 2026-09-29 the live site answered `claude: false` once, on the
-    // first load after hours idle, though nothing but the gateway supplies
-    // a key and every other probe said true. Which of the gateway's
-    // variables this instance started with says whether the injection
-    // failed wholesale or only the key was missing. Presence only: a value
-    // is never read into the log.
+    // Which of the gateway's variables this instance has says whether the
+    // gateway's injection failed outright (2026-09-29 found a fresh instance
+    // with only half of it — see ./anthropic.ts). Presence only: a value is
+    // never read into the log.
     log(
-      'coach health: no ANTHROPIC_API_KEY in this instance',
+      'coach health: no usable Anthropic key in this instance',
       Object.fromEntries(GATEWAY_VARS.map((name) => [name, Boolean(env[name]?.trim())])),
     )
   }

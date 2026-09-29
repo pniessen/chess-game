@@ -79,19 +79,26 @@ describe('health', () => {
   // the AI Gateway's injected one. The next time it happens the function
   // log says which of the gateway's variables that instance started with —
   // as booleans, never values.
-  test('with no key it logs which gateway variables were present, and never a value', () => {
+  test('with no usable key it logs which gateway variables were present, and never a value', () => {
     const log = vi.fn()
-    handleHealth(
-      { NETLIFY_AI_GATEWAY_KEY: 'gw-secret-value', NETLIFY_AI_GATEWAY_URL: 'https://gw.example', ANTHROPIC_API_KEY: '' },
-      log,
-    )
+    const res = handleHealth({ NETLIFY_AI_GATEWAY_KEY: 'gw-secret-value', ANTHROPIC_API_KEY: '' }, log)
     expect(log).toHaveBeenCalledTimes(1)
     const logged = JSON.stringify(log.mock.calls[0])
     expect(logged).toContain('"NETLIFY_AI_GATEWAY_KEY":true')
-    expect(logged).toContain('"NETLIFY_AI_GATEWAY_URL":true')
+    expect(logged).toContain('"NETLIFY_AI_GATEWAY_URL":false')
     expect(logged).toContain('"ANTHROPIC_BASE_URL":false')
     expect(logged).not.toContain('gw-secret-value')
-    expect(logged).not.toContain('gw.example')
+    return expect(res.json()).resolves.toEqual({ ok: true, claude: false })
+  })
+
+  // The 2026-09-29 cold-start case: the gateway pair without the Anthropic
+  // pair is a working configuration (see anthropic.test.ts), so health must
+  // say so rather than turn the badge on.
+  test('a fresh instance with only the gateway pair reports Claude available, and logs nothing', async () => {
+    const log = vi.fn()
+    const res = handleHealth({ NETLIFY_AI_GATEWAY_KEY: 'gw', NETLIFY_AI_GATEWAY_URL: 'https://gw.example' }, log)
+    expect(await res.json()).toEqual({ ok: true, claude: true })
+    expect(log).not.toHaveBeenCalled()
   })
 
   test('with a key it logs nothing', () => {
