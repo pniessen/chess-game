@@ -199,7 +199,16 @@ export async function authorizeMove(
 export async function chargeMove(store: CoachStore, _now: number, gameId: string, costUsd: number): Promise<number> {
   const game = await readGame(store, gameId)
   if (!game) return 0
-  if (game.ended || !(costUsd > 0)) return game.spent
+  if (!(costUsd > 0)) return game.spent
+  if (game.ended) {
+    // The game was settled while this reply was in flight: its reservation is already
+    // released, so the money is simply spent. The saved record is not rewritten.
+    const budget = await readBudget(store, game.month)
+    await writeBudget(store, game.month, { spent: budget.spent + costUsd, reserved: budget.reserved })
+    const spent = round(game.spent + costUsd)
+    await store.setJSON(`games/${gameId}`, { ...game, spent })
+    return spent
+  }
   const held = Math.max(0, game.reserved - game.spent)
   const fromReservation = Math.min(costUsd, held)
   const budget = await readBudget(store, game.month)

@@ -156,6 +156,24 @@ describe('chargeMove and endGame', () => {
     expect(checkGameToken(ENV, 'other', g.token)).toBe(false)
     expect(checkGameToken({}, g.gameId, g.token)).toBe(false)
   })
+  test('a charge that lands after the game ended still counts against the month', async () => {
+    const g = await start()
+    await endGame(store, NOW, g.gameId, { pgn: '*' })
+    const before = await budgetLeft(store, NOW)
+    const saved = JSON.stringify(store.data.get(`games/saved/${g.gameId}`))
+    await chargeMove(store, NOW, g.gameId, 0.07)
+    expect(await budgetLeft(store, NOW)).toBeCloseTo(before - 0.07, 6)
+    expect(store.data.get('games/budget/2026-09')).toMatchObject({ spent: expect.closeTo(0.07, 6), reserved: 0 })
+    expect(JSON.stringify(store.data.get(`games/saved/${g.gameId}`))).toBe(saved)
+  })
+  test('the same after a lapsed lock was settled by a new start', async () => {
+    const a = await start()
+    const t = NOW + GAMES_LIMITS.lockTtlMs + 1
+    await start(t)
+    const before = await budgetLeft(store, t)
+    await chargeMove(store, t, a.gameId, 0.07)
+    expect(await budgetLeft(store, t)).toBeCloseTo(before - 0.07, 6)
+  })
   test('ending twice does not refund twice', async () => {
     const g = await start()
     await endGame(store, NOW, g.gameId, {})
