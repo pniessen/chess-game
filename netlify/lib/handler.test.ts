@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { beforeEach, describe, expect, test } from 'vitest'
+import { beforeEach, describe, expect, test, vi } from 'vitest'
 import type { CoachErrorResponse } from '../../src/coach/protocol'
 import type { Claude, ClaudeRequest, ClaudeResult } from '../../server/claude'
 import { LIMIT_MESSAGE, handleCoach, handleHealth, type CoachDeps } from './handler'
@@ -70,8 +70,34 @@ describe('health', () => {
     expect(withKey).toEqual({ ok: true, claude: true })
     expect(JSON.stringify(withKey)).not.toContain('sk-test')
 
-    expect(await handleHealth({}).json()).toEqual({ ok: true, claude: false })
-    expect(await handleHealth({ ANTHROPIC_API_KEY: '   ' }).json()).toEqual({ ok: true, claude: false })
+    expect(await handleHealth({}, () => {}).json()).toEqual({ ok: true, claude: false })
+    expect(await handleHealth({ ANTHROPIC_API_KEY: '   ' }, () => {}).json()).toEqual({ ok: true, claude: false })
+  })
+
+  // Diagnostics for 2026-09-29: the live site answered claude:false once, on
+  // the first load after hours idle, with no key configured anywhere but
+  // the AI Gateway's injected one. The next time it happens the function
+  // log says which of the gateway's variables that instance started with —
+  // as booleans, never values.
+  test('with no key it logs which gateway variables were present, and never a value', () => {
+    const log = vi.fn()
+    handleHealth(
+      { NETLIFY_AI_GATEWAY_KEY: 'gw-secret-value', NETLIFY_AI_GATEWAY_URL: 'https://gw.example', ANTHROPIC_API_KEY: '' },
+      log,
+    )
+    expect(log).toHaveBeenCalledTimes(1)
+    const logged = JSON.stringify(log.mock.calls[0])
+    expect(logged).toContain('"NETLIFY_AI_GATEWAY_KEY":true')
+    expect(logged).toContain('"NETLIFY_AI_GATEWAY_URL":true')
+    expect(logged).toContain('"ANTHROPIC_BASE_URL":false')
+    expect(logged).not.toContain('gw-secret-value')
+    expect(logged).not.toContain('gw.example')
+  })
+
+  test('with a key it logs nothing', () => {
+    const log = vi.fn()
+    handleHealth(ENV, log)
+    expect(log).not.toHaveBeenCalled()
   })
 })
 
