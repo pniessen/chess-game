@@ -1,7 +1,7 @@
 // @vitest-environment node
 import Anthropic from '@anthropic-ai/sdk'
 import { describe, expect, test } from 'vitest'
-import { CLAUDE_MODELS, costUsd } from '../src/claude/models'
+import { CLAUDE_MODELS, costUsd, timeoutCostUsd } from '../src/claude/models'
 import { requestMove } from './claudeMove'
 import type { MessagesClient } from './claude'
 
@@ -30,6 +30,11 @@ const reply = (text: string, over: Record<string, unknown> = {}) => ({
   usage: USAGE,
   ...over,
 })
+/** Everything the request sends as input text: system, user and the schema. */
+const promptCharsOf = (p: Anthropic.MessageCreateParamsNonStreaming) =>
+  String(p.system).length +
+  p.messages.map((m) => String(m.content)).join('').length +
+  JSON.stringify(p.output_config?.format ?? null).length
 const json = (move: string, why = 'Claims the centre.') => JSON.stringify({ move, why })
 
 describe('requestMove', () => {
@@ -80,18 +85,31 @@ describe('requestMove', () => {
     }
   })
 
-  test('an SDK timeout is kind timeout with cost 0', async () => {
-    const { client } = fakeClient(async () => {
+  test('an SDK timeout is charged the conservative estimate (the API may still bill it)', async () => {
+    const { client, calls } = fakeClient(async () => {
       throw new Anthropic.APIConnectionTimeoutError()
     })
-    expect(await requestMove({ client }, { model: 'sonnet', history: [] })).toMatchObject({ ok: false, kind: 'timeout', costUsd: 0 })
+    const r = await requestMove({ client }, { model: 'sonnet', history: [] })
+    const p = calls[0]!
+    const promptChars = promptCharsOf(p)
+    expect(r).toMatchObject({ ok: false, kind: 'timeout', costUsd: timeoutCostUsd('sonnet', promptChars, 8000) })
+    // At least the whole output cap at the output price.
+    expect(r.costUsd).toBeGreaterThanOrEqual((8000 * CLAUDE_MODELS.sonnet.priceOut) / 1_000_000)
   })
 
-  test('other SDK errors are classified', async () => {
-    const { client } = fakeClient(async () => {
-      throw new Error('boom')
-    })
-    expect(await requestMove({ client }, { model: 'sonnet', history: [] })).toMatchObject({ ok: false, kind: 'upstream', costUsd: 0 })
+  test('other SDK errors are classified and cost 0', async () => {
+    const cases: [unknown, string][] = [
+      [new Error('boom'), 'upstream'],
+      [new Anthropic.RateLimitError(429, undefined, 'slow down', new Headers()), 'rate-limited'],
+      [new Anthropic.AuthenticationError(401, undefined, 'bad key', new Headers()), 'auth'],
+      [new Anthropic.APIConnectionError({ message: 'reset' }), 'upstream'],
+    ]
+    for (const [err, kind] of cases) {
+      const { client } = fakeClient(async () => {
+        throw err
+      })
+      expect(await requestMove({ client }, { model: 'sonnet', history: [] }), kind).toMatchObject({ ok: false, kind, costUsd: 0 })
+    }
   })
 
   test('illegal or finished history is bad-request and never calls the client', async () => {

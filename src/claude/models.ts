@@ -43,6 +43,24 @@ export function costUsd(key: ClaudeModelKey, usage: { input_tokens: number; outp
   return (usage.input_tokens * m.priceIn + usage.output_tokens * m.priceOut) / 1_000_000
 }
 
+/**
+ * A conservative input-token count for text we never got `usage` for:
+ * characters / 3.5, rounded up. English-and-SAN prompts run nearer 4
+ * characters a token, so this over-counts slightly, which is the safe side.
+ */
+export function estimateInputTokens(promptChars: number): number {
+  return Math.ceil(promptChars / 3.5)
+}
+
+/**
+ * Dollars charged for a move request that timed out. The client abandoned the
+ * call but the API may still finish and bill it, so the ledger assumes the
+ * worst: the estimated input plus the whole `maxTokens` output cap.
+ */
+export function timeoutCostUsd(key: ClaudeModelKey, promptChars: number, maxTokens: number): number {
+  return costUsd(key, { input_tokens: estimateInputTokens(promptChars), output_tokens: maxTokens })
+}
+
 /** Wall-clock bound for one move request (the SDK timeout, in ms). */
 export const MOVE_TIMEOUT_MS = 45_000
 

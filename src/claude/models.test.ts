@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { CLAUDE_MODELS, costUsd, isClaudeModelKey, MOVE_TIMEOUT_MS, RESERVE_PER_GAME_USD } from './models'
+import { CLAUDE_MODELS, costUsd, estimateInputTokens, isClaudeModelKey, timeoutCostUsd, MOVE_TIMEOUT_MS, RESERVE_PER_GAME_USD } from './models'
 
 describe('claude models', () => {
   test('keys map to the exact model ids', () => {
@@ -23,6 +23,18 @@ describe('claude models', () => {
     expect(costUsd('sonnet', { input_tokens: 1_000_000, output_tokens: 1_000_000 })).toBeCloseTo(priceIn + priceOut)
     expect(costUsd('sonnet', { input_tokens: 0, output_tokens: 0 })).toBe(0)
     expect(costUsd('fable', { input_tokens: 2000, output_tokens: 500 })).toBeCloseTo(0.02 + 0.025)
+  })
+
+  test('input tokens are estimated as characters / 3.5, rounded up', () => {
+    expect(estimateInputTokens(0)).toBe(0)
+    expect(estimateInputTokens(7)).toBe(2)
+    expect(estimateInputTokens(8)).toBe(3)
+    expect(estimateInputTokens(3500)).toBe(1000)
+  })
+
+  test('timeoutCostUsd charges the estimated input plus the whole output cap', () => {
+    expect(timeoutCostUsd('opus', 3500, 8000)).toBeCloseTo(costUsd('opus', { input_tokens: 1000, output_tokens: 8000 }))
+    expect(timeoutCostUsd('fable', 0, 8000)).toBeCloseTo(0.4)
   })
 
   test('every model has a positive per-game reserve; the timeout is 45s', () => {

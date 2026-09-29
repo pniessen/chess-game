@@ -1,7 +1,7 @@
 import type Anthropic from '@anthropic-ai/sdk'
 import { Position } from '../src/game-core/position'
 import { STARTING_FEN } from '../src/game-core/types'
-import { CLAUDE_MODELS, costUsd, type ClaudeModelKey } from '../src/claude/models'
+import { CLAUDE_MODELS, costUsd, timeoutCostUsd, type ClaudeModelKey } from '../src/claude/models'
 import { numberedMoves } from '../src/review/moveNumber'
 import { classifyError, type FailureKind, type MessagesClient } from './claude'
 
@@ -66,6 +66,16 @@ export async function requestMove(
     `Legal moves: ${legal.join(', ')}`,
   ].join('\n')
 
+  const format = {
+    type: 'json_schema',
+    schema: {
+      type: 'object',
+      properties: { move: { type: 'string', enum: legal }, why: { type: 'string' } },
+      required: ['move', 'why'],
+      additionalProperties: false,
+    },
+  } as const
+
   let response: Anthropic.Message
   try {
     response = await deps.client.messages.create({
@@ -75,21 +85,20 @@ export async function requestMove(
       // (and 400 on `disabled`); Haiku 4.5 simply does not think.
       output_config: {
         ...(model.effort ? { effort: model.effort } : {}),
-        format: {
-          type: 'json_schema',
-          schema: {
-            type: 'object',
-            properties: { move: { type: 'string', enum: legal }, why: { type: 'string' } },
-            required: ['move', 'why'],
-            additionalProperties: false,
-          },
-        },
+        format,
       },
       system,
       messages: [{ role: 'user', content: user }],
     })
   } catch (err) {
-    return done({ ok: false, kind: classifyError(err), costUsd: 0 })
+    const kind = classifyError(err)
+    // A timeout is the one failure the API may still bill: the call was
+    // abandoned here, not refused there. Charge the worst case (see
+    // timeoutCostUsd) so the monthly cap cannot be overrun by timeouts.
+    // Auth, rate-limit and other errors are rejected requests: no charge.
+    const promptChars = system.length + user.length + JSON.stringify(format).length
+    const cost = kind === 'timeout' ? timeoutCostUsd(req.model, promptChars, MAX_TOKENS) : 0
+    return done({ ok: false, kind, costUsd: cost })
   }
 
   // A reply that arrived costs money whether or not it is usable.

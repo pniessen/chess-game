@@ -211,7 +211,6 @@ describe('move', () => {
   })
   test.each([
     ['rate limit', new Anthropic.RateLimitError(429, undefined, 'x', new Headers()), 'rate-limited'],
-    ['timeout', new Anthropic.APIConnectionTimeoutError(), 'timeout'],
     ['server error', new Error('boom'), 'upstream'],
   ])('an SDK %s is 502 with its own kind (%s) and costs nothing', async (_n, err, kind) => {
     const g = await startGame()
@@ -220,6 +219,15 @@ describe('move', () => {
     expect(r.res.status).toBe(502)
     expect(r.json.error.kind).toBe(kind)
     expect((store.data.get(`games/${g.gameId}`) as any).spent).toBe(0)
+  })
+  test('an SDK timeout is 502 timeout and charges the conservative estimate', async () => {
+    const g = await startGame()
+    reply = () => Promise.reject(new Anthropic.APIConnectionTimeoutError())
+    const r = await call('move', { body: { gameId: g.gameId, token: g.token, history: [] } })
+    expect(r.res.status).toBe(502)
+    expect(r.json.error.kind).toBe('timeout')
+    // White is haiku: at least the whole 8000-token output cap at $5/M.
+    expect((store.data.get(`games/${g.gameId}`) as any).spent).toBeGreaterThanOrEqual(0.04)
   })
   test('a rejected key is 503 no-key, not a retryable 502', async () => {
     const g = await startGame()
