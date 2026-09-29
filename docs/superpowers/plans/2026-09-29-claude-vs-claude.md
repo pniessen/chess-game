@@ -140,3 +140,25 @@ Behaviour:
 - [ ] Full `npx vitest run` and `PW_PORT=5199 npx playwright test`; both green.
 - [ ] Update `docs/next-session-prompt.md` (the mode, the owner token, the budget, where games are saved).
 - [ ] Merge to `main`, push, `netlify deploy --build --prod`, then one live Haiku-vs-Haiku game from the owner browser; confirm the saved game and the budget figure.
+
+---
+
+## Addendum: local-only (spec addendum 2026-09-29)
+
+### Task 12: Server goes local-only
+**Files:** move `netlify/lib/games.ts`, `netlify/lib/gameHandler.ts` (+ tests) to `server/games.ts`, `server/gameHandler.ts`; delete `netlify/functions/game-*.ts`, `gamesStore`/`gameMessagesClient` and their tests from `netlify/lib/runtime.ts`; create `server/fileStore.ts` (+ test); modify `server/index.ts`, `server/app.ts`, `.gitignore`.
+- Remove `checkOwner`/`OWNER_TOKEN` and the `x-owner-token` requirement; game token = HMAC under a random per-process secret (`randomBytes(32)`), passed into the handler deps.
+- Origin check: allow loopback origins only (`http://localhost:*`, `http://127.0.0.1:*`); the loopback Host check stays.
+- `fileStore(dir)`: a `CoachStore` persisting keys to JSON under `.claude-games/` (atomic write: temp file + rename); `server/index.ts` uses it for games. Add `.claude-games/` to `.gitignore`.
+- Tests: moved tests pass under the new location without the owner check; file store round-trips and survives a new instance; no Netlify function or runtime export references games (a test or a grep in the report).
+
+### Task 13: Browser gate becomes a build flag
+**Files:** create `src/claude/enabled.ts` (+ test); modify the UI that used `useOwnerToken` / `ownerToken.ts` (Settings, New game, App, lifecycle), `src/claude/gameClient.ts` (drop the header and the `ownerToken` option), `tests/e2e/claude-vs-claude.spec.ts`; delete `src/claude/ownerToken.ts`, `useOwnerToken` and their tests.
+- `claudeGamesEnabled(env = import.meta.env): boolean` → `env.DEV === true || env.VITE_CLAUDE_GAMES === 'on'`.
+- The mode appears when the flag is on (and the engine is available); the owner-token field is gone. When the budget request fails, the panel says the local server is not running or has no key, and Start is disabled.
+- E2E: the no-token test becomes "the mode is present in dev and Start is disabled when `/api/game/budget` fails"; the other two tests drop the token step.
+- A check that the production bundle contains no Claude-vs-Claude UI: `vite build` with the default env and grep `dist/assets/*.js` for the `claude-white` testid → absent (script or test, in the report).
+
+### Task 14: Docs
+- `docs/next-session-prompt.md`: replace the owner-token section with the local-only setup (`ANTHROPIC_API_KEY` in `.env`, `npm run server` + `npm run dev`, the ledger file, `VITE_CLAUDE_GAMES=on` for `npm start`).
+- Task 10 runs locally.

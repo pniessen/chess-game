@@ -99,3 +99,24 @@ effort fits comfortably inside 60 s.
 A public replay gallery of saved games; Claude vs Stockfish; Claude vs human (needs a visitor
 quota); a Stockfish-candidates "assisted" mode; medium effort via background functions; a
 ratings table once there are enough games.
+
+## Addendum, 2026-09-29: local-only (supersedes "owner only" on the public site)
+
+Peter chose a local-only version over hardening a public endpoint. Claude vs Claude exists only
+when the app is built for local use; the public builds (Netlify, GitHub Pages) contain no mode, no
+owner-token field and no `/api/game/*` functions.
+
+- **Gate:** a build-time flag. The mode exists when `import.meta.env.DEV` (`npm run dev`) or
+  `VITE_CLAUDE_GAMES=on` (a local `npm start`); neither public build sets either. The owner
+  token, its Settings field and `x-owner-token` are removed.
+- **Server:** only the local Express app (`npm run server`, bound to 127.0.0.1, `Host` checked
+  against loopback names) serves `/api/game/*`, with Peter's own `ANTHROPIC_API_KEY` from `.env`.
+  Game tokens are HMACs under a random per-process secret. The Netlify game functions,
+  `gamesStore` and `gameMessagesClient` are deleted; the games logic moves from `netlify/lib/` to
+  `server/`, since nothing on Netlify uses it.
+- **Budget and saved games:** the $20/month cap stays, persisted to a local JSON file under
+  `.claude-games/` (gitignored), so a server restart keeps the month's spend. Saved games live there
+  too.
+- **Unavailable server:** if the local server is not running or has no key, the mode shows why
+  (budget request fails) and Start is disabled.
+- **Phase 0 (Task 10)** runs locally against Peter's own key.
