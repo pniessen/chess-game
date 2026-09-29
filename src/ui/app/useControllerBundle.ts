@@ -4,6 +4,8 @@ import { EngineClient, createWorkerTransport } from '../../engine/client'
 import { EngineSupervisor } from '../../engine/supervisor'
 import { loadSettings } from '../../storage/storage'
 import { timeControlFor } from './matchConfig'
+import { createGameClient, type ClaudeMover } from '../../claude/gameClient'
+import { getOwnerToken } from '../../claude/ownerToken'
 
 /**
  * Build the real MatchController, wired to a real Stockfish worker — but
@@ -23,10 +25,13 @@ function buildController(): {
   controller: MatchController
   engine: EngineSupervisor | null
   engineAvailable: boolean
+  /** Claude vs Claude's mover; it reads the owner token at call time and sends nothing until begin(). */
+  claude: ClaudeMover
 } {
+  const claude = createGameClient({ ownerToken: getOwnerToken })
   try {
     const engine = new EngineSupervisor({ createClient: () => new EngineClient(createWorkerTransport()) })
-    return { controller: new MatchController({ engine }), engine, engineAvailable: true }
+    return { controller: new MatchController({ engine, claude }), engine, engineAvailable: true, claude }
   } catch {
     const stub: EngineLike = {
       waitReady: () => Promise.reject(new Error('engine unavailable')),
@@ -37,7 +42,7 @@ function buildController(): {
       stop: () => {},
       dispose: () => {},
     }
-    return { controller: new MatchController({ engine: stub }), engine: null, engineAvailable: false }
+    return { controller: new MatchController({ engine: stub, claude }), engine: null, engineAvailable: false, claude }
   }
 }
 

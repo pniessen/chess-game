@@ -5,6 +5,7 @@ import { EvalBar } from './Board/EvalBar'
 import { Promotion } from './Board/Promotion'
 import type { MatchController } from '../match/controller'
 import type { EngineSupervisor } from '../engine/supervisor'
+import type { ClaudeMover } from '../claude/gameClient'
 import { useEvaluation } from './useEvaluation'
 import { useMatch } from './useMatch'
 import { Captured } from './panels/Captured'
@@ -29,6 +30,8 @@ import { useMoveSounds, useSoundPlayer } from './app/useSound'
 import { useCoachClient } from './app/useCoachClient'
 import { useOwnerToken } from './app/useOwnerToken'
 import { useClaudeBudget } from './app/useClaudeBudget'
+import { useClaudeSession } from './app/useClaudeSession'
+import { claudeErrorText } from './app/claudeText'
 import { useEngineHealth } from './app/useEngineHealth'
 import { useEngineLoading } from './app/useEngineLoading'
 import { useEngineAnalysis } from './app/useEngineAnalysis'
@@ -61,6 +64,7 @@ export function App() {
       controller={bundle.controller}
       engine={bundle.engine}
       engineConstructed={bundle.engineAvailable}
+      claudeMover={bundle.claude}
     />
   )
 }
@@ -74,9 +78,12 @@ function AppInner({
   controller,
   engine,
   engineConstructed,
+  claudeMover = null,
 }: {
   controller: MatchController
   engine: EngineSupervisor | null
+  /** Claude vs Claude's server client; the lifecycle begins and ends its games. */
+  claudeMover?: ClaudeMover | null
   /** Whether the engine was built successfully at construction time (a *synchronous* outcome). */
   engineConstructed: boolean
 }) {
@@ -176,6 +183,7 @@ function AppInner({
   // useEndCard) and is closed again by every start/load, through the
   // lifecycle's `onMatchReset` below.
   const endCard = useEndCard(snapshot)
+  const claudeSession = useClaudeSession(controller, claudeMover)
   const lifecycle = useMatchLifecycle({
     controller,
     settings,
@@ -185,6 +193,7 @@ function AppInner({
     resetInput: input.resetInput,
     onMatchReset: endCard.reset,
     onShowMoves: () => setTab('moves'),
+    claude: claudeSession,
   })
   const { choices, orientation } = lifecycle
   const claudeBudget = useClaudeBudget(choices.mode === 'claude-vs-claude' && ownerToken.isSet)
@@ -360,6 +369,15 @@ function AppInner({
         }
       />
 
+      {claudeSession.error ? (
+        <p className="share-error-banner" role="alert" data-testid="claude-error">
+          {claudeErrorText(claudeSession.error)}
+          <button data-testid="claude-error-dismiss" onClick={claudeSession.dismissError}>
+            Dismiss
+          </button>
+        </p>
+      ) : null}
+
       {shortcuts.helpOpen ? <ShortcutsOverlay onClose={shortcuts.closeHelp} /> : null}
 
       <div className="layout">
@@ -388,17 +406,23 @@ function AppInner({
             onResign={input.handleResign}
             onHint={handleHint}
             onPause={() => controller.pause()}
-            onResume={() => {
-              // Both snap the display back to the live ply, which can be
-              // exactly one move on from the browsed position: a jump, not
-              // a move, so the board cuts to it.
-              input.cut()
-              controller.resume()
-            }}
-            onStep={() => {
-              input.cut()
-              controller.step()
-            }}
+            // A paused Claude game with no server session (after a reload)
+            // begins one first; both run at once for any other game.
+            onResume={() =>
+              lifecycle.withClaudeSession(() => {
+                // Both snap the display back to the live ply, which can be
+                // exactly one move on from the browsed position: a jump, not
+                // a move, so the board cuts to it.
+                input.cut()
+                controller.resume()
+              })
+            }
+            onStep={() =>
+              lifecycle.withClaudeSession(() => {
+                input.cut()
+                controller.step()
+              })
+            }
             onSpeedChange={(ms) => controller.setSpeed(ms)}
           />
         </div>

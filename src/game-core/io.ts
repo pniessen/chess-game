@@ -27,11 +27,22 @@ function resultTag(game: Game): string {
   return '*'
 }
 
-export function exportPgn(game: Game, headers: PgnHeaders = {}): string {
+/**
+ * `comments` are keyed by ply index (0 = the game record's first move); each
+ * is written as a `{...}` comment after its move. A brace would end the
+ * comment early, so braces in the text become parentheses.
+ */
+export function exportPgn(
+  game: Game,
+  headers: PgnHeaders = {},
+  comments: Readonly<Record<number, string>> = {},
+): string {
   const chess = new Chess(game.startFen)
-  for (const m of game.moves) {
+  game.moves.forEach((m, i) => {
     chess.move({ from: m.from, to: m.to, ...(m.promotion ? { promotion: m.promotion } : {}) })
-  }
+    const comment = comments[i]?.replace(/\{/g, '(').replace(/\}/g, ')').trim()
+    if (comment) chess.setComment(comment)
+  })
 
   const all: Record<string, string> = {
     Event: headers.Event ?? 'Casual game',
