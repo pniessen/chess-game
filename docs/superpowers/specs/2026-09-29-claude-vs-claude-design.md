@@ -108,10 +108,12 @@ Peter chose a local-only version over hardening a public endpoint. Claude vs Cla
 when the app is built for local use; the public builds (Netlify, GitHub Pages) contain no mode, no
 owner-token field and no `/api/game/*` functions.
 
-- **Gate:** a build-time flag. The mode exists when `import.meta.env.DEV` (`npm run dev`) or
+- **Gate:** a build-time flag. The mode exists when `import.meta.env.MODE === 'development'` (the
+  `npm run dev` server; not `DEV`, which NODE_ENV=development turns on inside `vite build` too) or
   `VITE_CLAUDE_GAMES=on` (set by `npm run start:claude`, not by plain `npm start`); neither public
   build sets either, and `scripts/publicBuildGuard.ts` (called from `vite.config.ts`) fails any
-  Netlify/CI build that has the flag on, so it must never go in `.env`. The owner
+  Netlify/CI build that has the flag on, or whose mode or NODE_ENV is not `production`, so the
+  flag must never go in `.env`. The owner
   token, its Settings field and `x-owner-token` are removed.
 - **Server:** only the local Express app (`npm run server`, bound to 127.0.0.1, `Host` checked
   against loopback names) serves `/api/game/*`, with Peter's own `ANTHROPIC_API_KEY` from `.env`.
