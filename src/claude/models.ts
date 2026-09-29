@@ -42,14 +42,15 @@ export function costUsd(key: ClaudeModelKey, usage: { input_tokens: number; outp
 export const MOVE_TIMEOUT_MS = 45_000
 
 /**
- * Dollars held back per side for one 80-ply game (40 moves each), x1.5.
- * Placeholder estimate, not a measurement: ~500 input and ~600 output tokens
- * a move (short prompt, low-effort thinking, a small JSON reply). Task 10
- * retunes this from real `usage`.
+ * Dollars held back per side for one 80-ply game (40 moves each). Source: the
+ * Claude-vs-Claude brainstorm (2026-09-29), which estimated a side at list
+ * prices (skill pricing cached 2026-09-25) as fable ~$1.45, opus ~$0.58,
+ * sonnet ~$0.07, haiku ~$0.04; each is x1.5, rounded up to the cent. These are
+ * estimates, not measurements: Task 10 retunes them from real `usage`.
  */
 export const RESERVE_PER_GAME_USD: Record<ClaudeModelKey, number> = {
-  fable: 2.1,
-  opus: 0.84,
-  sonnet: 0.42,
-  haiku: 0.21,
+  fable: 2.18,
+  opus: 0.87,
+  sonnet: 0.11,
+  haiku: 0.06,
 }
