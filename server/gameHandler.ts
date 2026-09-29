@@ -177,7 +177,11 @@ async function move(body: Record<string, unknown>, deps: GameDeps, now: number):
     { model: auth.model, ...(startFen !== undefined ? { startFen } : {}), history },
   )
   // A reply that arrived cost money even when it was unusable: charge before answering either way.
-  const spent = await chargeMove(deps.store, now, gameId, outcome.costUsd)
+  // Every call made counts toward the side's usage; a bad request made none.
+  const side = white ? 'white' : 'black'
+  const { spent } = outcome.tokens
+    ? await chargeMove(deps.store, now, gameId, { side, costUsd: outcome.costUsd, ms: outcome.ms, ...outcome.tokens })
+    : { spent: 0 }
   if (!outcome.ok) return fail(moveStatus(moveKind(outcome.kind)), moveKind(outcome.kind))
   return json(200, { san: outcome.san, why: outcome.why, costUsd: outcome.costUsd, gameSpentUsd: spent })
 }
