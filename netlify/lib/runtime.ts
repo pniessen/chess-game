@@ -44,11 +44,17 @@ export function coachClaude(env: Record<string, string | undefined>): Claude | n
 
 /**
  * Owner-only Claude games: their own store, kept apart from the coach's
- * counters. Same production/deploy-scoped split as `coachStore`.
+ * counters.
+ *
+ * Deliberately NOT `coachStore`'s production/deploy-scoped split: this store
+ * holds the monthly dollar ledger and the one-game lock, and a dollar cap is
+ * only a cap if it is one cap. A deploy-scoped store would hand every draft,
+ * branch deploy and deploy permalink (all `--` hosts) a fresh $20 and its own
+ * lock. So every deploy uses the global store; testing a preview draws on the
+ * live month's budget, which is intended.
  */
-export function gamesStore(requestUrl: string | undefined): CoachStore {
-  const options = { name: 'chess-games', consistency: 'strong' } as const
-  const store = isProductionHost(requestUrl) ? getStore(options) : getDeployStore(options)
+export function gamesStore(): CoachStore {
+  const store = getStore({ name: 'chess-games', consistency: 'strong' })
   return store as unknown as CoachStore
 }
 

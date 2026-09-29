@@ -9,7 +9,7 @@ import { gameMessagesClient, gamesStore, netlifyEnv } from '../lib/runtime'
 
 export default async (request: Request): Promise<Response> => {
   const env = netlifyEnv()
-  return handleGame('move', request, { store: gamesStore(request.url), env, client: gameMessagesClient(env) })
+  return handleGame('move', request, { store: gamesStore(), env, client: gameMessagesClient(env) })
 }
 
 export const config: Config = { path: '/api/game/move' }
