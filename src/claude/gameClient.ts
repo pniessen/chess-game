@@ -117,9 +117,11 @@ export class GameClient implements ClaudeMover {
       }
     }
     // 502 (illegal-reply, timeout, upstream, rate-limited) and 500 are worth another try;
-    // 402 and 409 (move limit) end the Claude game on budget; everything else is not retryable.
+    // 402 ends the Claude game on budget. 409 (the ply cap) is only the server's
+    // backstop — the controller adjudicates the game before asking at the cap —
+    // so reaching it is not a budget matter: fatal, like everything else here.
     if (res.status === 502 || res.status === 500) return { ok: false, kind: 'retry' }
-    if (res.status === 402 || res.status === 409) return { ok: false, kind: 'budget' }
+    if (res.status === 402) return { ok: false, kind: 'budget' }
     return { ok: false, kind: 'fatal' }
   }
 

@@ -10,6 +10,7 @@ import {
   isBotSeat,
   type ClaudeNote,
   type ClaudeSnapshot,
+  type FinishDetail,
   type MatchConfig,
   type MatchPhase,
   type MatchSnapshot,
@@ -17,6 +18,7 @@ import {
 } from './types'
 import type { ClockState } from '../clock/types'
 import type { ClaudeMover, ClaudeMoveResult } from '../claude/gameClient'
+import { CLAUDE_MAX_PLIES } from '../claude/models'
 
 /** Stockfish stands in for a failed Claude turn at full strength, so the stand-in is never the weak link. */
 const CLAUDE_FALLBACK_LEVEL: Level = 8
@@ -193,7 +195,11 @@ export class MatchController {
    */
   private gameEpoch = 0
 
-  constructor(deps: { engine: EngineLike; random?: () => number; claude?: ClaudeMover }) {
+  /** Plies at which a game with a Claude seat is adjudicated a draw; injectable only so tests need not play 160. */
+  private readonly claudePlyCap: number
+
+  constructor(deps: { engine: EngineLike; random?: () => number; claude?: ClaudeMover; claudePlyCap?: number }) {
+    this.claudePlyCap = deps.claudePlyCap ?? CLAUDE_MAX_PLIES
     this.engine = deps.engine
     this.lane = new EngineLane(this.engine)
     this.random = deps.random ?? Math.random
@@ -391,6 +397,13 @@ export class MatchController {
    * from config[side].
    */
   private toMoveOf(side: Color): void {
+    // Q12: a game with a Claude seat is drawn once it reaches the ply cap,
+    // before anyone — Claude above all, whose next ask the server would
+    // refuse — is asked for another move. Every caller emits after this.
+    if (this.hasClaudeSeat() && this.game.livePly >= this.claudePlyCap) {
+      this.adjudicate()
+      return
+    }
     const seat = this.seatFor(side)
     if (seat.kind === 'human') {
       this.phase = { kind: 'awaiting-human', side }
@@ -560,7 +573,7 @@ export class MatchController {
       return
     }
     if (reply.kind === 'budget' || reply.kind === 'fatal') {
-      this.finish('claude-unavailable')
+      this.finish('claude-unavailable', reply.kind === 'budget' ? 'budget' : undefined)
       return
     }
     if (!retried) {
@@ -717,12 +730,25 @@ export class MatchController {
   // ---- ending -----------------------------------------------------------
 
   /** An aborted game ('engine-error' or 'claude-unavailable'): no winner is declared. */
-  private finish(reason: 'engine-error' | 'claude-unavailable'): void {
+  private finish(reason: 'engine-error' | 'claude-unavailable', detail?: FinishDetail): void {
     this.requestId++
     this.stepRequestId = null
     this.clock.pause()
-    this.phase = { kind: 'finished', status: this.game.status(), reason, winner: null }
+    this.phase = { kind: 'finished', status: this.game.status(), reason, winner: null, ...(detail ? { detail } : {}) }
     this.emit()
+  }
+
+  private hasClaudeSeat(): boolean {
+    return this.config.white.kind === 'claude' || this.config.black.kind === 'claude'
+  }
+
+  /** Q12's draw at the ply cap. No emit: its only caller, toMoveOf, is always followed by one. */
+  private adjudicate(): void {
+    this.requestId++
+    this.stepRequestId = null
+    this.claudeAsk = null
+    this.clock.pause()
+    this.phase = { kind: 'finished', status: this.game.status(), reason: 'adjudicated', winner: null }
   }
 
   private finishOnFlag(side: Color): void {
@@ -742,9 +768,12 @@ export class MatchController {
 
   /**
    * End the match with a result the rules did not produce — used to replay a
-   * stored game that ended by resignation or on time. Same bookkeeping as resign().
+   * stored game that ended by resignation, on time, or by adjudication (no
+   * winner). Same bookkeeping as resign().
    */
-  finishAs(reason: 'resign' | 'flag', winner: Color): void {
+  finishAs(reason: 'resign' | 'flag', winner: Color): void
+  finishAs(reason: 'adjudicated', winner: null): void
+  finishAs(reason: 'resign' | 'flag' | 'adjudicated', winner: Color | null): void {
     this.requestId++
     this.stepRequestId = null
     this.clock.pause()

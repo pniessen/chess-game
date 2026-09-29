@@ -71,4 +71,23 @@ describe('describeResult: Claude', () => {
       describeResult({ kind: 'finished', status: inProgress, reason: 'claude-unavailable', winner: null }, inProgress),
     ).toBe('Claude is unavailable — game stopped')
   })
+
+  // 160 plies is move 80 in the move list: chess counts a move as one White
+  // and one Black ply, so the headline says 80 moves, not 160.
+  test('an adjudicated finish is a draw by adjudication at 80 moves (160 plies)', () => {
+    const inProgress = { kind: 'in-progress', inCheck: false } as const
+    expect(
+      describeResult({ kind: 'finished', status: inProgress, reason: 'adjudicated', winner: null }, inProgress),
+    ).toBe('Draw by adjudication — 80 moves')
+  })
+
+  test('a claude-unavailable finish on budget says the budget is used up', () => {
+    const inProgress = { kind: 'in-progress', inCheck: false } as const
+    expect(
+      describeResult(
+        { kind: 'finished', status: inProgress, reason: 'claude-unavailable', winner: null, detail: 'budget' },
+        inProgress,
+      ),
+    ).toBe("This month's Claude games budget is used up — game stopped")
+  })
 })

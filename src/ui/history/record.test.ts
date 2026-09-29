@@ -104,3 +104,36 @@ test('a finished Claude vs Claude game is recorded with both models as the playe
   expect(e?.pgn).toContain('[White "Claude Fable 5.1"]')
   expect(humanSidesOf(e!)).toEqual([])
 })
+
+test('an adjudicated Claude vs Claude game is recorded as a draw with its termination', () => {
+  const r = gameFromSan(['e4', 'e5'])
+  if (!r.ok) throw new Error(r.error)
+  const e = historyEntryFor({
+    phase: { kind: 'finished', status: r.game.status(), reason: 'adjudicated', winner: null },
+    game: r.game,
+    config: {
+      white: { kind: 'claude', model: 'opus' },
+      black: { kind: 'claude', model: 'haiku' },
+      timeControl: { kind: 'untimed' },
+    },
+    opening: null,
+    now: NOW,
+    id: 'adj',
+  })
+  expect(e).toMatchObject({ result: '1/2-1/2', termination: 'adjudicated' })
+  expect(e?.pgn).toContain('[Result "1/2-1/2"]')
+})
+
+test('a Claude game stopped on budget is not recorded', () => {
+  const r = gameFromSan(['e4'])
+  if (!r.ok) throw new Error(r.error)
+  const e = historyEntryFor({
+    phase: { kind: 'finished', status: r.game.status(), reason: 'claude-unavailable', winner: null, detail: 'budget' },
+    game: r.game,
+    config: TWO,
+    opening: null,
+    now: NOW,
+    id: 'b',
+  })
+  expect(e).toBeNull()
+})

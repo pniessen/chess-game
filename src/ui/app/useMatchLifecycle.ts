@@ -239,7 +239,7 @@ export function useMatchLifecycle({
    * and review. Replaying never adds a second history entry or changes the
    * score (loadMatch treats it as already-scored, like an import).
    *
-   * A resignation/flag isn't a rules result `load()` can reconstruct by
+   * A resignation/flag/adjudication isn't a rules result `load()` can reconstruct by
    * itself (the position after the last recorded move may still be
    * 'in-progress'), so it's re-applied explicitly via `finishAs()`.
    */
@@ -253,9 +253,14 @@ export function useMatchLifecycle({
     // review/accuracy guard must key on is read back from the controller,
     // not captured from `parsed`.
     historyRef.current = { id: entry.id, key: reviewKeyOf(controller.snapshot().game) }
-    if (parsed.game.status().kind === 'in-progress' && entry.termination !== 'normal') {
-      const winner = entry.result === '1-0' ? 'w' : entry.result === '0-1' ? 'b' : null
-      if (winner) controller.finishAs(entry.termination, winner)
+    const { termination } = entry
+    if (parsed.game.status().kind === 'in-progress' && termination !== 'normal') {
+      if (termination === 'adjudicated') {
+        controller.finishAs('adjudicated', null)
+      } else {
+        const winner = entry.result === '1-0' ? 'w' : entry.result === '0-1' ? 'b' : null
+        if (winner) controller.finishAs(termination, winner)
+      }
     }
     setMode('two-player')
     setOrientation('white')

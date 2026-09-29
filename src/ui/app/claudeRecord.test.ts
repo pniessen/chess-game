@@ -42,6 +42,10 @@ describe('claudeRecordOf', () => {
       snapshotOf({ phase: { kind: 'finished', status: { kind: 'in-progress', inCheck: false }, reason: 'resign', winner: 'b' } } as Partial<MatchSnapshot>),
     )
     expect(won.pgn).toContain('[Result "0-1"]')
+    const adjudicated = claudeRecordOf(
+      snapshotOf({ phase: { kind: 'finished', status: { kind: 'in-progress', inCheck: false }, reason: 'adjudicated', winner: null } } as Partial<MatchSnapshot>),
+    )
+    expect(adjudicated.pgn).toContain('[Result "1/2-1/2"]')
   })
 
   // The server refuses a PGN over 20,000 characters; the comments are the part to drop.

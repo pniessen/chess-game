@@ -61,6 +61,14 @@ export function timeoutCostUsd(key: ClaudeModelKey, promptChars: number, maxToke
   return costUsd(key, { input_tokens: estimateInputTokens(promptChars), output_tokens: maxTokens })
 }
 
+/**
+ * Plies after which a Claude game is drawn by adjudication (spec Q12): 160
+ * plies, i.e. 80 moves each. The browser's controller adjudicates when the
+ * live ply count reaches it; the server refuses a move request at it (409)
+ * as a backstop.
+ */
+export const CLAUDE_MAX_PLIES = 160
+
 /** Wall-clock bound for one move request (the SDK timeout, in ms). */
 export const MOVE_TIMEOUT_MS = 45_000
 

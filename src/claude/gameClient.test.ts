@@ -81,7 +81,7 @@ describe('move', () => {
     [502, 'rate-limited', 'retry'],
     [500, 'upstream', 'retry'],
     [402, 'budget', 'budget'],
-    [409, 'over', 'budget'],
+    [409, 'over', 'fatal'],
     [403, 'forbidden', 'fatal'],
     [503, 'no-key', 'fatal'],
     [400, 'bad-request', 'fatal'],

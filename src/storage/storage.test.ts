@@ -202,6 +202,11 @@ describe('history', () => {
     expect(all[HISTORY_LIMIT - 1]?.id).toBe('g5')
   })
 
+  test('an adjudicated draw round-trips', () => {
+    addHistoryEntry({ ...entry('adj'), result: '1/2-1/2', termination: 'adjudicated' })
+    expect(loadHistory()[0]).toMatchObject({ id: 'adj', result: '1/2-1/2', termination: 'adjudicated' })
+  })
+
   test('accuracy can be added later', () => {
     addHistoryEntry(entry('a'))
     updateHistoryAccuracy('a', { w: 91.2, b: 64 })

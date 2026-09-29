@@ -17,7 +17,7 @@
  * more than the overshoot it prevents.
  */
 import { createHash, createHmac, randomUUID, timingSafeEqual } from 'node:crypto'
-import { RESERVE_PER_GAME_USD, isClaudeModelKey, type ClaudeModelKey } from '../../src/claude/models'
+import { CLAUDE_MAX_PLIES, RESERVE_PER_GAME_USD, isClaudeModelKey, type ClaudeModelKey } from '../../src/claude/models'
 import type { CoachStore } from './limits'
 
 /** Every limit, in one place. */
@@ -26,8 +26,11 @@ export const GAMES_LIMITS = {
   monthlyUsd: 20,
   /** How long a game holds the site-wide lock without a move. */
   lockTtlMs: 30 * 60_000,
-  /** Plies after which a game is adjudicated a draw. */
-  plyCap: 160,
+  /**
+   * Plies after which a game is adjudicated a draw. The browser adjudicates
+   * first; a move request at the cap is refused here as a backstop.
+   */
+  plyCap: CLAUDE_MAX_PLIES,
 } as const
 
 type Env = Record<string, string | undefined>

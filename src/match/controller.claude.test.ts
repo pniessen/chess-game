@@ -2,6 +2,10 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { MatchController } from './controller'
 import { Game } from '../game-core/game'
 import type { MatchConfig } from './types'
+import { resultTagOf } from './result'
+import { CLAUDE_MAX_PLIES } from '../claude/models'
+import { Position } from '../game-core/position'
+import { STARTING_FEN } from '../game-core/types'
 import type { EngineInfo } from '../engine/uci'
 import type { StrengthProfile } from '../engine/strength'
 import type { ClaudeMover, ClaudeMoveResult } from '../claude/gameClient'
@@ -498,5 +502,121 @@ describe('load(..., { paused: true })', () => {
     game.play({ from: 'e2', to: 'e4' })
     c.load(HUMAN_VS_CLAUDE, game)
     expect(move).toHaveBeenCalledTimes(1)
+  })
+})
+
+/**
+ * A legal line of `n` plies that never ends the game by the rules: at each
+ * ply, the first move (from a rotating start) that leaves it in progress.
+ */
+function longLine(n: number): string[] {
+  const pos = new Position(STARTING_FEN)
+  const line: string[] = []
+  for (let ply = 0; ply < n; ply++) {
+    const legal = pos.legalSans()
+    let played = false
+    for (let i = 0; i < legal.length && !played; i++) {
+      const san = legal[(ply * 7 + i) % legal.length]!
+      if (!pos.trySan(san).ok) continue
+      if (pos.status().kind === 'in-progress') {
+        line.push(san)
+        played = true
+      } else {
+        pos.undo()
+      }
+    }
+    if (!played) throw new Error(`longLine: stuck at ply ${ply}`)
+  }
+  return line
+}
+
+/** A Game holding `line` from the standard start. */
+function gameOf(line: string[]): Game {
+  const game = new Game()
+  const pos = new Position(STARTING_FEN)
+  for (const san of line) {
+    const r = pos.trySan(san)
+    if (!r.ok) throw new Error(san)
+    game.play({ from: r.move.from, to: r.move.to, ...(r.move.promotion ? { promotion: r.move.promotion } : {}) })
+  }
+  return game
+}
+
+describe('adjudication at the ply cap (Q12: 160)', () => {
+  beforeEach(() => vi.useFakeTimers())
+  afterEach(() => vi.useRealTimers())
+  // Replaying 160 plies through Game is seconds of chess.js work per test,
+  // so the behaviour is driven at a small injected cap; the default is
+  // asserted to be the shared 160 separately.
+  const CAP = 8
+
+  test('the default cap is the shared CLAUDE_MAX_PLIES, 160 (the server backstop uses the same constant)', () => {
+    expect(CLAUDE_MAX_PLIES).toBe(160)
+    const c = new MatchController({ engine: fakeEngine().client })
+    expect((c as unknown as { claudePlyCap: number }).claudePlyCap).toBe(CLAUDE_MAX_PLIES)
+  })
+
+  test('a Claude game that reaches the cap is drawn by adjudication; Claude is never asked for the next ply', async () => {
+    const e = fakeEngine()
+    const cl = fakeClaude(playLine(longLine(CAP + 10)))
+    const c = new MatchController({ engine: e.client, claude: cl.mover, claudePlyCap: CAP })
+    c.start(CLAUDE_VS_CLAUDE)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(c.snapshot().game.moves).toHaveLength(CAP)
+    expect(cl.move).toHaveBeenCalledTimes(CAP)
+    const phase = c.snapshot().phase
+    expect(phase).toMatchObject({ kind: 'finished', reason: 'adjudicated', winner: null })
+    expect(resultTagOf(phase)).toBe('1/2-1/2')
+    expect(e.calls).toHaveLength(0)
+  })
+
+  test('loading a Claude game already at the cap adjudicates it at once, asking nothing', () => {
+    const cl = fakeClaude()
+    const c = new MatchController({ engine: fakeEngine().client, claude: cl.mover, claudePlyCap: CAP })
+    c.load(CLAUDE_VS_CLAUDE, gameOf(longLine(CAP)))
+    expect(c.snapshot().phase).toMatchObject({ kind: 'finished', reason: 'adjudicated', winner: null })
+    expect(cl.move).not.toHaveBeenCalled()
+  })
+
+  test('a paused Claude game at the cap is adjudicated on Resume, and on Step', () => {
+    for (const act of ['resume', 'step'] as const) {
+      const cl = fakeClaude()
+      const c = new MatchController({ engine: fakeEngine().client, claude: cl.mover, claudePlyCap: CAP })
+      c.load(CLAUDE_VS_CLAUDE, gameOf(longLine(CAP)), { paused: true })
+      expect(c.snapshot().phase).toMatchObject({ kind: 'paused' })
+      c[act]()
+      expect(c.snapshot().phase, act).toMatchObject({ kind: 'finished', reason: 'adjudicated', winner: null })
+      expect(cl.move).not.toHaveBeenCalled()
+    }
+  })
+
+  test('finishAs replays a stored adjudication (no winner)', () => {
+    const c = new MatchController({ engine: fakeEngine().client })
+    c.load({ white: { kind: 'human' }, black: { kind: 'human' }, timeControl: { kind: 'untimed' } }, gameOf(['e4', 'e5']))
+    c.finishAs('adjudicated', null)
+    expect(c.snapshot().phase).toMatchObject({ kind: 'finished', reason: 'adjudicated', winner: null })
+  })
+
+  test('a game with no Claude seat is not adjudicated at the cap', () => {
+    const c = new MatchController({ engine: fakeEngine().client, claudePlyCap: CAP })
+    c.load({ white: { kind: 'human' }, black: { kind: 'human' }, timeControl: { kind: 'untimed' } }, gameOf(longLine(CAP)))
+    expect(c.snapshot().phase).toMatchObject({ kind: 'awaiting-human' })
+  })
+})
+
+describe('why a Claude game stopped', () => {
+  beforeEach(() => vi.useFakeTimers())
+  afterEach(() => vi.useRealTimers())
+
+  test('a budget reply finishes claude-unavailable with detail budget; fatal has no detail', async () => {
+    for (const kind of ['budget', 'fatal'] as const) {
+      const cl = fakeClaude(() => ({ ok: false, kind }))
+      const c = new MatchController({ engine: fakeEngine().client, claude: cl.mover })
+      c.start(CLAUDE_VS_CLAUDE)
+      await vi.advanceTimersByTimeAsync(0)
+      const phase = c.snapshot().phase
+      expect(phase).toMatchObject({ kind: 'finished', reason: 'claude-unavailable' })
+      expect(phase.kind === 'finished' && phase.detail).toBe(kind === 'budget' ? 'budget' : undefined)
+    }
   })
 })

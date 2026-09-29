@@ -23,14 +23,21 @@ export interface MatchConfig {
   engineDelayMs?: number
 }
 
-export type FinishReason = 'normal' | 'flag' | 'resign' | 'engine-error' | 'claude-unavailable'
+/**
+ * 'adjudicated': a game with a Claude seat reached CLAUDE_MAX_PLIES and was
+ * declared drawn (spec Q12) — a result, unlike the two aborts.
+ */
+export type FinishReason = 'normal' | 'flag' | 'resign' | 'engine-error' | 'claude-unavailable' | 'adjudicated'
+
+/** Why a 'claude-unavailable' finish happened, when it is not simply "Claude failed": the server's 402. */
+export type FinishDetail = 'budget'
 
 export type MatchPhase =
   | { kind: 'idle' }
   | { kind: 'awaiting-human'; side: Color }
   | { kind: 'engine-thinking'; side: Color; requestId: number }
   | { kind: 'paused' }
-  | { kind: 'finished'; status: GameStatus; reason: FinishReason; winner: Color | null }
+  | { kind: 'finished'; status: GameStatus; reason: FinishReason; winner: Color | null; detail?: FinishDetail }
 
 export interface MatchSnapshot {
   phase: MatchPhase

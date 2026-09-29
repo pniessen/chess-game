@@ -256,7 +256,7 @@ export interface HistoryEntry {
   /** ISO 8601. */
   date: string
   result: '1-0' | '0-1' | '1/2-1/2'
-  termination: 'normal' | 'resign' | 'flag'
+  termination: 'normal' | 'resign' | 'flag' | 'adjudicated'
   opening: string | null
   pgn: string
   /** Null until the game is reviewed. */
@@ -266,7 +266,7 @@ export interface HistoryEntry {
 }
 
 const RESULTS = ['1-0', '0-1', '1/2-1/2'] as const
-const TERMINATIONS = ['normal', 'resign', 'flag'] as const
+const TERMINATIONS = ['normal', 'resign', 'flag', 'adjudicated'] as const
 
 function numOrNull(v: unknown): v is number | null {
   return v === null || (typeof v === 'number' && Number.isFinite(v))
