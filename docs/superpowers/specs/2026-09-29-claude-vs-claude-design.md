@@ -100,23 +100,28 @@ A public replay gallery of saved games; Claude vs Stockfish; Claude vs human (ne
 quota); a Stockfish-candidates "assisted" mode; medium effort via background functions; a
 ratings table once there are enough games.
 
-## Addendum, 2026-09-29: local-only (supersedes "owner only" on the public site)
+## Addendum, 2026-09-29: local-only (supersedes the owner-only design above)
 
+This addendum supersedes every earlier section where they conflict (the owner token, the Netlify
+functions and Blobs store, the draft-deploy measurement); those sections are kept as history.
 Peter chose a local-only version over hardening a public endpoint. Claude vs Claude exists only
 when the app is built for local use; the public builds (Netlify, GitHub Pages) contain no mode, no
 owner-token field and no `/api/game/*` functions.
 
 - **Gate:** a build-time flag. The mode exists when `import.meta.env.DEV` (`npm run dev`) or
-  `VITE_CLAUDE_GAMES=on` (a local `npm start`); neither public build sets either. The owner
+  `VITE_CLAUDE_GAMES=on` (set by `npm run start:claude`, not by plain `npm start`); neither public
+  build sets either, and `scripts/publicBuildGuard.ts` (called from `vite.config.ts`) fails any
+  Netlify/CI build that has the flag on, so it must never go in `.env`. The owner
   token, its Settings field and `x-owner-token` are removed.
 - **Server:** only the local Express app (`npm run server`, bound to 127.0.0.1, `Host` checked
   against loopback names) serves `/api/game/*`, with Peter's own `ANTHROPIC_API_KEY` from `.env`.
   Game tokens are HMACs under a random per-process secret. The Netlify game functions,
   `gamesStore` and `gameMessagesClient` are deleted; the games logic moves from `netlify/lib/` to
   `server/`, since nothing on Netlify uses it.
-- **Budget and saved games:** the $20/month cap stays, persisted to a local JSON file under
-  `.claude-games/` (gitignored), so a server restart keeps the month's spend. Saved games live there
-  too.
+- **Budget and saved games:** the $20/month cap stays, persisted to a local JSON file in
+  the home directory, `~/.chess-game/claude-games` (override with `CLAUDE_GAMES_DIR`; outside the
+  checkout, so it is shared across worktrees), so a server restart keeps the month's spend. Saved
+  games (`games/saved/<id>`) live there too. A restart ends an in-progress game as lost.
 - **Unavailable server:** if the local server is not running or has no key, the mode shows why
   (budget request fails) and Start is disabled.
 - **Phase 0 (Task 10)** runs locally against Peter's own key.
