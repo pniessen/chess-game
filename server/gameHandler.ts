@@ -1,7 +1,7 @@
 /**
- * The request pipeline behind the owner-only `/api/game/*` endpoints.
+ * The request pipeline behind the local-only `/api/game/*` endpoints.
  *
- * Like `handler.ts` it takes everything from outside (store, environment,
+ * Like `handler.ts` it takes everything from outside (store, secret,
  * Claude client, clock) so the tests run the real pipeline without a network,
  * and the local Express relay reuses it as-is. The rules themselves live in
  * `./games`; this file only checks the request, calls them and maps their
@@ -10,29 +10,29 @@
  * Any error thrown by the store becomes a 500. The guards in `./games` fail
  * closed by throwing, so an unreadable ledger can never turn into a game.
  */
-import { LIMITS } from '../../src/coach/protocol'
-import { isClaudeModelKey } from '../../src/claude/models'
-import { Position } from '../../src/game-core/position'
-import { STARTING_FEN } from '../../src/game-core/types'
-import type { MessagesClient } from '../../server/claude'
-import { requestMove } from '../../server/claudeMove'
+import { LIMITS } from '../src/coach/protocol'
+import { isClaudeModelKey } from '../src/claude/models'
+import { Position } from '../src/game-core/position'
+import { STARTING_FEN } from '../src/game-core/types'
+import type { MessagesClient } from './claude'
+import { requestMove } from './claudeMove'
 import {
   GAMES_LIMITS,
   authorizeMove,
   budgetLeft,
   chargeMove,
   checkGameToken,
-  checkOwner,
   endGame,
   startGame,
 } from './games'
-import { isAllowedOrigin, type CoachStore } from './limits'
+import type { GameStore } from './store'
 
 export type GameEndpoint = 'start' | 'move' | 'end' | 'budget'
 
 export interface GameDeps {
-  store: CoachStore
-  env: Record<string, string | undefined>
+  store: GameStore
+  /** Random per process; game tokens are HMACs under it. */
+  secret: Buffer
   /** Null when no Anthropic key is configured. */
   client: MessagesClient | null
   now?: () => number
@@ -84,17 +84,29 @@ const isStringArray = (v: unknown): v is string[] =>
   Array.isArray(v) && v.length <= MAX_HISTORY && v.every((x) => typeof x === 'string' && x.length <= 16)
 const isCount = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= 1000
 
+/** `http://localhost:*`, `http://127.0.0.1:*` or `http://[::1]:*`, and nothing else (not https, not other hosts). */
+export function isLoopbackOrigin(origin: string | null | undefined): boolean {
+  if (!origin) return false
+  let u: URL
+  try {
+    u = new URL(origin)
+  } catch {
+    return false
+  }
+  if (u.protocol !== 'http:' || u.origin !== origin) return false
+  return u.hostname === 'localhost' || u.hostname === '127.0.0.1' || u.hostname === '[::1]'
+}
+
 export async function handleGame(endpoint: GameEndpoint, request: Request, deps: GameDeps): Promise<Response> {
   const now = deps.now?.() ?? Date.now()
   const wantMethod = endpoint === 'budget' ? 'GET' : 'POST'
   if (request.method !== wantMethod) return json(405, { error: { kind: 'bad-request', message: `Use ${wantMethod}.` } })
 
-  // Same-origin GETs carry no Origin header, so it is only judged when present; the owner token guards the rest.
+  // Same-origin GETs carry no Origin header, so it is only judged when present; POSTs must carry a loopback one.
   const origin = request.headers.get('origin')
   if (origin !== null || endpoint !== 'budget') {
-    if (!isAllowedOrigin(origin, deps.env, request.url)) return fail(403, 'forbidden')
+    if (!isLoopbackOrigin(origin)) return fail(403, 'forbidden')
   }
-  if (!checkOwner(request.headers.get('x-owner-token'), deps.env)) return fail(403, 'forbidden')
 
   let body: unknown = null
   if (endpoint !== 'budget') {
@@ -128,7 +140,7 @@ export async function handleGame(endpoint: GameEndpoint, request: Request, deps:
 async function start(body: Record<string, unknown>, deps: GameDeps, now: number): Promise<Response> {
   const { white, black } = body
   if (!isClaudeModelKey(white) || !isClaudeModelKey(black)) return fail(400, 'bad-request')
-  const r = await startGame(deps.store, now, deps.env, { white, black })
+  const r = await startGame(deps.store, now, deps.secret, { white, black })
   if (!r.ok) return fail(r.kind === 'busy' ? 409 : r.kind === 'budget' ? 402 : 400, r.kind)
   return json(200, { gameId: r.gameId, token: r.token, budgetLeftUsd: r.budgetLeftUsd })
 }
@@ -144,7 +156,7 @@ async function move(body: Record<string, unknown>, deps: GameDeps, now: number):
   const firstMover = start.position.turn()
   const white = (firstMover === 'w') === (history.length % 2 === 0)
 
-  const auth = await authorizeMove(deps.store, now, deps.env, {
+  const auth = await authorizeMove(deps.store, now, deps.secret, {
     gameId,
     token,
     side: white ? 'white' : 'black',
@@ -169,7 +181,7 @@ async function end(body: Record<string, unknown>, deps: GameDeps, now: number): 
   if (typeof pgn !== 'string' || pgn.length > MAX_PGN_CHARS) return fail(400, 'bad-request')
   if (!isRecord(fallbacks) || !isCount(fallbacks['w']) || !isCount(fallbacks['b'])) return fail(400, 'bad-request')
   // The lock may have lapsed by now; ending a game needs only its own token.
-  if (!checkGameToken(deps.env, gameId, token)) return fail(403, 'forbidden')
+  if (!checkGameToken(deps.secret, gameId, token)) return fail(403, 'forbidden')
   await endGame(deps.store, now, gameId, { pgn, fallbacks: { w: fallbacks['w'], b: fallbacks['b'] } })
   return json(200, { ok: true })
 }

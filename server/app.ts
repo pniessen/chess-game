@@ -3,8 +3,8 @@ import { LIMITS, type CoachErrorResponse, type HealthResponse } from '../src/coa
 import type { Claude } from './claude'
 import { runCoach, type CoachEndpoint } from './coach'
 import type { MessagesClient } from './claude'
-import { handleGame, type GameEndpoint } from '../netlify/lib/gameHandler'
-import type { CoachStore } from '../netlify/lib/limits'
+import { handleGame, type GameEndpoint } from './gameHandler'
+import type { GameStore } from './store'
 
 function sendError(res: Response, status: number, error: CoachErrorResponse['error']): void {
   res.status(status).json({ error } satisfies CoachErrorResponse)
@@ -34,9 +34,9 @@ function isAllowedHost(hostHeader: string | undefined): boolean {
 
 export interface GamesDeps {
   client: MessagesClient | null
-  store: CoachStore
-  /** Read for OWNER_TOKEN and the origin allow-list; never echoed. */
-  env: Record<string, string | undefined>
+  store: GameStore
+  /** Random per process; game tokens are HMACs under it. */
+  secret: Buffer
 }
 
 export function createApp(deps: { claude: Claude | null; staticDir?: string | null; games?: GamesDeps }) {

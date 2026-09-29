@@ -1,16 +1,15 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, test } from 'vitest'
 import Anthropic from '@anthropic-ai/sdk'
-import type { MessagesClient } from '../../server/claude'
+import type { MessagesClient } from './claude'
 import { handleGame } from './gameHandler'
 import { GAMES_LIMITS } from './games'
-import { fakeStore } from './limits.test'
+import { fakeStore } from '../netlify/lib/limits.test'
 
 const NOW = Date.UTC(2026, 8, 29, 12, 0, 0)
-const OWNER = 'fake-owner-token'
-const ENV = { OWNER_TOKEN: OWNER }
-const BASE = 'https://chess.example.app'
-const ORIGIN = BASE
+const SECRET = Buffer.from('fake-process-secret')
+const BASE = 'http://127.0.0.1:8787'
+const ORIGIN = 'http://localhost:5173'
 
 type Store = ReturnType<typeof fakeStore>
 let store: Store
@@ -39,11 +38,10 @@ beforeEach(() => {
 interface Opts {
   method?: string
   origin?: string | null
-  owner?: string | null
   body?: unknown
   raw?: string
   client?: MessagesClient | null
-  env?: Record<string, string | undefined>
+  secret?: Buffer
   store?: Parameters<typeof handleGame>[2]['store']
 }
 
@@ -51,8 +49,6 @@ async function call(endpoint: 'start' | 'move' | 'end' | 'budget', o: Opts = {})
   const headers: Record<string, string> = { 'content-type': 'application/json' }
   const origin = o.origin === undefined ? ORIGIN : o.origin
   if (origin) headers['origin'] = origin
-  const owner = o.owner === undefined ? OWNER : o.owner
-  if (owner !== null) headers['x-owner-token'] = owner
   const method = o.method ?? (endpoint === 'budget' ? 'GET' : 'POST')
   const res = await handleGame(endpoint, new Request(`${BASE}/api/game/${endpoint}`, {
     method,
@@ -60,7 +56,7 @@ async function call(endpoint: 'start' | 'move' | 'end' | 'budget', o: Opts = {})
     body: method === 'GET' ? undefined : (o.raw ?? JSON.stringify(o.body ?? {})),
   }), {
     store: o.store ?? store,
-    env: o.env ?? ENV,
+    secret: o.secret ?? SECRET,
     client: o.client === undefined ? fakeClient() : o.client,
     now: () => NOW,
   })
@@ -75,18 +71,40 @@ async function startGame(sides = { white: 'haiku', black: 'sonnet' }) {
 }
 
 describe('gates', () => {
-  test.each(['start', 'move', 'end'] as const)('%s: 403 forbidden without or with a wrong owner token', async (ep) => {
-    for (const owner of [null, 'wrong']) {
-      const r = await call(ep, { owner })
+  test.each([
+    'http://localhost:5173',
+    'http://localhost:8787',
+    'http://localhost',
+    'http://127.0.0.1:5173',
+    'http://127.0.0.1:1',
+    'http://[::1]:5173',
+  ])('loopback origin %s is allowed', async (origin) => {
+    expect((await call('start', { origin, body: { white: 'haiku', black: 'haiku' } })).res.status).toBe(200)
+  })
+  test.each([
+    'https://localhost:5173',
+    'https://chess.example.app',
+    'http://localhost.evil.example',
+    'http://evil.example:5173',
+    'http://localhost:5173@evil.example',
+    'http://127.0.0.1.evil.example',
+    'http://192.168.1.5:5173',
+    'http://0.0.0.0:5173',
+    'null',
+    'not a url',
+  ])('origin %s is refused on every endpoint', async (origin) => {
+    for (const ep of ['start', 'move', 'end', 'budget'] as const) {
+      const r = await call(ep, { origin })
       expect(r.res.status).toBe(403)
       expect(r.json.error.kind).toBe('forbidden')
     }
   })
-  test('budget: 403 without the token; every endpoint is 403 when OWNER_TOKEN is unset', async () => {
-    expect((await call('budget', { owner: null })).res.status).toBe(403)
-    for (const ep of ['start', 'move', 'end', 'budget'] as const) {
-      expect((await call(ep, { env: {}, owner: 'anything' })).res.status).toBe(403)
-    }
+  test('a token minted under one process secret is refused under another', async () => {
+    const g = await startGame()
+    const body = { gameId: g.gameId, token: g.token, history: [] }
+    expect((await call('move', { body, secret: Buffer.from('a-different-process') })).res.status).toBe(403)
+    expect((await call('end', { body: { ...body, pgn: '*', fallbacks: { w: 0, b: 0 } }, secret: Buffer.from('a-different-process') })).res.status).toBe(403)
+    expect((await call('move', { body })).res.status).toBe(200)
   })
   test('a foreign origin is refused, a missing one on POST too; wrong method is 405', async () => {
     expect((await call('start', { origin: 'https://evil.example' })).res.status).toBe(403)
@@ -243,9 +261,9 @@ describe('move', () => {
       await call('move', { body: { gameId: g.gameId, token: other, history: [] } }),
       await call('move', { body: { gameId: g.gameId, token: g.token, history: [] } }),
       await call('budget'),
-      await call('start', { owner: 'wrong' }),
+      await call('start', { origin: 'https://evil.example' }),
     ]
-    for (const r of all) expect(r.text).not.toContain(OWNER)
+    for (const r of all) expect(r.text).not.toContain(SECRET.toString())
     expect(all[0]!.text).not.toContain(g.token)
   })
 })

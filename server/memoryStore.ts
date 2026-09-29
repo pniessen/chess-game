@@ -1,10 +1,10 @@
-import type { CoachStore } from '../netlify/lib/limits'
+import type { GameStore } from './store'
 
 /**
- * A Map-backed `CoachStore` for the local relay, where nothing needs to
+ * A Map-backed `GameStore` for the local relay, where nothing needs to
  * outlive the process. Values round-trip through JSON, as a real blob store's do.
  */
-export function memoryStore(): CoachStore {
+export function memoryStore(): GameStore {
   const data = new Map<string, string>()
   return {
     get: async (key) => {

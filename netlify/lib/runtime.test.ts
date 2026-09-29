@@ -7,24 +7,16 @@ const blobs = vi.hoisted(() => ({
 }))
 vi.mock('@netlify/blobs', () => blobs)
 
-import { coachStore, gamesStore } from './runtime'
+import { coachStore } from './runtime'
 
-const PROD = 'https://chess.example.netlify.app/api/game/move'
-const DRAFT = 'https://deploy-preview-12--chess.example.netlify.app/api/game/move'
-const PERMALINK = 'https://66f0aa11bb22cc33dd44ee55--chess.example.netlify.app/api/game/move'
+const PROD = 'https://chess.example.netlify.app/api/hint'
+const DRAFT = 'https://deploy-preview-12--chess.example.netlify.app/api/hint'
+const PERMALINK = 'https://66f0aa11bb22cc33dd44ee55--chess.example.netlify.app/api/hint'
 
 describe('runtime stores', () => {
   beforeEach(() => {
     blobs.getStore.mockClear()
     blobs.getDeployStore.mockClear()
-  })
-
-  test('the games ledger is the one global strong store on every deploy', () => {
-    // gamesStore takes no request URL, so no host (production, draft,
-    // permalink) can select a deploy-scoped store; the coach's does split.
-    expect(gamesStore()).toEqual({ kind: 'global', opts: { name: 'chess-games', consistency: 'strong' } })
-    expect(gamesStore.length).toBe(0)
-    expect(blobs.getDeployStore).not.toHaveBeenCalled()
   })
 
   test('the coach keeps its production/deploy-scoped split', () => {

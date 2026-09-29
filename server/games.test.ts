@@ -1,20 +1,20 @@
 // @vitest-environment node
+import { randomBytes } from 'node:crypto'
 import { beforeEach, describe, expect, test } from 'vitest'
-import { CLAUDE_SESSION_IDLE_MS, MOVE_TIMEOUT_MS, RESERVE_PER_GAME_USD } from '../../src/claude/models'
+import { CLAUDE_SESSION_IDLE_MS, MOVE_TIMEOUT_MS, RESERVE_PER_GAME_USD } from '../src/claude/models'
 import {
   GAMES_LIMITS,
   authorizeMove,
   budgetLeft,
   chargeMove,
   checkGameToken,
-  checkOwner,
   endGame,
   startGame,
 } from './games'
-import { fakeStore } from './limits.test'
+import { fakeStore } from '../netlify/lib/limits.test'
 
 const NOW = Date.UTC(2026, 8, 29, 12, 0, 0)
-const ENV = { OWNER_TOKEN: 'fake-owner-token' }
+const ENV = Buffer.from('fake-process-secret')
 const SIDES = { white: 'haiku', black: 'sonnet' } as const
 
 let store: ReturnType<typeof fakeStore>
@@ -28,16 +28,18 @@ async function start(now = NOW, sides: { white: string; black: string } = SIDES)
   return r
 }
 
-describe('checkOwner', () => {
-  test('a missing or empty OWNER_TOKEN never matches, even an empty header', () => {
-    expect(checkOwner('anything', {})).toBe(false)
-    expect(checkOwner('', { OWNER_TOKEN: '' })).toBe(false)
-    expect(checkOwner(null, { OWNER_TOKEN: '' })).toBe(false)
+describe('the per-process secret', () => {
+  test('a token minted under one secret fails under another, and under a random one', async () => {
+    const g = await start()
+    expect(checkGameToken(ENV, g.gameId, g.token)).toBe(true)
+    expect(checkGameToken(Buffer.from('another-secret'), g.gameId, g.token)).toBe(false)
+    expect(checkGameToken(randomBytes(32), g.gameId, g.token)).toBe(false)
+    const a = { gameId: g.gameId, token: g.token, side: 'white' as const, plies: 0 }
+    expect(await authorizeMove(store, NOW, randomBytes(32), a)).toEqual({ ok: false, kind: 'forbidden' })
   })
-  test('wrong, null and right headers', () => {
-    expect(checkOwner('nope', ENV)).toBe(false)
-    expect(checkOwner(null, ENV)).toBe(false)
-    expect(checkOwner('fake-owner-token', ENV)).toBe(true)
+  test('a token for another game id never matches', async () => {
+    const g = await start()
+    expect(checkGameToken(ENV, 'other-game', g.token)).toBe(false)
   })
 })
 
@@ -73,7 +75,7 @@ describe('startGame', () => {
 })
 
 describe('authorizeMove', () => {
-  test('an owner move is authorised with the side model', async () => {
+  test('a move is authorised with the side model', async () => {
     const g = await start()
     const a = { gameId: g.gameId, token: g.token, plies: 0 }
     expect(await authorizeMove(store, NOW, ENV, { ...a, side: 'white' })).toEqual({ ok: true, model: 'haiku' })
@@ -154,7 +156,6 @@ describe('chargeMove and endGame', () => {
     const g = await start()
     expect(checkGameToken(ENV, g.gameId, g.token)).toBe(true)
     expect(checkGameToken(ENV, 'other', g.token)).toBe(false)
-    expect(checkGameToken({}, g.gameId, g.token)).toBe(false)
   })
   test('a charge that lands after the game ended still counts against the month', async () => {
     const g = await start()

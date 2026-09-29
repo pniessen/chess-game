@@ -5,7 +5,8 @@ import { createApp } from './app'
 import Anthropic from '@anthropic-ai/sdk'
 import { MOVE_TIMEOUT_MS } from '../src/claude/models'
 import { createClaude } from './claude'
-import { memoryStore } from './memoryStore'
+import { randomBytes } from 'node:crypto'
+import { fileStore } from './fileStore'
 
 /**
  * The relay is unauthenticated and holds the Anthropic API key, so it must
@@ -19,16 +20,18 @@ export const LISTEN_HOST = '127.0.0.1'
 export function startServer(env: NodeJS.ProcessEnv = process.env): Promise<Server> {
   const port = Number(env['PORT'] ?? 8787)
   const apiKey = env['ANTHROPIC_API_KEY']?.trim() || null
+  const gamesDir = fileURLToPath(new URL('../.claude-games', import.meta.url))
   const distDir = fileURLToPath(new URL('../dist', import.meta.url))
 
   const app = createApp({
     claude: apiKey ? createClaude({ apiKey }) : null,
     // `npm start` builds first; in dev, Vite serves the app and proxies /api here.
-    // Owner-only Claude games: in-memory, so a restart forgets budget and lock (fine on a developer's machine).
+    // Local-only Claude games: the budget, lock and saved games persist under .claude-games/ (gitignored).
+    // Tokens are HMACs under a secret that lives only as long as this process.
     games: {
       client: apiKey ? new Anthropic({ apiKey, timeout: MOVE_TIMEOUT_MS, maxRetries: 0 }) : null,
-      store: memoryStore(),
-      env,
+      store: fileStore(gamesDir),
+      secret: randomBytes(32),
     },
     staticDir: existsSync(distDir) ? distDir : null,
   })

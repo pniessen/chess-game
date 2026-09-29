@@ -1,24 +1,22 @@
 /**
- * Spending and access controls for owner-only Claude-vs-Claude games.
+ * Spending and access controls for the local-only Claude-vs-Claude games.
  *
  * Every game spends real money, so the endpoints behind this module are
- * closed to everyone but the owner (`OWNER_TOKEN`), allow one game at a time
- * site-wide, and draw on a monthly dollar budget. Each game reserves its
+ * only served by the local relay on the owner's machine, allow one game at a time, and draw on a monthly dollar budget. Each game reserves its
  * worst-case cost when it starts; moves are charged as they happen and the
  * unused part of the reservation goes back when the game ends.
  *
- * Like `limits.ts`, nothing here knows about Netlify: the store is the same
- * two-method interface, and the budget lives under its own `games/` keys so
- * it never touches the coach's counters.
+ * The store is a two-method interface (`./store`), and the budget lives under
+ * its own `games/` keys.
  *
- * Netlify Blobs has no compare-and-set, so two racing requests could both
- * read the same lock or total. For an owner-only feature that runs one game
+ * The store has no compare-and-set, so two racing requests could both
+ * read the same lock or total. For a single-user feature that runs one game
  * at a time that race is accepted; building locking around it would cost
  * more than the overshoot it prevents.
  */
 import { createHash, createHmac, randomUUID, timingSafeEqual } from 'node:crypto'
-import { CLAUDE_MAX_PLIES, RESERVE_PER_GAME_USD, isClaudeModelKey, type ClaudeModelKey } from '../../src/claude/models'
-import type { CoachStore } from './limits'
+import { CLAUDE_MAX_PLIES, RESERVE_PER_GAME_USD, isClaudeModelKey, type ClaudeModelKey } from '../src/claude/models'
+import type { GameStore } from './store'
 
 /** Every limit, in one place. */
 export const GAMES_LIMITS = {
@@ -33,7 +31,6 @@ export const GAMES_LIMITS = {
   plyCap: CLAUDE_MAX_PLIES,
 } as const
 
-type Env = Record<string, string | undefined>
 type Side = 'white' | 'black'
 
 /** Dollars are floats; storing them rounded to 1e-6 keeps sums from drifting. */
@@ -58,21 +55,14 @@ function safeEqual(a: string, b: string): boolean {
   return timingSafeEqual(da, db)
 }
 
-/** Whether the request's token header is the owner's. Closed when no token is configured. */
-export function checkOwner(header: string | null, env: Env): boolean {
-  const token = env['OWNER_TOKEN']
-  if (!token || header === null) return false
-  return safeEqual(header, token)
+/** The bearer for one game: an HMAC of its id under the per-process secret, so it cannot be forged or reused. */
+function gameToken(gameId: string, secret: Buffer): string {
+  return createHmac('sha256', secret).update(gameId).digest('hex')
 }
 
-/** The bearer for one game: an HMAC of its id under the owner token, so it cannot be forged or reused. */
-function gameToken(gameId: string, env: Env): string {
-  return createHmac('sha256', env['OWNER_TOKEN'] ?? '').update(gameId).digest('hex')
-}
-
-/** Whether `token` is the bearer minted for `gameId`. Closed when no owner token is configured. */
-export function checkGameToken(env: Env, gameId: string, token: string): boolean {
-  return Boolean(env['OWNER_TOKEN']) && safeEqual(token, gameToken(gameId, env))
+/** Whether `token` is the bearer minted for `gameId` under `secret`. Compared in constant time. */
+export function checkGameToken(secret: Buffer, gameId: string, token: string): boolean {
+  return safeEqual(token, gameToken(gameId, secret))
 }
 
 interface Budget {
@@ -94,17 +84,17 @@ interface Game {
   ended?: boolean
 }
 
-async function readBudget(store: CoachStore, month: string): Promise<Budget> {
+async function readBudget(store: GameStore, month: string): Promise<Budget> {
   // Read errors propagate on purpose: a failed read must not look like an empty ledger (fail closed).
   const v = await store.get(budgetKey(month), { type: 'json' })
   return isRecord(v) ? { spent: num(v['spent']), reserved: num(v['reserved']) } : { spent: 0, reserved: 0 }
 }
 
-async function writeBudget(store: CoachStore, month: string, b: Budget): Promise<void> {
+async function writeBudget(store: GameStore, month: string, b: Budget): Promise<void> {
   await store.setJSON(budgetKey(month), { spent: round(Math.max(0, b.spent)), reserved: round(Math.max(0, b.reserved)) })
 }
 
-async function readGame(store: CoachStore, gameId: string): Promise<Game | null> {
+async function readGame(store: GameStore, gameId: string): Promise<Game | null> {
   // Like the budget and the lock, a failed read propagates: it must not look like "no such game".
   const v = await store.get(`games/${gameId}`, { type: 'json' })
   if (!isRecord(v) || !isClaudeModelKey(v['white']) || !isClaudeModelKey(v['black'])) return null
@@ -120,14 +110,14 @@ async function readGame(store: CoachStore, gameId: string): Promise<Game | null>
   }
 }
 
-async function readLock(store: CoachStore): Promise<{ gameId: string; until: number } | null> {
+async function readLock(store: GameStore): Promise<{ gameId: string; until: number } | null> {
   // As with the budget, a failed read must not look like "no lock".
   const v = await store.get(LOCK_KEY, { type: 'json' })
   return isRecord(v) && typeof v['gameId'] === 'string' ? { gameId: v['gameId'], until: num(v['until']) } : null
 }
 
 /** Dollars still available this month: neither spent nor held for a game in progress. */
-export async function budgetLeft(store: CoachStore, now: number): Promise<number> {
+export async function budgetLeft(store: GameStore, now: number): Promise<number> {
   const b = await readBudget(store, utcMonth(now))
   return round(Math.max(0, GAMES_LIMITS.monthlyUsd - b.spent - b.reserved))
 }
@@ -137,9 +127,9 @@ export async function budgetLeft(store: CoachStore, now: number): Promise<number
  * token the browser sends with each move.
  */
 export async function startGame(
-  store: CoachStore,
+  store: GameStore,
   now: number,
-  env: Env,
+  secret: Buffer,
   sides: { white: string; black: string },
 ): Promise<
   | { ok: true; gameId: string; token: string; budgetLeftUsd: number }
@@ -164,7 +154,7 @@ export async function startGame(
   const game: Game = { white, black, reserved: reserve, spent: 0, plies: 0, startedAt: now, month }
   await store.setJSON(`games/${gameId}`, game)
   await store.setJSON(LOCK_KEY, { gameId, until: now + GAMES_LIMITS.lockTtlMs })
-  return { ok: true, gameId, token: gameToken(gameId, env), budgetLeftUsd: await budgetLeft(store, now) }
+  return { ok: true, gameId, token: gameToken(gameId, secret), budgetLeftUsd: await budgetLeft(store, now) }
 }
 
 /**
@@ -174,13 +164,13 @@ export async function startGame(
  * lock, so a long game keeps it for as long as it keeps moving.
  */
 export async function authorizeMove(
-  store: CoachStore,
+  store: GameStore,
   now: number,
-  env: Env,
+  secret: Buffer,
   req: { gameId: string; token: string; side: Side; plies: number },
 ): Promise<{ ok: true; model: ClaudeModelKey } | { ok: false; kind: 'forbidden' | 'budget' | 'over' }> {
   const forbidden = { ok: false, kind: 'forbidden' } as const
-  if (!env['OWNER_TOKEN'] || !safeEqual(req.token, gameToken(req.gameId, env))) return forbidden
+  if (!checkGameToken(secret, req.gameId, req.token)) return forbidden
 
   const game = await readGame(store, req.gameId)
   if (!game || game.ended) return forbidden
@@ -199,7 +189,7 @@ export async function authorizeMove(
  * so the month's "left" only moves when a game ends or overspends.
  * Returns what the game has spent so far.
  */
-export async function chargeMove(store: CoachStore, _now: number, gameId: string, costUsd: number): Promise<number> {
+export async function chargeMove(store: GameStore, _now: number, gameId: string, costUsd: number): Promise<number> {
   const game = await readGame(store, gameId)
   if (!game) return 0
   if (!(costUsd > 0)) return game.spent
@@ -226,7 +216,7 @@ export async function chargeMove(store: CoachStore, _now: number, gameId: string
  * unused reservation, and keep the record. Ending twice is harmless.
  */
 export async function endGame(
-  store: CoachStore,
+  store: GameStore,
   now: number,
   gameId: string,
   record: Record<string, unknown>,
@@ -237,7 +227,7 @@ export async function endGame(
 }
 
 /** Mark a game ended and return its unused reservation to its own month. No-op if already ended. */
-async function settleGame(store: CoachStore, now: number, gameId: string, record: Record<string, unknown>): Promise<void> {
+async function settleGame(store: GameStore, now: number, gameId: string, record: Record<string, unknown>): Promise<void> {
   const game = await readGame(store, gameId)
   if (!game || game.ended) return
   const unused = Math.max(0, game.reserved - game.spent)

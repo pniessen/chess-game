@@ -27,7 +27,7 @@ const client: MessagesClient = {
 async function start(withGames = true): Promise<string> {
   const app = createApp({
     claude: null,
-    games: withGames ? { client, store: memoryStore(), env: { OWNER_TOKEN: 'fake-owner-token' } } : undefined,
+    games: withGames ? { client, store: memoryStore(), secret: Buffer.from('fake-process-secret') } : undefined,
   })
   server = await new Promise<Server>((resolve) => {
     const s = app.listen(0, '127.0.0.1', () => resolve(s))
@@ -35,7 +35,7 @@ async function start(withGames = true): Promise<string> {
   return `http://127.0.0.1:${(server.address() as AddressInfo).port}`
 }
 
-function send(base: string, method: string, path: string, body?: unknown, host?: string, owner = 'fake-owner-token') {
+function send(base: string, method: string, path: string, body?: unknown, host?: string, origin = 'http://localhost:5173') {
   const url = new URL(base + path)
   const payload = body === undefined ? undefined : JSON.stringify(body)
   return new Promise<{ status: number; json: any }>((resolve, reject) => {
@@ -46,8 +46,7 @@ function send(base: string, method: string, path: string, body?: unknown, host?:
         path: url.pathname,
         method,
         headers: {
-          origin: 'http://localhost:5173',
-          'x-owner-token': owner,
+          origin,
           ...(payload ? { 'content-type': 'application/json', 'content-length': Buffer.byteLength(payload) } : {}),
           ...(host ? { host } : {}),
         },
@@ -83,9 +82,9 @@ describe('the game routes on the local relay', () => {
     expect(e.status).toBe(200)
   })
 
-  test('the owner token is required', async () => {
+  test('a non-loopback Origin is refused', async () => {
     const base = await start()
-    const r = await send(base, 'POST', '/api/game/start', { white: 'haiku', black: 'haiku' }, undefined, 'wrong')
+    const r = await send(base, 'POST', '/api/game/start', { white: 'haiku', black: 'haiku' }, undefined, 'https://evil.example')
     expect(r.status).toBe(403)
   })
 
