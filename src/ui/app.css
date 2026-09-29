@@ -2018,37 +2018,226 @@ body {
 }
 
 /* ------------------------------------------------------------------
-   769-1020px only: keep the stacked column no wider than the board.
+   769-1020px, both orientations: the board sizes from the space the
+   browser actually leaves it, and is capped at --board-size.
 
-   Two separate caps, because neither covers the other:
+   `.app` is exactly the viewport's height here and `.layout` takes its
+   last row as a size container, so `--board-size` below reads `cqh`/`cqw`
+   — the height under the header and any banners, whatever they measure.
+   Desktop instead subtracts `--chrome`, a constant measured for a
+   one-line header; in this band the header does not stay one line (the
+   "coaching offline" badge wraps it at 800 and 900px — 36px of page
+   scroll, measured — and with an opening name it can take three lines at
+   769px), so no constant would be right. `.app`'s rows are the header, up
+   to four banners (engine warning, resume or share conflict, share error,
+   coach notice — each auto-placed into the next row; an empty `auto` row
+   is 0px), then `.layout`, pinned last. In portrait the stacked content is
+   meant to run past that row and the page scrolls to it: overflow of a
+   fixed-height `.app` still extends the document, and `body` carries the
+   background.
 
-   `.layout`'s `max-width` centres the whole stack at the board's own
-   width instead of letting the cards run to ~950px beside a 640px board.
-   `50px` is what `.board-row` puts beside the board frame (the eval bar's
-   24px + the row's 6px gap) plus the frame's own 20px rank gutter, so a
-   `--board-size`-wide board plus its furniture fits exactly.
+   `--board-size` is declared on `.layout` but only USED by descendants,
+   which is what makes `cq*` resolve against `.layout` itself; each
+   orientation's block below sets it. Nothing on `.layout` may use it for
+   the same reason — hence `max-width: none`, which also retires this
+   band's old centring cap (the stack is centred per item in portrait).
 
-   `.board-frame`'s `max-width` is the one that actually caps the BOARD.
-   Its `width: min(100%, calc(var(--board-size) + var(--coord-gutter)))`
-   (board.css) does not: `.board-row .board-frame` is `flex: 1 1 auto`, and
-   flex-grow grows an item past its `width` — only `max-width` stops it.
-   On the desktop layout the grid track happens to do that capping, which
-   is why nothing needed this before; measured live at 768x800, where the
-   column is wider than the board, the frame grows to 714px and the board
-   with it to 694px, past `--board-size`'s own 640px cap.
-
-   Which is exactly why both are scoped `min-width: 769px`: that 694px
-   board IS the phone layout as it ships, and this fix has no business
-   changing it. Below 769px only the structural query above applies.
+   `.board-frame`'s `max-width` is still what actually caps the BOARD. Its
+   `width: min(100%, calc(var(--board-size) + var(--coord-gutter)))`
+   (board.css) does not: `.board-row .board-frame` is `flex: 1 1 auto`,
+   and flex-grow grows an item past its `width` — only `max-width` stops
+   it. Measured live at 768x800, where the column is wider than the board,
+   the frame grows to 714px and the board with it to 694px, past
+   `--board-size`'s own 640px cap. That 694px board IS the phone layout as
+   it ships, which is why all of this is scoped `min-width: 769px`.
    ------------------------------------------------------------------ */
 @media (min-width: 769px) and (max-width: 1020px) {
+  .app {
+    height: 100svh;
+    grid-template-rows: repeat(5, auto) minmax(0, 1fr);
+  }
   .layout {
-    max-width: calc(var(--board-size) + 50px);
-    margin-inline: auto;
+    grid-row: 6;
+    min-height: 0;
+    container-type: size;
+    max-width: none;
+    margin-inline: 0;
   }
   .board-frame {
     max-width: calc(var(--board-size) + var(--coord-gutter));
   }
+}
+
+/* ------------------------------------------------------------------
+   769-1020px, LANDSCAPE: the board and one side panel, and no page scroll.
+
+   The stacked layout above is right for a tall window and wrong for a
+   short one: at 900x800 it put only the board on screen (clocks from
+   y=827, Controls from 1071, a 1499px page). Width alone cannot tell the
+   two apart, so orientation does — see
+   docs/superpowers/specs/2026-09-28-mid-width-layout-design.md for why
+   that switch costs at most ~32px of board near a square window.
+
+   The board and the panel both size from `.layout`'s container (see the
+   shared block above), so nothing here depends on the header's height.
+   ------------------------------------------------------------------ */
+@media (min-width: 769px) and (max-width: 1020px) and (orientation: landscape) {
+  .layout {
+    /* The board is --board-size here, with the frame's 1.25rem file gutter
+       below it and 50px beside it (eval bar 24 + row gap 6 + rank gutter
+       20); the panel is 280px, 20px away. */
+    --board-size: clamp(
+      320px,
+      min(640px, calc(100cqh - 1.25rem), calc(100cqw - 350px)),
+      640px
+    );
+    grid-template-columns: minmax(0, 1fr) 280px;
+    /* The left column takes its content height up to whatever leaves the
+       right column 160px, then scrolls itself; the right column takes the
+       rest and its lists scroll inside it, as on desktop. */
+    grid-template-rows: minmax(0, auto) minmax(160px, 1fr);
+    grid-template-areas:
+      'board left'
+      'board right';
+    column-gap: 20px;
+    row-gap: 12px;
+  }
+  .board-column { display: block; grid-area: board; }
+  /* `.layout` aligns its items to `start`, which would size each column to
+     its content and ignore the rows above; stretch makes them take their
+     rows, which is what makes the left column give way and scroll. */
+  .left-column,
+  .right-column { align-self: stretch; }
+  .left-column {
+    grid-area: left;
+    order: 0;
+    min-height: 0;
+    max-height: none;
+    overflow-y: auto;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-content: start;
+    gap: 8px;
+  }
+  .left-column .clocks,
+  .left-column .controls { grid-column: 1 / -1; }
+  /* Two clocks side by side in 280px leave each ~136px: "0:00.0" at
+     desktop's 1.85rem beside its label clipped. Label above time instead. */
+  .clocks { flex-direction: row; }
+  .clocks .clock {
+    flex: 1 1 0;
+    min-width: 0;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+    padding: 8px 12px;
+  }
+  .clock-time { font-size: 1.4rem; }
+  /* Captured and score share a row, as on phones — with the phone's
+     stacked scoreboard, which otherwise runs "Score" into "0–0–0". */
+  .left-column .captured { padding: 6px 10px; }
+  .left-column .scoreboard {
+    flex-direction: column;
+    justify-content: center;
+    gap: 0;
+    padding: 6px 14px;
+  }
+  .right-column {
+    grid-area: right;
+    order: 0;
+    min-height: 0;
+    max-height: none;
+    overflow-y: auto;
+  }
+  .move-list,
+  .history-list,
+  .explorer-results { max-height: none; }
+}
+
+/* ------------------------------------------------------------------
+   769-1020px, PORTRAIT: stacked, with the board, both clocks and every
+   Controls button on screen before any scrolling (the spec's criterion A);
+   the tabs follow below and the page scrolls to them.
+
+   Before this, 820x1180 (an iPad in portrait) had Controls starting 72px
+   above the fold, under two full-width clock rows and the captured and
+   score cards. Here the clocks share one row, Controls come straight after
+   them laid out four across, and captured/score move below Controls —
+   `order` only, so DOM and Tab order are untouched, as on phones.
+
+   The board gives up exactly the height those need when it must:
+   `--below-board` is what sits between the board frame and the fold
+   (column gap, clocks, gap, Controls, and a small margin), measured, and
+   `100cqh` is the height left under the header (see the shared block). At
+   820x1180 that term does not bind and the board keeps its 640px cap.
+   ------------------------------------------------------------------ */
+@media (min-width: 769px) and (max-width: 1020px) and (orientation: portrait) {
+  .layout {
+    /* Measured at 820x1180 and 769x1024 (identical): under the board frame
+       come the 12px row gap, the 42px clocks row, an 8px gap and the 155px
+       Controls card — 217px — plus an 8px margin above the fold. Less the
+       40px of `.app` bottom padding, which lies inside 100svh but below
+       `.layout`'s container box: 217 + 8 - 40 = 185. */
+    --below-board: 185px;
+    --board-size: clamp(
+      320px,
+      min(640px, calc(100cqw - 50px), calc(100cqh - 1.25rem - var(--below-board))),
+      640px
+    );
+    justify-items: center;
+    /* Content height, never less: the columns carry desktop's
+       `min-height: 0`, which would let `auto` rows squeeze the stack into
+       the container's height and overlap it (measured: the right column
+       drawn over captured/score at 820x1180). The stack is meant to run
+       past the container, and the page to scroll. */
+    grid-auto-rows: max-content;
+  }
+  .board-row,
+  .left-column,
+  .right-column {
+    width: 100%;
+    max-width: calc(var(--board-size) + 50px);
+  }
+  /* The page's bottom padding: `.app`'s own sits inside its 100svh box,
+     which this stack deliberately runs past. */
+  .right-column { padding-bottom: 40px; }
+
+  .left-column {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+  }
+  .left-column .clocks,
+  .left-column .controls { grid-column: 1 / -1; }
+  .left-column .captured,
+  .left-column .scoreboard { order: 1; }
+  .left-column .captured { padding: 6px 10px; }
+  /* Its `auto` column is exactly as wide as its content, which runs
+     "Score" into "0–0–0" without a gap of its own. */
+  .left-column .scoreboard { padding: 6px 14px; gap: 12px; }
+
+  .clocks { flex-direction: row; }
+  .clocks .clock { flex: 1 1 0; min-width: 0; padding: 8px 14px; }
+  .clock-time { font-size: 1.5rem; }
+
+  /* Four across: Undo/Redo/Flip/Resign, then Pause/Step and Speed, then the
+     hint button beside its text. The two `.controls-grid` wrappers step
+     aside so their buttons join this grid directly. */
+  .left-column .controls {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    max-width: none;
+  }
+  .left-column .controls .controls-grid { display: contents; }
+  .left-column .controls .speed-control { grid-column: span 2; }
+  .left-column .controls .hint-row {
+    grid-column: 1 / -1;
+    flex-direction: row;
+    align-items: center;
+    flex-wrap: nowrap;
+  }
+  .left-column .hint-row button[data-testid='hint'] { width: auto; flex: 0 0 160px; }
+  .left-column .hint-row .hint-text { flex: 1 1 auto; min-width: 0; }
 }
 
 /* ------------------------------------------------------------------

@@ -83,8 +83,14 @@ Both deployments were current at `63f68fd`. Verify rather than assume when it ma
   columns `232px minmax(0, var(--board-size)) 280px`. Both side columns are capped at
   `var(--board-size)` with `min-height: 0`, `overflow-y: auto`, `scrollbar-gutter: stable`.
   `.right-column`'s cap is the backstop that actually carries the no-overflow invariant.
-- The layout stacks below 1020px, accepted deliberately: a `clamp()` floor is illusory inside a
-  `minmax(0, …)` track, because the minimum is 0 and width binds first.
+- Three columns stop at 1020px: a `clamp()` floor is illusory inside a `minmax(0, …)` track,
+  because the minimum is 0 and width binds first. **769–1020px picks by orientation**
+  (spec `docs/superpowers/specs/2026-09-28-mid-width-layout-design.md`): landscape is the board
+  plus one 280px side panel with zero page scroll; portrait stacks with the board, clocks and
+  every Controls button above the fold. In that band `.app` is exactly `100svh` and `.layout` is
+  a size container, so `--board-size` reads `cqh`/`cqw` — **not** `--chrome`, because the header
+  wraps there. Portrait's `--below-board: 185px` is measured; re-measure it if Controls or the
+  clocks change height. `≤768px` (phones) is unchanged.
 - Zero-scroll target viewport is **1440×800**: `scrollHeight === innerHeight`, no horizontal
   overflow, all 21 controls reachable. Verified across three viewports × {fresh, 140-ply} × all
   four tabs.
@@ -115,5 +121,5 @@ Both deployments were current at `63f68fd`. Verify rather than assume when it ma
 
 If Peter opens with a task, do the task. If he asks what's next, the honest answer is that the
 backlog is empty — don't invent work. Candidates worth *offering*, none of them committed to:
-designing the sub-1020px stacked layout properly rather than merely accepting it; a pass over
-coach-server behaviour under real Netlify conditions; or whatever he has in mind.
+a pass over coach-server behaviour under real Netlify conditions; or whatever he has in mind.
+(The 769–1020px layout was designed and shipped 2026-09-28.)
