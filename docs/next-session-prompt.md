@@ -62,16 +62,26 @@ Branch `feat/claude-vs-claude` adds a mode where two Claude models play each oth
 supersedes the owner-only sections), plan `docs/superpowers/plans/2026-09-29-claude-vs-claude.md`.
 
 - **Local only.** The mode exists in `npm run dev` and `npm run start:claude` (a local build
-  with `VITE_CLAUDE_GAMES=on`), never on Netlify or GitHub Pages. A vite build guard
-  (`scripts/publicBuildGuard.ts`) refuses `VITE_CLAUDE_GAMES=on` in any Netlify or CI build, so
-  never put it in `.env`.
+  with `VITE_CLAUDE_GAMES=on`), never on Netlify or GitHub Pages. The gate reads Vite's
+  `MODE === 'development'` (not `DEV`, which `NODE_ENV=development` turns on in a build). A vite
+  build guard (`scripts/publicBuildGuard.ts`) refuses `VITE_CLAUDE_GAMES=on`, a non-production
+  `--mode`, or any `NODE_ENV` other than `production` in a Netlify or CI build, so never put the
+  flag (or `NODE_ENV`) in `.env`.
+- **Always deploy with `netlify deploy --build`**, never a bare `--prod` of an existing `dist/`:
+  `npm run start:claude` leaves a flagged `dist/` (with the Claude UI) behind, and only `--build`
+  rebuilds it through the guard.
 - **Run it:** `ANTHROPIC_API_KEY` in `.env` (Peter's to set; never read or echo it). Either
   `npm run server` in one terminal and `npm run dev` in another, or `npm run start:claude`.
   `/api/game/*` is served only by the local Express app on loopback; without a key it answers 503
   and the mode shows why.
 - **Money and games:** a $20 per UTC month cap, and saved games (`games/saved/<id>`), live in
   `~/.chess-game/claude-games` (override with `CLAUDE_GAMES_DIR`), shared across worktrees.
-  Restarting the local server ends an in-progress game as lost.
+  Restarting the local server ends an in-progress game as lost; the games lock carries the
+  server's boot id, so the next Start after a restart settles that game as abandoned at once
+  (no 30-minute wait, no need to touch `lock.json`).
+- **A corrupt ledger file fails closed:** `GET /api/game/budget` answers 500 and the mode shows
+  the start-the-server hint. The server log names the JSON file that failed to parse; repair or
+  remove that file rather than deleting `lock.json` (which would strand the game's reservation).
 - **Constants** (model ids, list prices, per-game reserves, move timeout, the 160-ply
   adjudication cap, the 25-minute session idle limit) live in `src/claude/models.ts`.
 - **Task 10 (live measurement) is still pending:** it now runs locally with Peter's own key,

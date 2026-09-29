@@ -5,6 +5,10 @@ import type { MessagesClient } from './claude'
 import { handleGame } from './gameHandler'
 import { GAMES_LIMITS } from './games'
 import { fakeStore } from '../netlify/lib/limits.test'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { fileStore } from './fileStore'
 
 const NOW = Date.UTC(2026, 8, 29, 12, 0, 0)
 const SECRET = Buffer.from('fake-process-secret')
@@ -339,4 +343,26 @@ test('the coach keys are never written', async () => {
     expect(key.startsWith('games/')).toBe(true)
     expect(/^(answer|rate|budget)\//.test(key)).toBe(false)
   }
+})
+
+describe('a corrupt ledger file', () => {
+  test('fails closed with a bare 500: the file path is logged, never sent', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'ledger-'))
+    try {
+      const logged: string[] = []
+      const fs = fileStore(root, { log: (line) => logged.push(line) })
+      await fs.setJSON('games/budget/2026-09', { spent: 0, reserved: 0 })
+      await writeFile(join(root, 'games', 'budget', '2026-09.json'), '{oops')
+      for (const ep of ['budget', 'start'] as const) {
+        const r = await call(ep, { store: fs, body: { white: 'haiku', black: 'haiku' } })
+        expect(r.res.status).toBe(500)
+        expect(r.text).not.toContain(root)
+        expect(r.text).not.toContain('2026-09.json')
+      }
+      expect(logged).toHaveLength(1)
+      expect(logged[0]).toContain(join(root, 'games', 'budget', '2026-09.json'))
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
 })

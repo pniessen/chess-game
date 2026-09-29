@@ -79,4 +79,18 @@ describe('fileStore', () => {
     await writeFile(join(dir, 'games', 'bad.json'), '{not json')
     await expect(s.get('games/bad', { type: 'json' })).rejects.toThrow()
   })
+
+  // The owner must know which file to repair: the HTTP answer is a bare 500.
+  test('a corrupt file names its path in the error and is logged once, server-side', async () => {
+    const logged: string[] = []
+    const s = fileStore(dir, { log: (line) => logged.push(line) })
+    await s.setJSON('games/budget/2026-09', {})
+    const file = join(dir, 'games', 'budget', '2026-09.json')
+    await writeFile(file, '{not json')
+    await expect(s.get('games/budget/2026-09', { type: 'json' })).rejects.toThrow(file)
+    await expect(s.get('games/budget/2026-09', { type: 'json' })).rejects.toThrow(file)
+    expect(logged).toHaveLength(1)
+    expect(logged[0]).toContain(file)
+    expect(logged[0]).toMatch(/repair or remove/)
+  })
 })

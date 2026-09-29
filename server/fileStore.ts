@@ -18,10 +18,16 @@ import type { GameStore } from './store'
  *   another, and rename is atomic). Two processes on the same dir are not
  *   coordinated; the games rules already accept last-write-wins.
  * - A missing file reads as null. A corrupt file throws, so the games guards
- *   fail closed instead of treating an unreadable ledger as an empty one.
+ *   fail closed instead of treating an unreadable ledger as an empty one. The
+ *   error names the file, and the file is logged once (until it reads or is
+ *   written cleanly again) through `opts.log`, so the owner knows what to
+ *   repair; the HTTP layer never sends error text, so the path stays local.
  */
-export function fileStore(dir: string): GameStore {
+export function fileStore(dir: string, opts: { log?: (line: string) => void } = {}): GameStore {
+  const log = opts.log ?? ((line: string) => console.error(line))
   const tails = new Map<string, Promise<unknown>>()
+  /** Corrupt files already reported, so a polled budget does not flood the log. */
+  const reported = new Set<string>()
 
   const fileFor = (key: string): string => {
     const parts = key.split('/').map((seg) => {
@@ -34,14 +40,29 @@ export function fileStore(dir: string): GameStore {
 
   return {
     async get(key) {
+      const file = fileFor(key)
       let text: string
       try {
-        text = await readFile(fileFor(key), 'utf8')
+        text = await readFile(file, 'utf8')
       } catch (e) {
-        if ((e as NodeJS.ErrnoException).code === 'ENOENT') return null
+        if ((e as NodeJS.ErrnoException).code === 'ENOENT') {
+          reported.delete(file)
+          return null
+        }
         throw e
       }
-      return JSON.parse(text)
+      let value: unknown
+      try {
+        value = JSON.parse(text)
+      } catch (e) {
+        if (!reported.has(file)) {
+          reported.add(file)
+          log(`claude games ledger: ${file} is not valid JSON; games fail closed until you repair or remove that file`)
+        }
+        throw new Error(`corrupt JSON in ${file}`, { cause: e })
+      }
+      reported.delete(file)
+      return value
     },
     async setJSON(key, value) {
       const file = fileFor(key)
@@ -50,6 +71,7 @@ export function fileStore(dir: string): GameStore {
         const tmp = `${file}.${randomUUID()}.tmp`
         await writeFile(tmp, JSON.stringify(value), 'utf8')
         await rename(tmp, file)
+        reported.delete(file)
       }
       const run = (tails.get(file) ?? Promise.resolve()).then(write, write)
       tails.set(file, run.catch(() => undefined))
