@@ -171,6 +171,8 @@ describe('Rematch of a Claude game', () => {
     act(() => h.controller.finishAs('resign', 'w'))
     mover.log.length = 0
     act(() => h.result.current.lifecycle.handleRematch())
+    // begin() first lets the finished game's end() settle, so it is sent a tick later.
+    await settle()
     expect(mover.log).toEqual(['begin'])
     expect(h.controller.snapshot().phase.kind).toBe('finished')
     await act(async () => mover.begins[1]!({ ok: true, budgetLeftUsd: 5 }))
@@ -271,5 +273,67 @@ describe('resuming a paused Claude game', () => {
     act(() => h.result.current.lifecycle.withClaudeSession(run))
     expect(run).toHaveBeenCalledTimes(1)
     expect(mover.begin).not.toHaveBeenCalled()
+  })
+})
+
+describe('the server lock: end() must land before the next begin()', () => {
+  /**
+   * Like the server: begin answers busy while a game is open, and only a
+   * completed end releases it. Each end resolves by hand, so the race the
+   * real network allows is under the test's control.
+   */
+  function lockedMover(): FakeMover & { pendingEnds: Array<() => void> } {
+    const m = fakeMover() as FakeMover & { pendingEnds: Array<() => void> }
+    let locked = false
+    m.pendingEnds = []
+    m.begin = vi.fn(async () => {
+      m.log.push('begin')
+      if (locked) return { ok: false as const, kind: 'busy' as const }
+      locked = true
+      return { ok: true as const, budgetLeftUsd: 10 }
+    })
+    m.end = vi.fn((record) => {
+      m.log.push('end')
+      m.ends.push(record)
+      return new Promise<void>((resolve) =>
+        m.pendingEnds.push(() => {
+          locked = false
+          resolve()
+        }),
+      )
+    })
+    return m
+  }
+
+  // Red if begin() is sent while the old game's end is still on its way.
+  test('replacing a running Claude game begins the new one and never shows busy', async () => {
+    const mover = lockedMover()
+    const h = harness(mover)
+    await startClaudeGame(h)
+    const first = h.controller.snapshot().game
+    act(() => h.result.current.lifecycle.choices.setClaudeWhite('fable'))
+    act(() => h.result.current.lifecycle.handleNewGame())
+    await settle()
+    // The end is out; begin waits for it.
+    expect(mover.log.slice(-1)).toEqual(['end'])
+    await act(async () => mover.pendingEnds.shift()!())
+    await settle()
+    expect(h.result.current.claude.error).toBeNull()
+    expect(h.controller.snapshot().game).not.toBe(first)
+    expect(h.controller.snapshot().config.white).toEqual({ kind: 'claude', model: 'fable' })
+  })
+
+  test('a begin right after a finish waits for the finish end too', async () => {
+    const mover = lockedMover()
+    const h = harness(mover)
+    await startClaudeGame(h)
+    act(() => h.controller.finishAs('resign', 'w'))
+    act(() => h.result.current.lifecycle.handleRematch())
+    await settle()
+    expect(mover.log.at(-1)).toBe('end')
+    await act(async () => mover.pendingEnds.shift()!())
+    await settle()
+    expect(h.result.current.claude.error).toBeNull()
+    expect(h.controller.snapshot().phase.kind).toBe('engine-thinking')
   })
 })

@@ -35,17 +35,42 @@ export function useClaudeSession(controller: MatchController, mover: ClaudeMover
   /** Bumped by every begin and every replace: a begin that lands after either is stale. */
   const seqRef = useRef(0)
   const inFlightRef = useRef(false)
+  /**
+   * The last end() still on its way, if any. The server holds its one-game
+   * lock until /api/game/end lands, so a begin() sent before then answers
+   * busy: begin waits for this first.
+   */
+  const endingRef = useRef<Promise<void> | null>(null)
+
+  /** Send an end and remember it until it settles (a mover's end never throws). */
+  const sendEnd = useCallback(
+    (record: Parameters<ClaudeMover['end']>[0]): Promise<void> => {
+      if (!mover) return Promise.resolve()
+      const p: Promise<void> = mover.end(record).then(
+        () => {
+          if (endingRef.current === p) endingRef.current = null
+        },
+        () => {
+          if (endingRef.current === p) endingRef.current = null
+        },
+      )
+      endingRef.current = p
+      return p
+    },
+    [mover],
+  )
   const [error, setError] = useState<ClaudeStartError | null>(null)
 
-  const end = useCallback(() => {
-    if (!mover || !openRef.current) return
+  const end = useCallback((): Promise<void> => {
+    if (!mover || !openRef.current) return Promise.resolve()
     openRef.current = false
     const snap = controller.snapshot()
-    void mover.end(claudeRecordOf(snap))
+    const sent = sendEnd(claudeRecordOf(snap))
     // A live Claude game with no session would only fail its next ask:
     // hold it paused instead, so a later Resume can begin again.
     if (isClaudeGame(snap.config)) controller.pause()
-  }, [controller, mover])
+    return sent
+  }, [controller, mover, sendEnd])
 
   const begin = useCallback(
     async (white: ClaudeModelKey, black: ClaudeModelKey): Promise<boolean> => {
@@ -55,20 +80,24 @@ export function useClaudeSession(controller: MatchController, mover: ClaudeMover
       }
       // One begin at a time: the mover holds a single game.
       if (inFlightRef.current) return false
-      // A mover's begin does not clear a previous session: end it first.
+      // A mover's begin does not clear a previous session: end it first —
+      // and let that end (or any other still on its way) reach the server
+      // before beginning, or the old game's lock answers busy.
       end()
       const seq = ++seqRef.current
       inFlightRef.current = true
       setError(null)
       let result: BeginResult
       try {
+        while (endingRef.current) await endingRef.current
+        if (seq !== seqRef.current) return false // replaced while waiting: begin nothing
         result = await mover.begin(white, black)
       } finally {
         inFlightRef.current = false
       }
       if (seq !== seqRef.current) {
         // Overtaken by another start or load: the server game it opened is not wanted.
-        if (result.ok) void mover.end({ pgn: '*', fallbacks: { w: 0, b: 0 } })
+        if (result.ok) void sendEnd({ pgn: '*', fallbacks: { w: 0, b: 0 } })
         return false
       }
       if (!result.ok) {
@@ -78,7 +107,7 @@ export function useClaudeSession(controller: MatchController, mover: ClaudeMover
       openRef.current = true
       return true
     },
-    [mover, end],
+    [mover, end, sendEnd],
   )
 
   const replace = useCallback(() => {
@@ -98,8 +127,9 @@ export function useClaudeSession(controller: MatchController, mover: ClaudeMover
   )
 
   useEffect(() => {
-    window.addEventListener('pagehide', end)
-    return () => window.removeEventListener('pagehide', end)
+    const onPageHide = () => void end()
+    window.addEventListener('pagehide', onPageHide)
+    return () => window.removeEventListener('pagehide', onPageHide)
   }, [end])
 
   const isOpen = useCallback(() => openRef.current, [])
