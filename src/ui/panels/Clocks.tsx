@@ -21,32 +21,50 @@ export function formatClock(ms: number): string {
   return `${minutes}:${pad(seconds)}`
 }
 
+/** A Claude side's total model time: always `m:ss.t`, since it only grows by a call's worth at a time. */
+export function formatModelTime(ms: number): string {
+  const tenthsTotal = Math.floor(Math.max(0, ms) / 100)
+  const minutes = Math.floor(tenthsTotal / 600)
+  const seconds = Math.floor((tenthsTotal % 600) / 10)
+  return `${minutes}:${String(seconds).padStart(2, '0')}.${tenthsTotal % 10}`
+}
+
+const MODEL_TIME_TITLE = "Model time: Anthropic API time for this side's moves"
+
 function Side({
   label,
   ms,
   running,
   flagged,
   testId,
+  modelTime,
 }: {
   label: string
   ms: number
   running: boolean
   flagged: boolean
   testId: string
+  /** A Claude side's total model time, shown in place of its (untimed) clock. */
+  modelTime?: number
 }) {
   const classes = [
     'clock',
     running ? 'running' : '',
     flagged ? 'flagged' : '',
     // Display-only: under LOW_TIME_MS the clock turns red (and pulses while
-    // running). Exactly 0 without a flag is an untimed game, not low time.
-    !flagged && ms > 0 && ms < LOW_TIME_MS ? 'low' : '',
+    // running). Exactly 0 without a flag is an untimed game, not low time;
+    // model time is time used, not time left, so it is never low either.
+    modelTime === undefined && !flagged && ms > 0 && ms < LOW_TIME_MS ? 'low' : '',
   ].filter(Boolean)
   return (
     <div className={classes.join(' ')}>
       <span className="clock-label">{label}</span>
-      <span className="clock-time" data-testid={testId}>
-        {formatClock(ms)}
+      <span
+        className="clock-time"
+        data-testid={testId}
+        {...(modelTime !== undefined ? { title: MODEL_TIME_TITLE } : {})}
+      >
+        {modelTime !== undefined ? formatModelTime(modelTime) : formatClock(ms)}
       </span>
     </div>
   )
@@ -72,6 +90,8 @@ export function Clocks({
   readClock,
   orientation,
   names,
+  modelTime,
+  thinking,
 }: {
   clock: ClockState
   /** A fresh read of the live clock; omit for a static display. */
@@ -79,6 +99,13 @@ export function Clocks({
   orientation: 'white' | 'black'
   /** Player names in place of White / Black (Claude vs Claude: the model labels). */
   names?: { w: string; b: string }
+  /**
+   * Each Claude side's total model time (ms): that side shows it instead of
+   * its clock. Sides not in it are ordinary clocks.
+   */
+  modelTime?: Partial<Record<'w' | 'b', number>>
+  /** The side whose Claude seat is thinking: a model-time side is marked running while it is. */
+  thinking?: 'w' | 'b' | null
 }) {
   // A polled reading, tagged with the snapshot clock it was taken under: a
   // new snapshot (a move, a pause) makes any older polled reading moot.
@@ -94,13 +121,17 @@ export function Clocks({
 
   const top = orientation === 'white' ? 'b' : 'w'
   const bottom = orientation === 'white' ? 'w' : 'b'
-  const props = (side: 'w' | 'b') => ({
-    label: names?.[side] ?? (side === 'w' ? 'White' : 'Black'),
-    ms: side === 'w' ? shown.whiteMs : shown.blackMs,
-    running: shown.running === side,
-    flagged: shown.flagged === side,
-    testId: `clock-${side}`,
-  })
+  const props = (side: 'w' | 'b') => {
+    const model = modelTime?.[side]
+    return {
+      label: names?.[side] ?? (side === 'w' ? 'White' : 'Black'),
+      ms: side === 'w' ? shown.whiteMs : shown.blackMs,
+      running: model !== undefined ? thinking === side : shown.running === side,
+      flagged: shown.flagged === side,
+      testId: `clock-${side}`,
+      ...(model !== undefined ? { modelTime: model } : {}),
+    }
+  }
 
   return (
     <div className="clocks" data-testid="clocks">

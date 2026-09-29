@@ -1,7 +1,7 @@
 import { LEVELS } from '../../engine/strength'
 import { TIME_CONTROLS } from '../../clock/types'
 import type { Level } from '../../storage/storage'
-import { CLAUDE_MODELS, type ClaudeModelKey } from '../../claude/models'
+import { CLAUDE_MODELS, shortModelLabel, type ClaudeModelKey, type UsageByModel } from '../../claude/models'
 import { claudeEstimateUsd } from '../app/matchConfig'
 import { CLAUDE_GAMES } from '../../claude/enabled'
 
@@ -21,11 +21,42 @@ export interface NewGameClaude {
    * the local server is not running or has no key, so Start is disabled.
    */
   budgetLeftUsd: number | null | undefined
+  /** This month's usage per model and the dollars from before it was tracked; absent until read. */
+  month?: { byModel: UsageByModel; earlierUsd: number }
 }
 
 const MODEL_KEYS = Object.keys(CLAUDE_MODELS) as ClaudeModelKey[]
 
 const usd = (n: number) => `$${n.toFixed(2)}`
+
+/** "Fable" from "Claude Fable 5.1": the month line is kept short. */
+const familyLabel = (k: ClaudeModelKey) => shortModelLabel(k).replace(/ [\d.]+$/, '')
+
+/**
+ * "This month: Fable $0.23 (12 moves, 3.9 s/move) · … · Earlier: $0.13", for
+ * the models with calls; output tokens only in each model's title. Null when
+ * there is nothing to show.
+ */
+function MonthLine({ month }: { month: NonNullable<NewGameClaude['month']> }) {
+  const parts = MODEL_KEYS.flatMap((k) => {
+    const u = month.byModel[k]
+    if (!u || u.calls <= 0) return []
+    const perMove = (u.ms / u.calls / 1000).toFixed(1)
+    return [
+      <span key={k} title={`${shortModelLabel(k)}: ${u.outputTokens.toLocaleString('en-US')} output tokens`}>
+        {`${familyLabel(k)} ${usd(u.costUsd)} (${u.calls} ${u.calls === 1 ? 'move' : 'moves'}, ${perMove} s/move)`}
+      </span>,
+    ]
+  })
+  if (month.earlierUsd > 0.005) parts.push(<span key="earlier">{`Earlier: ${usd(month.earlierUsd)}`}</span>)
+  if (parts.length === 0) return null
+  return (
+    <p className="claude-note" data-testid="claude-month">
+      This month:{' '}
+      {parts.flatMap((p, i) => (i === 0 ? [p] : [' · ', p]))}
+    </p>
+  )
+}
 
 export function NewGame({
   mode,
@@ -168,6 +199,7 @@ export function NewGame({
                 ? 'unavailable'
                 : usd(claude.budgetLeftUsd)}
           </p>
+          {claude.month && typeof claude.budgetLeftUsd === 'number' ? <MonthLine month={claude.month} /> : null}
           {claudeUnavailable ? (
             <p className="claude-note" role="status" data-testid="claude-unavailable-hint">
               Claude games are unavailable. Start the local server (npm run server) with ANTHROPIC_API_KEY in .env.

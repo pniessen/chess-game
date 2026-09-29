@@ -326,6 +326,14 @@ function AppInner({
   const clockNames = claudeGame
     ? { w: seatName(snapshot.config.white, 'White'), b: seatName(snapshot.config.black, 'Black') }
     : undefined
+  // Each Claude side's clock shows its model time (Anthropic API time), marked while it thinks.
+  const claudeModelTime: Partial<Record<'w' | 'b', number>> = {}
+  for (const side of ['w', 'b'] as const) {
+    if ((side === 'w' ? snapshot.config.white : snapshot.config.black).kind === 'claude') {
+      claudeModelTime[side] = snapshot.claude.usage[side].ms
+    }
+  }
+  const claudeThinking = snapshot.phase.kind === 'engine-thinking' ? snapshot.phase.side : null
   const exportGame = () =>
     claudeGame ? downloadPgn(game, claudeHeaders(snapshot), claudeComments(snapshot)) : downloadPgn(game)
 
@@ -395,9 +403,20 @@ function AppInner({
 
       <div className={claudeGame ? 'layout claude-game' : 'layout'}>
         <div className="left-column" ref={leftColumnRef}>
-          <Clocks clock={snapshot.clock} readClock={readClock} orientation={orientation} names={clockNames} />
+          <Clocks
+            clock={snapshot.clock}
+            readClock={readClock}
+            orientation={orientation}
+            names={clockNames}
+            {...(claudeGame ? { modelTime: claudeModelTime, thinking: claudeThinking } : {})}
+          />
           {claudeGame ? (
-            <ClaudeStatus phase={snapshot.phase} config={snapshot.config} spentUsd={snapshot.claude.spentUsd} />
+            <ClaudeStatus
+              phase={snapshot.phase}
+              config={snapshot.config}
+              spentUsd={snapshot.claude.spentUsd}
+              usage={snapshot.claude.usage}
+            />
           ) : null}
           <Captured moves={game.moves.slice(0, game.ply)} pieceSet={settings.pieceSetId} />
           <Scoreboard score={records.score} />
@@ -515,6 +534,7 @@ function AppInner({
                     onWhiteChange: choices.setClaudeWhite,
                     onBlackChange: choices.setClaudeBlack,
                     budgetLeftUsd: claudeBudget ? claudeBudget.budgetLeftUsd : claudeBudget,
+                    ...(claudeBudget ? { month: claudeBudget } : {}),
                   }
                 : undefined
             }
