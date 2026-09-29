@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, test } from 'vitest'
-import { RESERVE_PER_GAME_USD } from '../../src/claude/models'
+import { CLAUDE_SESSION_IDLE_MS, MOVE_TIMEOUT_MS, RESERVE_PER_GAME_USD } from '../../src/claude/models'
 import {
   GAMES_LIMITS,
   authorizeMove,
@@ -205,5 +205,11 @@ describe('abandoned games and failing reads', () => {
     const broken = { get: async () => Promise.reject(new Error('blob down')), setJSON: async () => undefined }
     await expect(startGame(broken, NOW, ENV, SIDES)).rejects.toThrow('blob down')
     await expect(budgetLeft(broken, NOW)).rejects.toThrow('blob down')
+  })
+})
+
+describe('the browser gives up a session before the lock does', () => {
+  test('its idle limit plus a whole move timeout is inside the lock TTL', () => {
+    expect(CLAUDE_SESSION_IDLE_MS + MOVE_TIMEOUT_MS).toBeLessThan(GAMES_LIMITS.lockTtlMs)
   })
 })

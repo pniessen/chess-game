@@ -265,6 +265,27 @@ describe('resuming a paused Claude game', () => {
     expect(mover.log).toEqual([])
   })
 
+  test('a session idle past the lock limit reads closed: Resume ends it, begins again, then plays', async () => {
+    const mover = fakeMover()
+    const h = resumed(mover)
+    act(() => h.result.current.lifecycle.withClaudeSession(() => h.controller.resume()))
+    await settle()
+    expect(h.result.current.claude.isOpen()).toBe(true)
+    await act(async () => mover.moves[0]!.resolve({ ok: true, san: 'Nf3', why: 'x', costUsd: 0.4, gameSpentUsd: 0.4 }))
+    act(() => h.controller.pause())
+    expect(h.controller.snapshot().claude.spentUsd).toBeCloseTo(0.4)
+    mover.fresh = false
+    expect(h.result.current.claude.isOpen()).toBe(false)
+    mover.log.length = 0
+    const run = vi.fn(() => h.controller.resume())
+    act(() => h.result.current.lifecycle.withClaudeSession(run))
+    await settle()
+    expect(mover.log.slice(0, 2)).toEqual(['end', 'begin'])
+    expect(run).toHaveBeenCalledTimes(1)
+    // The new server game's spend starts from zero: the meter is reset, not max(old, new).
+    expect(h.controller.snapshot().claude.spentUsd).toBe(0)
+  })
+
   // Red if a human or engine game's Resume stops being synchronous.
   test('a game with no Claude seat runs at once, without begin', () => {
     const mover = fakeMover()

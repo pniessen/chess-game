@@ -15,7 +15,12 @@ export interface ClaudeSession {
   begin: (white: ClaudeModelKey, black: ClaudeModelKey) => Promise<boolean>
   /** A non-Claude start or load is replacing the match: end the session and forget any begin in flight. */
   replace: () => void
-  /** Whether a server game is open for the match on the board. */
+  /**
+   * Whether a server game is open for the match on the board — false once
+   * the mover says the session has gone CLAUDE_SESSION_IDLE_MS without
+   * server contact (the server lock lapses at 30 minutes), so Resume/Step
+   * end it and begin again rather than send a move the server refuses.
+   */
   isOpen: () => boolean
   error: ClaudeStartError | null
   dismissError: () => void
@@ -105,9 +110,12 @@ export function useClaudeSession(controller: MatchController, mover: ClaudeMover
         return false
       }
       openRef.current = true
+      // A new server game's spend starts at zero; a re-begin (Resume after
+      // the old session lapsed) must not keep showing the old total.
+      controller.resetClaudeSpend()
       return true
     },
-    [mover, end, sendEnd],
+    [controller, mover, end, sendEnd],
   )
 
   const replace = useCallback(() => {
@@ -132,7 +140,7 @@ export function useClaudeSession(controller: MatchController, mover: ClaudeMover
     return () => window.removeEventListener('pagehide', onPageHide)
   }, [end])
 
-  const isOpen = useCallback(() => openRef.current, [])
+  const isOpen = useCallback(() => openRef.current && (mover?.sessionFresh?.() ?? true), [mover])
   const dismissError = useCallback(() => setError(null), [])
 
   return useMemo(

@@ -673,6 +673,18 @@ export class MatchController {
     this.claudeState = { ...this.claudeState, notes: kept }
   }
 
+  /**
+   * A new server session began for the game on the board (a Resume after the
+   * old session lapsed): its running total starts again from zero, so the
+   * meter must too — recordSpend keeps the largest total, which would
+   * otherwise pin it at the old session's. Notes and fallbacks stay.
+   */
+  resetClaudeSpend(): void {
+    if (this.claudeState.spentUsd === 0) return
+    this.claudeState = { ...this.claudeState, spentUsd: 0 }
+    this.emit()
+  }
+
   /** `spentUsd` is the largest running total the server has reported (replies can land out of order). */
   private recordSpend(gameSpentUsd: number): void {
     if (gameSpentUsd <= this.claudeState.spentUsd) return

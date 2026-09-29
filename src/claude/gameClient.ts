@@ -1,4 +1,4 @@
-import type { ClaudeModelKey } from './models'
+import { CLAUDE_SESSION_IDLE_MS, type ClaudeModelKey } from './models'
 
 export type BeginResult =
   | { ok: true; budgetLeftUsd: number }
@@ -18,6 +18,12 @@ export interface ClaudeMover {
   begin(white: ClaudeModelKey, black: ClaudeModelKey): Promise<BeginResult>
   move(req: { startFen?: string; history: string[] }, signal?: AbortSignal): Promise<ClaudeMoveResult>
   end(record: GameRecord): Promise<void>
+  /**
+   * Whether the begun session can still be trusted to hold the server lock:
+   * false before begin, after end, and once CLAUDE_SESSION_IDLE_MS have
+   * passed without server contact. Optional: a mover without it is always fresh.
+   */
+  sessionFresh?(): boolean
 }
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -46,11 +52,19 @@ async function readJson(res: Response): Promise<unknown> {
 export class GameClient implements ClaudeMover {
   private readonly fetchImpl: typeof fetch
   private readonly ownerToken: () => string | null
+  private readonly now: () => number
   private game: { gameId: string; token: string } | null = null
+  /** When the server last heard from this session: the send time of the last request it answered. */
+  private lastContactAt: number | null = null
 
-  constructor(opts: { fetch?: typeof fetch; ownerToken: () => string | null }) {
+  constructor(opts: { fetch?: typeof fetch; ownerToken: () => string | null; now?: () => number }) {
     this.fetchImpl = opts.fetch ?? ((input, init) => fetch(input, init))
     this.ownerToken = opts.ownerToken
+    this.now = opts.now ?? Date.now
+  }
+
+  sessionFresh(): boolean {
+    return this.game !== null && this.lastContactAt !== null && this.now() - this.lastContactAt <= CLAUDE_SESSION_IDLE_MS
   }
 
   private headers(): Record<string, string> {
@@ -58,6 +72,7 @@ export class GameClient implements ClaudeMover {
   }
 
   async begin(white: ClaudeModelKey, black: ClaudeModelKey): Promise<BeginResult> {
+    const sentAt = this.now()
     let res: Response
     try {
       res = await this.fetchImpl('/api/game/start', {
@@ -71,6 +86,7 @@ export class GameClient implements ClaudeMover {
     const payload = await readJson(res)
     if (res.ok && isRecord(payload) && typeof payload['gameId'] === 'string' && typeof payload['token'] === 'string') {
       this.game = { gameId: payload['gameId'], token: payload['token'] }
+      this.lastContactAt = sentAt
       const left = payload['budgetLeftUsd']
       return { ok: true, budgetLeftUsd: typeof left === 'number' ? left : 0 }
     }
@@ -82,6 +98,9 @@ export class GameClient implements ClaudeMover {
   async move(req: { startFen?: string; history: string[] }, signal?: AbortSignal): Promise<ClaudeMoveResult> {
     if (!this.game) return { ok: false, kind: 'fatal' }
     if (signal?.aborted) return { ok: false, kind: 'retry' }
+    // The server extends its lock when it authorises a move, i.e. after this
+    // send: dating the contact from the send errs on the early (safe) side.
+    const sentAt = this.now()
     let res: Response
     try {
       res = await this.fetchImpl('/api/game/move', {
@@ -103,6 +122,8 @@ export class GameClient implements ClaudeMover {
       if (signal?.aborted || err instanceof TypeError) return { ok: false, kind: 'retry' }
       return { ok: false, kind: 'fatal' }
     }
+    // Any answer is contact, even a refusal. Only the game that sent it counts.
+    if (this.game) this.lastContactAt = sentAt
     const payload = await readJson(res)
     if (
       res.ok &&
@@ -134,6 +155,7 @@ export class GameClient implements ClaudeMover {
     const game = this.game
     if (!game) return
     this.game = null
+    this.lastContactAt = null
     try {
       await this.fetchImpl('/api/game/end', {
         method: 'POST',
@@ -148,7 +170,7 @@ export class GameClient implements ClaudeMover {
   }
 }
 
-export function createGameClient(opts: { fetch?: typeof fetch; ownerToken: () => string | null }): ClaudeMover {
+export function createGameClient(opts: { fetch?: typeof fetch; ownerToken: () => string | null; now?: () => number }): ClaudeMover {
   return new GameClient(opts)
 }
 

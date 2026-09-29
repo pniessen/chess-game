@@ -13,6 +13,8 @@ export interface FakeMover extends ClaudeMover {
   /** Pending begin() calls, resolved by hand when `autoBegin` is off. */
   begins: Array<(r: BeginResult) => void>
   moves: Array<{ req: MoveReq; resolve: (r: ClaudeMoveResult) => void }>
+  /** What sessionFresh() answers; flip it to model a session idle past the server lock. */
+  fresh: boolean
 }
 
 export function fakeMover(opts: { autoBegin?: BeginResult | null } = {}): FakeMover {
@@ -22,6 +24,8 @@ export function fakeMover(opts: { autoBegin?: BeginResult | null } = {}): FakeMo
     ends: [],
     begins: [],
     moves: [],
+    fresh: true,
+    sessionFresh: () => m.fresh,
     begin: vi.fn((): Promise<BeginResult> => {
       m.log.push('begin')
       return new Promise((resolve) => {

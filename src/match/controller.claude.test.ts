@@ -620,3 +620,24 @@ describe('why a Claude game stopped', () => {
     }
   })
 })
+
+describe('resetClaudeSpend (a re-begun session)', () => {
+  beforeEach(() => vi.useFakeTimers())
+  afterEach(() => vi.useRealTimers())
+
+  test('zeroes the spend, keeps notes and fallbacks, and emits', async () => {
+    const cl = fakeClaude(playLine(['e4', 'e5']))
+    const c = new MatchController({ engine: fakeEngine().client, claude: cl.mover })
+    c.start(CLAUDE_VS_CLAUDE)
+    await vi.advanceTimersByTimeAsync(0)
+    c.pause()
+    expect(c.snapshot().claude.spentUsd).toBeCloseTo(0.02)
+    const notes = c.snapshot().claude.notes
+    const seen = vi.fn()
+    c.subscribe(seen)
+    c.resetClaudeSpend()
+    expect(c.snapshot().claude.spentUsd).toBe(0)
+    expect(c.snapshot().claude.notes).toBe(notes)
+    expect(seen).toHaveBeenCalled()
+  })
+})

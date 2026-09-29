@@ -73,6 +73,16 @@ export const CLAUDE_MAX_PLIES = 160
 export const MOVE_TIMEOUT_MS = 45_000
 
 /**
+ * How long the browser trusts a Claude game's server session without
+ * contact. The server's one-game lock lapses 30 minutes after the last
+ * authorised move (netlify/lib/games.ts `lockTtlMs`); past this the browser
+ * treats its session as closed and begins a new one on Resume or Step,
+ * instead of sending a move the server would refuse. Five minutes short of
+ * the lock, which covers a whole move timeout and clock skew.
+ */
+export const CLAUDE_SESSION_IDLE_MS = 25 * 60_000
+
+/**
  * Dollars held back per side for one 80-ply game (40 moves each). Source: the
  * Claude-vs-Claude brainstorm (2026-09-29), which estimated a side at list
  * prices (skill pricing cached 2026-09-25) as fable ~$1.45, opus ~$0.58,

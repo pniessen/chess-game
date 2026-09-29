@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { createGameClient, fetchBudget } from './gameClient'
+import { CLAUDE_SESSION_IDLE_MS } from './models'
 import { getOwnerToken, setOwnerToken } from './ownerToken'
 
 const reply = (status: number, body: unknown): Response =>
@@ -9,6 +10,11 @@ const started = () => reply(200, { gameId: 'g1', token: 'tok', budgetLeftUsd: 12
 const moved = () => reply(200, { san: 'e4', why: 'centre', costUsd: 0.01, gameSpentUsd: 0.02 })
 
 function setup(...responses: Array<Response | Error>) {
+  return setupAt(() => 0, ...responses)
+}
+
+/** setup() with an injectable clock (ms). */
+function setupAt(now: () => number, ...responses: Array<Response | Error>) {
   const queue = [...responses]
   const fetch = vi.fn(async (_url: unknown, _init?: RequestInit) => {
     const r = queue.shift()
@@ -16,7 +22,7 @@ function setup(...responses: Array<Response | Error>) {
     if (r instanceof Error) throw r
     return r
   })
-  const client = createGameClient({ fetch: fetch as unknown as typeof globalThis.fetch, ownerToken: () => 'owner' })
+  const client = createGameClient({ fetch: fetch as unknown as typeof globalThis.fetch, ownerToken: () => 'owner', now })
   return { fetch, client }
 }
 
@@ -202,5 +208,57 @@ describe('ownerToken', () => {
     } finally {
       spies.forEach((s) => s.mockRestore())
     }
+  })
+})
+
+describe('sessionFresh: the server lock (30 min) is not outlived', () => {
+  const MIN = 60_000
+
+  it('fresh from begin until 25 minutes without server contact, then stale', async () => {
+    let t = 1_000_000
+    const { client } = setupAt(() => t, started())
+    expect(client.sessionFresh?.()).toBe(false) // nothing begun
+    await client.begin('opus', 'opus')
+    t += CLAUDE_SESSION_IDLE_MS
+    expect(client.sessionFresh?.()).toBe(true)
+    t += 1
+    expect(client.sessionFresh?.()).toBe(false)
+  })
+
+  it('a move response is contact, dated from when its request was sent', async () => {
+    let t = 0
+    let answer: (r: Response) => void = () => {}
+    const fetch = vi.fn(async (url: unknown) =>
+      String(url).endsWith('/start') ? started() : new Promise<Response>((resolve) => (answer = resolve)),
+    )
+    const client = createGameClient({ fetch: fetch as unknown as typeof globalThis.fetch, ownerToken: () => 'o', now: () => t })
+    await client.begin('opus', 'opus')
+    t = 20 * MIN
+    const p = client.move({ history: [] })
+    t = 21 * MIN
+    answer(err(502, 'timeout'))
+    await p
+    // Fresh until 25 minutes after the SEND (20 min), not the answer (21 min).
+    t = 45 * MIN
+    expect(client.sessionFresh?.()).toBe(true)
+    t = 45 * MIN + 1
+    expect(client.sessionFresh?.()).toBe(false)
+  })
+
+  it('a move that never reached the server is not contact; end forgets the session', async () => {
+    let t = 0
+    const { client } = setupAt(() => t, started(), new TypeError('Failed to fetch'), reply(200, { ok: true }))
+    await client.begin('opus', 'opus')
+    t = 20 * MIN
+    await client.move({ history: [] })
+    t = 25 * MIN + 1
+    expect(client.sessionFresh?.()).toBe(false)
+    t = 0
+    await client.end({ pgn: '*', fallbacks: { w: 0, b: 0 } })
+    expect(client.sessionFresh?.()).toBe(false)
+  })
+
+  it('the idle limit sits inside the server lock TTL', () => {
+    expect(CLAUDE_SESSION_IDLE_MS).toBe(25 * MIN)
   })
 })
