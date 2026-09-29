@@ -1,6 +1,6 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
-import { planResume } from './resume'
+import { planResume, setupOf } from './resume'
 
 // A scripted stand-in for EngineClient — never real Stockfish. Every search
 // answers with the next scripted move (black mates with Qh4# below).
@@ -109,5 +109,51 @@ describe('planResume', () => {
     )
     expect(plan.mode).toBe('zero-player')
     expect(plan.config.engineDelayMs).toBe(500)
+  })
+})
+
+describe('a Claude game resumes paused', () => {
+  const UNTIMED = { kind: 'untimed' } as const
+  const CLAUDE_SETUP = {
+    white: { kind: 'human' },
+    black: { kind: 'claude', model: 'sonnet' },
+    timeControl: UNTIMED,
+  } as const
+
+  test('setupOf persists a Claude seat instead of dropping the setup', () => {
+    expect(setupOf({ white: { kind: 'claude', model: 'opus' }, black: { kind: 'human' }, timeControl: UNTIMED })).toEqual({
+      white: { kind: 'claude', model: 'opus' },
+      black: { kind: 'human' },
+      timeControl: UNTIMED,
+    })
+  })
+
+  test('planResume keeps the Claude seats and asks for a paused load', () => {
+    const plan = planResume(CLAUDE_SETUP, true, UNTIMED)
+    expect(plan.config.black).toEqual({ kind: 'claude', model: 'sonnet' })
+    expect(plan.paused).toBe(true)
+    expect(plan.degraded).toBe(false)
+  })
+
+  test('planResume keeps Claude seats even with no engine (Claude does not need one)', () => {
+    const plan = planResume(CLAUDE_SETUP, false, UNTIMED)
+    expect(plan.config.black.kind).toBe('claude')
+    expect(plan.degraded).toBe(false)
+  })
+
+  test('a game without a Claude seat is not paused', () => {
+    expect(planResume(ONE_PLAYER_SETUP, true, UNTIMED).paused).toBe(false)
+    expect(planResume(null, true, UNTIMED).paused).toBe(false)
+  })
+
+  test('accepting a saved Claude game leaves it paused, not finished as claude-unavailable', async () => {
+    localStorage.setItem(
+      'chess-game:in-progress',
+      JSON.stringify({ v: 2, pgn: '1. e4 *', setup: CLAUDE_SETUP, scored: false }),
+    )
+    render(<App />)
+    fireEvent.click(screen.getByTestId('resume-accept'))
+    await waitFor(() => expect(screen.getByTestId('ply-count')).toHaveTextContent('1'))
+    expect(screen.queryByTestId('result')).not.toHaveTextContent(/./)
   })
 })

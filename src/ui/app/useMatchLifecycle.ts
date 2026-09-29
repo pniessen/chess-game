@@ -111,7 +111,13 @@ export function useMatchLifecycle({
    * treated as scored: the user never played that result here (or, for a
    * resumed game, it was counted when it happened).
    */
-  const loadMatch = (config: MatchConfig, history: Game, alreadyScored: boolean, alreadyRecorded = false) => {
+  const loadMatch = (
+    config: MatchConfig,
+    history: Game,
+    alreadyScored: boolean,
+    alreadyRecorded = false,
+    paused = false,
+  ) => {
     scoredRef.current = alreadyScored || history.status().kind !== 'in-progress'
     // Required fix (Task 13 review, round 1, Finding 3): recording is
     // decoupled from scoring — it depends ONLY on whether the loaded game is
@@ -128,7 +134,7 @@ export function useMatchLifecycle({
     // exactly as it wouldn't have without the reload.
     recordedRef.current = alreadyRecorded || history.status().kind !== 'in-progress'
     historyRef.current = null
-    controller.load(config, history)
+    controller.load(config, history, { paused })
     resetInput()
     onMatchReset()
   }
@@ -186,7 +192,7 @@ export function useMatchLifecycle({
       // Restore the ORIGINAL mode: a resumed one-player game must stay
       // one-player (as two-player, a loss to the engine scored as a "win").
       const plan = planResume(pendingResume.setup, engineAvailable, timeControlFor(timeControlId))
-      loadMatch(plan.config, result.game, pendingResume.scored || plan.degraded, pendingResume.recorded)
+      loadMatch(plan.config, result.game, pendingResume.scored || plan.degraded, pendingResume.recorded, plan.paused)
       setMode(plan.mode)
       if (plan.level !== null) setLevel(plan.level)
       if (plan.humanColor !== null) setColor(plan.humanColor)

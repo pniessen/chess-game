@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { MatchController } from './controller'
+import { Game } from '../game-core/game'
 import type { MatchConfig } from './types'
 import type { EngineInfo } from '../engine/uci'
 import type { StrengthProfile } from '../engine/strength'
@@ -468,5 +469,34 @@ describe('MatchController: the claude seat', () => {
     expect(c.snapshot()).toBe(after)
     c.pause()
     expect(c.snapshot().claude).toBe(after.claude)
+  })
+})
+
+describe('load(..., { paused: true })', () => {
+  test('a Claude game loaded paused makes no move() call until resume()', async () => {
+    const eng = fakeEngine()
+    const { move, mover } = fakeClaude()
+    const c = new MatchController({ engine: eng.client, claude: mover })
+    const game = new Game()
+    game.play({ from: 'e2', to: 'e4' })
+    expect(c.load(HUMAN_VS_CLAUDE, game, { paused: true })).toBe(true)
+    await Promise.resolve()
+    expect(c.snapshot().phase).toEqual({ kind: 'paused' })
+    expect(move).not.toHaveBeenCalled()
+    expect(mover.begin).not.toHaveBeenCalled()
+
+    c.resume()
+    expect(c.snapshot().phase.kind).toBe('engine-thinking')
+    expect(move).toHaveBeenCalledTimes(1)
+  })
+
+  test('loading without the option still asks Claude at once', () => {
+    const eng = fakeEngine()
+    const { move, mover } = fakeClaude()
+    const c = new MatchController({ engine: eng.client, claude: mover })
+    const game = new Game()
+    game.play({ from: 'e2', to: 'e4' })
+    c.load(HUMAN_VS_CLAUDE, game)
+    expect(move).toHaveBeenCalledTimes(1)
   })
 })

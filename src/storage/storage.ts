@@ -1,3 +1,4 @@
+import { isClaudeModelKey, type ClaudeModelKey } from '../claude/models'
 import type { TimeControl } from '../clock/types'
 
 export type Level = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8
@@ -143,7 +144,10 @@ export function saveScore(s: MatchScore): void {
 }
 
 /** A seat as persisted with an in-progress game. */
-export type StoredSeat = { kind: 'human' } | { kind: 'engine'; level: Level }
+export type StoredSeat =
+  | { kind: 'human' }
+  | { kind: 'engine'; level: Level }
+  | { kind: 'claude'; model: ClaudeModelKey }
 
 /**
  * How the in-progress game was being played, so a resume restores the
@@ -179,6 +183,8 @@ function parseSeat(v: unknown): StoredSeat | null {
   if (!isRecord(v)) return null
   if (v['kind'] === 'human') return { kind: 'human' }
   if (v['kind'] === 'engine' && isLevel(v['level'])) return { kind: 'engine', level: v['level'] }
+  const model = v['model']
+  if (v['kind'] === 'claude' && isClaudeModelKey(model)) return { kind: 'claude', model }
   return null
 }
 

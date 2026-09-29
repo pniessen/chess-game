@@ -5,11 +5,9 @@ import type { Mode } from './panels/NewGame'
 
 /**
  * What the running match's config looks like when persisted. A Claude seat
- * has no stored form yet, so it takes the path an unreadable stored seat
- * already takes: no setup at all, i.e. a resume (or rematch) as two-player.
+ * persists as its model key alone: no owner token, cost or game id is kept.
  */
 export function setupOf(config: MatchConfig): StoredSetup | null {
-  if (config.white.kind === 'claude' || config.black.kind === 'claude') return null
   return {
     white: config.white,
     black: config.black,
@@ -31,6 +29,12 @@ export interface ResumePlan {
    * be scored, since two-player scoring would misreport it.
    */
   degraded: boolean
+  /**
+   * True when the match must load paused: a game with a Claude seat never
+   * asks Claude on its own after a reload (that spends money); the owner
+   * resumes it, which starts a fresh server game.
+   */
+  paused: boolean
 }
 
 function timeControlIdOf(tc: TimeControl): string | null {
@@ -61,11 +65,30 @@ export function planResume(
     humanColor: null,
     timeControlId: timeControlIdOf(timeControl),
     degraded,
+    paused: false,
   })
 
   if (!setup) return twoPlayer(fallbackTimeControl, false)
 
   const { white, black, timeControl } = setup
+  if (white.kind === 'claude' || black.kind === 'claude') {
+    // Claude needs no local engine; a Claude game is not a scored engine game
+    // either, so the mode shown is the neutral one until Task 8 adds its own.
+    return {
+      config: {
+        white,
+        black,
+        timeControl,
+        ...(setup.engineDelayMs !== undefined ? { engineDelayMs: setup.engineDelayMs } : {}),
+      },
+      mode: 'two-player',
+      level: null,
+      humanColor: null,
+      timeControlId: timeControlIdOf(timeControl),
+      degraded: false,
+      paused: true,
+    }
+  }
   const engineSeat = white.kind === 'engine' ? white : black.kind === 'engine' ? black : null
   if (!engineSeat) return twoPlayer(timeControl, false)
   if (!engineAvailable) return twoPlayer(timeControl, true)
@@ -88,5 +111,6 @@ export function planResume(
     humanColor: zeroPlayer ? null : white.kind === 'human' ? 'white' : 'black',
     timeControlId: timeControlIdOf(timeControl),
     degraded: false,
+    paused: false,
   }
 }

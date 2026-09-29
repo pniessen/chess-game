@@ -290,22 +290,27 @@ export class MatchController {
    * `config.startFen` is ignored in favour of `history.startFen`. Returns
    * false (leaving the current match untouched) if the history does not
    * replay legally, which a validated import never produces.
+   *
+   * `opts.paused` loads the match already paused: nobody is asked to move
+   * (no engine search, no Claude request, so nothing is spent) and the clock
+   * is held until resume(). A resumed Claude game uses it.
    */
   load(
     config: MatchConfig,
     history: { readonly startFen: string; readonly moves: readonly PlayedMove[] },
+    opts: { paused?: boolean } = {},
   ): boolean {
     const game = new Game({ fen: history.startFen })
     for (const m of history.moves) {
       const r = game.play({ from: m.from, to: m.to, ...(m.promotion ? { promotion: m.promotion } : {}) })
       if (!r.ok) return false
     }
-    this.begin({ ...config, startFen: history.startFen }, game)
+    this.begin({ ...config, startFen: history.startFen }, game, opts.paused === true)
     return true
   }
 
   /** Shared by start()/load(): adopt `game` as the live match and route the first turn. */
-  private begin(config: MatchConfig, game: Game): void {
+  private begin(config: MatchConfig, game: Game, paused = false): void {
     // Invalidate anything the engine still owes us from a previous game.
     this.requestId++
     this.illegalEngineMoves = 0
@@ -333,7 +338,12 @@ export class MatchController {
     // ever credited for moves that were already on the board.
     const side = this.livePosition().turn()
     this.clock.start(side)
-    this.toMoveOf(side)
+    if (paused) {
+      this.clock.pause()
+      this.phase = { kind: 'paused' }
+    } else {
+      this.toMoveOf(side)
+    }
     this.emit()
   }
 

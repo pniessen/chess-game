@@ -142,6 +142,27 @@ describe('in-progress game storage', () => {
     expect(loadInProgress()).toEqual({ pgn: '1. e4 *', setup: null, scored: false, recorded: false })
   })
 
+  test('a Claude seat round-trips with its model key', () => {
+    const setup = {
+      white: { kind: 'claude', model: 'opus' },
+      black: { kind: 'claude', model: 'haiku' },
+      timeControl: { kind: 'untimed' },
+      engineDelayMs: 500,
+    } as const
+    saveInProgress({ pgn: '1. e4 *', setup, scored: false, recorded: false })
+    expect(loadInProgress()).toEqual({ pgn: '1. e4 *', setup, scored: false, recorded: false })
+  })
+
+  test('a Claude seat with an unknown or missing model key makes the setup unreadable (null)', () => {
+    for (const black of [{ kind: 'claude', model: 'gpt' }, { kind: 'claude' }, { kind: 'claude', model: 3 }]) {
+      localStorage.setItem(
+        'chess-game:in-progress',
+        JSON.stringify({ v: 2, pgn: '1. e4 *', setup: { ...SETUP, black }, scored: false }),
+      )
+      expect(loadInProgress()).toEqual({ pgn: '1. e4 *', setup: null, scored: false, recorded: false })
+    }
+  })
+
   test('garbage loads as no game at all', () => {
     localStorage.setItem('chess-game:in-progress', '{not json')
     expect(loadInProgress()).toBeNull()
