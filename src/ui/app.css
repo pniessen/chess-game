@@ -2052,6 +2052,114 @@ body {
 }
 
 /* ------------------------------------------------------------------
+   769-1020px, LANDSCAPE: the board and one side panel, and no page scroll.
+
+   The stacked layout above is right for a tall window and wrong for a
+   short one: at 900x800 it put only the board on screen (clocks from
+   y=827, Controls from 1071, a 1499px page). Width alone cannot tell the
+   two apart, so orientation does — see
+   docs/superpowers/specs/2026-09-28-mid-width-layout-design.md for why
+   that switch costs at most ~32px of board near a square window.
+
+   NO `--chrome` HERE. Desktop sizes the board from `100svh - --chrome`, a
+   measured constant for a one-line header. In this band the header does
+   not stay one line: with the "coaching offline" badge it wraps at 800 and
+   900px (measured: 36px of page scroll), and with an opening name as well
+   it can reach three lines at 769px. So instead `.app` is exactly the
+   viewport's height, `.layout` takes whatever row is left under the header
+   and any banners, and it is a size container: the board sizes itself
+   from `cqh`/`cqw` — the space the browser actually left — not from an
+   estimate of it.
+
+   `.app`'s rows: the header, up to four banners (engine warning, resume or
+   share conflict, share error, coach notice — each auto-placed into the
+   next row; an empty `auto` row is 0px), then `.layout`, pinned to the
+   last row, which takes the rest.
+   ------------------------------------------------------------------ */
+@media (min-width: 769px) and (max-width: 1020px) and (orientation: landscape) {
+  .app {
+    height: 100svh;
+    grid-template-rows: repeat(5, auto) minmax(0, 1fr);
+  }
+  .layout {
+    grid-row: 6;
+    min-height: 0;
+    container-type: size;
+    /* Used by descendants only, so `cq*` resolves against `.layout` itself.
+       The board is --board-size here, with the frame's 1.25rem file gutter
+       below it and 50px beside it (eval bar 24 + row gap 6 + rank gutter
+       20); the panel is 280px, 20px away. */
+    --board-size: clamp(
+      320px,
+      min(640px, calc(100cqh - 1.25rem), calc(100cqw - 350px)),
+      640px
+    );
+    max-width: none;
+    margin-inline: 0;
+    grid-template-columns: minmax(0, 1fr) 280px;
+    /* The left column takes its content height up to whatever leaves the
+       right column 160px, then scrolls itself; the right column takes the
+       rest and its lists scroll inside it, as on desktop. */
+    grid-template-rows: minmax(0, auto) minmax(160px, 1fr);
+    grid-template-areas:
+      'board left'
+      'board right';
+    column-gap: 20px;
+    row-gap: 12px;
+  }
+  .board-column { display: block; grid-area: board; }
+  /* `.layout` aligns its items to `start`, which would size each column to
+     its content and ignore the rows above; stretch makes them take their
+     rows, which is what makes the left column give way and scroll. */
+  .left-column,
+  .right-column { align-self: stretch; }
+  .left-column {
+    grid-area: left;
+    order: 0;
+    min-height: 0;
+    max-height: none;
+    overflow-y: auto;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-content: start;
+    gap: 8px;
+  }
+  .left-column .clocks,
+  .left-column .controls { grid-column: 1 / -1; }
+  /* Two clocks side by side in 280px leave each ~136px: "0:00.0" at
+     desktop's 1.85rem beside its label clipped. Label above time instead. */
+  .clocks { flex-direction: row; }
+  .clocks .clock {
+    flex: 1 1 0;
+    min-width: 0;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+    padding: 8px 12px;
+  }
+  .clock-time { font-size: 1.4rem; }
+  /* Captured and score share a row, as on phones — with the phone's
+     stacked scoreboard, which otherwise runs "Score" into "0–0–0". */
+  .left-column .captured { padding: 6px 10px; }
+  .left-column .scoreboard {
+    flex-direction: column;
+    justify-content: center;
+    gap: 0;
+    padding: 6px 14px;
+  }
+  .right-column {
+    grid-area: right;
+    order: 0;
+    min-height: 0;
+    max-height: none;
+    overflow-y: auto;
+  }
+  .move-list,
+  .history-list,
+  .explorer-results { max-height: none; }
+}
+
+/* ------------------------------------------------------------------
    Phones: the cosmetics on top of the stacked layout above — tighter
    padding, a smaller brand, the clocks in a row, and Controls first
    under the board.

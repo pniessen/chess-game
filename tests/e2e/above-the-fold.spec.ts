@@ -1514,6 +1514,15 @@ test('a banner above the status row disappearing never moves the page under a re
  * query deliberately stacks a couple of pixels early (`max-width: 1020px`,
  * see app.css) so a fractional viewport width cannot land between the query
  * and the real 1018px crossover.
+ *
+ * Since the mid-width layout (docs/superpowers/specs/2026-09-28-mid-width-
+ * layout-design.md) the band picks its layout by orientation. At height 800,
+ * 769 and 800 are portrait (`orientation: portrait` includes square) and
+ * still stack; 899 and up are landscape and put one side panel beside the
+ * board. The floor holds in both — in landscape by the side-panel
+ * arithmetic, board = viewport - 48 (.app padding) - 350 (panel 280 + gap
+ * 20 + eval bar, row gap and rank gutter 50) = 501px at 899.
+ * mid-width-layout.spec.ts covers the two modes themselves.
  */
 for (const width of [769, 800, 899, 900, 950, 968, 1000, 1017, 1018, 1020]) {
   test(`the board keeps its 360px floor at ${width}x800, and the page never scrolls sideways`, async ({
@@ -1539,7 +1548,9 @@ for (const width of [769, 800, 899, 900, 950, 968, 1000, 1017, 1018, 1020]) {
       return {
         width: b.width,
         height: b.height,
+        right: b.right,
         bottom: b.bottom,
+        leftX: left.getBoundingClientRect().left,
         leftTop: left.getBoundingClientRect().top,
         sideways: doc.scrollWidth - doc.clientWidth,
       }
@@ -1558,13 +1569,17 @@ for (const width of [769, 800, 899, 900, 950, 968, 1000, 1017, 1018, 1020]) {
     expect(geometry.width, `board capped by --board-size at ${width}px`).toBeLessThanOrEqual(640)
     expect(geometry.sideways, `horizontal overflow at ${width}px`).toBeLessThanOrEqual(1)
 
-    // The mechanism: the layout is stacked here, so the left column sits
-    // BELOW the board rather than beside it. Asserting this stops the board
-    // check above from being satisfied some other way.
-    expect(
-      geometry.leftTop,
-      `.left-column stacked below the board at ${width}px`,
-    ).toBeGreaterThanOrEqual(geometry.bottom)
+    // The mechanism: stacked in portrait, so the left column sits BELOW
+    // the board; one side panel in landscape, so it sits BESIDE it.
+    // Asserting this stops the board check above from being satisfied some
+    // other way.
+    if (width <= 800) {
+      expect(geometry.leftTop, `.left-column stacked below the board at ${width}px`).toBeGreaterThanOrEqual(
+        geometry.bottom,
+      )
+    } else {
+      expect(geometry.leftX, `.left-column beside the board at ${width}px`).toBeGreaterThanOrEqual(geometry.right)
+    }
   })
 }
 
