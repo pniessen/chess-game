@@ -219,6 +219,18 @@ describe('move', () => {
     expect(r.res.status).toBe(503)
     expect(r.json.error.kind).toBe('no-key')
   })
+  // The browser reads a failed budget as "start the local server with a key"
+  // and disables Start; a keyless server must not look ready.
+  test('with no client, budget and start are 503 no-key and nothing is reserved', async () => {
+    const b = await call('budget', { client: null })
+    expect(b.res.status).toBe(503)
+    expect(b.json.error.kind).toBe('no-key')
+    const s = await call('start', { client: null, body: { white: 'haiku', black: 'haiku' } })
+    expect(s.res.status).toBe(503)
+    expect(s.json.error.kind).toBe('no-key')
+    // No lock was taken: a keyed start right after succeeds.
+    await startGame()
+  })
   test('an illegal reply is 502 and is still charged', async () => {
     const g = await startGame()
     reply = () => message(JSON.stringify({ move: 'Qh5', why: 'x' }))

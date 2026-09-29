@@ -70,9 +70,9 @@ export function createApp(deps: { claude: Claude | null; staticDir?: string | nu
   app.post('/api/hint', relay('hint'))
   app.post('/api/review', relay('review'))
 
-  // Owner-only Claude games. The rules and the HTTP mapping are the Netlify
-  // handler's (../netlify/lib/gameHandler); this only turns an Express request
-  // into a fetch `Request` and the `Response` back.
+  // Claude games, served only by this local relay. The rules and the HTTP
+  // mapping live in ./gameHandler; this only turns an Express request into a
+  // fetch `Request` and the `Response` back.
   const games = deps.games
   if (games) {
     const game =

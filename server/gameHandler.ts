@@ -120,6 +120,11 @@ export async function handleGame(endpoint: GameEndpoint, request: Request, deps:
     if (!isRecord(body)) return fail(400, 'bad-request')
   }
 
+  // Without a key no game can be played: say so on budget (the browser's
+  // readiness probe, which then disables Start) and on start (nothing is
+  // reserved or locked). A begun game's move/end keep their own handling.
+  if (!deps.client && (endpoint === 'budget' || endpoint === 'start')) return fail(503, 'no-key')
+
   try {
     switch (endpoint) {
       case 'budget':

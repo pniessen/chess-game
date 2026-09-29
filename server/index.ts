@@ -1,5 +1,7 @@
 import { existsSync } from 'node:fs'
 import type { Server } from 'node:http'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createApp } from './app'
 import Anthropic from '@anthropic-ai/sdk'
@@ -17,16 +19,25 @@ import { fileStore } from './fileStore'
  */
 export const LISTEN_HOST = '127.0.0.1'
 
+/**
+ * Where the Claude games ledger (the month's spend, the one-game lock, saved
+ * games) lives: `CLAUDE_GAMES_DIR` if set, else `~/.chess-game/claude-games`.
+ * Outside the checkout on purpose, so every worktree shares one $20 cap.
+ */
+export function gamesDirFor(env: NodeJS.ProcessEnv, home: string = homedir()): string {
+  return env['CLAUDE_GAMES_DIR']?.trim() || join(home, '.chess-game', 'claude-games')
+}
+
 export function startServer(env: NodeJS.ProcessEnv = process.env): Promise<Server> {
   const port = Number(env['PORT'] ?? 8787)
   const apiKey = env['ANTHROPIC_API_KEY']?.trim() || null
-  const gamesDir = fileURLToPath(new URL('../.claude-games', import.meta.url))
+  const gamesDir = gamesDirFor(env)
   const distDir = fileURLToPath(new URL('../dist', import.meta.url))
 
   const app = createApp({
     claude: apiKey ? createClaude({ apiKey }) : null,
     // `npm start` builds first; in dev, Vite serves the app and proxies /api here.
-    // Local-only Claude games: the budget, lock and saved games persist under .claude-games/ (gitignored).
+    // Local-only Claude games: the budget, lock and saved games persist under gamesDir (see gamesDirFor).
     // Tokens are HMACs under a secret that lives only as long as this process.
     games: {
       client: apiKey ? new Anthropic({ apiKey, timeout: MOVE_TIMEOUT_MS, maxRetries: 0 }) : null,

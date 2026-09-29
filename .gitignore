@@ -9,4 +9,3 @@ playwright-report/
 *.tsbuildinfo
 public/engine/
 .netlify/
-.claude-games/
