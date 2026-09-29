@@ -18,12 +18,15 @@
 import { createHash, createHmac, randomUUID, timingSafeEqual } from 'node:crypto'
 import {
   CLAUDE_MAX_PLIES,
-  CLAUDE_MODELS,
   RESERVE_PER_GAME_USD,
   ZERO_USAGE,
   isClaudeModelKey,
+  parseSideUsage,
+  parseUsageByModel,
   type ClaudeModelKey,
+  type SideUsage,
   type Usage,
+  type UsageByModel,
 } from '../src/claude/models'
 import type { GameStore } from './store'
 
@@ -74,11 +77,7 @@ export function checkGameToken(secret: Buffer, gameId: string, token: string): b
   return safeEqual(token, gameToken(gameId, secret))
 }
 
-/** Usage keyed by side, as the browser's colours: `w` and `b`. */
-export interface SideUsage {
-  w: Usage
-  b: Usage
-}
+export type { SideUsage }
 
 /** One call to Anthropic made for `side`, as measured around it on the server. */
 export interface MoveCall {
@@ -88,18 +87,6 @@ export interface MoveCall {
   inputTokens: number
   /** Includes thinking; for a timeout the estimate the ledger charges for. */
   outputTokens: number
-}
-
-/** A stored usage, field by field: anything missing or malformed reads as zero. */
-function readUsage(v: unknown): Usage {
-  if (!isRecord(v)) return { ...ZERO_USAGE }
-  return {
-    costUsd: num(v['costUsd']),
-    ms: num(v['ms']),
-    inputTokens: num(v['inputTokens']),
-    outputTokens: num(v['outputTokens']),
-    calls: num(v['calls']),
-  }
 }
 
 function addCall(u: Usage, c: MoveCall): Usage {
@@ -112,8 +99,6 @@ function addCall(u: Usage, c: MoveCall): Usage {
   }
 }
 
-type ByModel = Partial<Record<ClaudeModelKey, Usage>>
-
 interface Budget {
   /** Dollars actually charged this month. */
   spent: number
@@ -123,7 +108,7 @@ interface Budget {
    * What each model's calls added up to this month. Absent in records written
    * before it existed: their dollars are in `spent` only (see monthUsage).
    */
-  byModel: ByModel
+  byModel: UsageByModel
 }
 
 interface Game {
@@ -144,14 +129,7 @@ async function readBudget(store: GameStore, month: string): Promise<Budget> {
   // Read errors propagate on purpose: a failed read must not look like an empty ledger (fail closed).
   const v = await store.get(budgetKey(month), { type: 'json' })
   if (!isRecord(v)) return { spent: 0, reserved: 0, byModel: {} }
-  const byModel: ByModel = {}
-  const raw = v['byModel']
-  if (isRecord(raw)) {
-    for (const key of Object.keys(CLAUDE_MODELS) as ClaudeModelKey[]) {
-      if (isRecord(raw[key])) byModel[key] = readUsage(raw[key])
-    }
-  }
-  return { spent: num(v['spent']), reserved: num(v['reserved']), byModel }
+  return { spent: num(v['spent']), reserved: num(v['reserved']), byModel: parseUsageByModel(v['byModel']) }
 }
 
 async function writeBudget(store: GameStore, month: string, b: Budget): Promise<void> {
@@ -175,10 +153,7 @@ async function readGame(store: GameStore, gameId: string): Promise<Game | null> 
     startedAt: num(v['startedAt']),
     month: typeof v['month'] === 'string' ? v['month'] : '',
     ended: v['ended'] === true,
-    usage: {
-      w: readUsage(isRecord(v['usage']) ? v['usage']['w'] : undefined),
-      b: readUsage(isRecord(v['usage']) ? v['usage']['b'] : undefined),
-    },
+    usage: parseSideUsage(v['usage']),
   }
 }
 
@@ -214,7 +189,7 @@ export async function budgetLeft(store: GameStore, now: number): Promise<number>
  * was tracked per model (spent minus the per-model costs), or 0 when that
  * remainder is under half a cent.
  */
-export async function monthUsage(store: GameStore, now: number): Promise<{ byModel: ByModel; earlierUsd: number }> {
+export async function monthUsage(store: GameStore, now: number): Promise<{ byModel: UsageByModel; earlierUsd: number }> {
   const b = await readBudget(store, utcMonth(now))
   const tracked = Object.values(b.byModel).reduce((sum, u) => sum + u.costUsd, 0)
   const earlier = round(b.spent - tracked)

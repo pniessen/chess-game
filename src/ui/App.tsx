@@ -514,7 +514,7 @@ function AppInner({
                     black: choices.claudeBlack,
                     onWhiteChange: choices.setClaudeWhite,
                     onBlackChange: choices.setClaudeBlack,
-                    budgetLeftUsd: claudeBudget,
+                    budgetLeftUsd: claudeBudget ? claudeBudget.budgetLeftUsd : claudeBudget,
                   }
                 : undefined
             }

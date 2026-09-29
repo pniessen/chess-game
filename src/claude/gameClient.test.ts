@@ -6,7 +6,11 @@ const reply = (status: number, body: unknown): Response =>
   new Response(typeof body === 'string' ? body : JSON.stringify(body), { status })
 const err = (status: number, kind: string): Response => reply(status, { error: { kind, message: 'x' } })
 const started = () => reply(200, { gameId: 'g1', token: 'tok', budgetLeftUsd: 12.5 })
-const moved = () => reply(200, { san: 'e4', why: 'centre', costUsd: 0.01, gameSpentUsd: 0.02 })
+const W_USAGE = { costUsd: 0.015, ms: 2100, inputTokens: 900, outputTokens: 120, calls: 2 }
+const B_USAGE = { costUsd: 0.005, ms: 700, inputTokens: 950, outputTokens: 30, calls: 1 }
+const ZERO = { costUsd: 0, ms: 0, inputTokens: 0, outputTokens: 0, calls: 0 }
+const moved = () =>
+  reply(200, { san: 'e4', why: 'centre', costUsd: 0.01, gameSpentUsd: 0.02, usage: { w: W_USAGE, b: B_USAGE } })
 
 function setup(...responses: Array<Response | Error>) {
   return setupAt(() => 0, ...responses)
@@ -53,12 +57,25 @@ describe('begin', () => {
   })
 })
 
+describe('move usage', () => {
+  it('a reply without usage (or with junk in it) reads as zero usage rather than failing the move', async () => {
+    const { client } = setup(
+      started(),
+      reply(200, { san: 'e4', why: 'c', costUsd: 0.01, gameSpentUsd: 0.01 }),
+      reply(200, { san: 'e4', why: 'c', costUsd: 0.01, gameSpentUsd: 0.01, usage: { w: { ms: 'x', calls: 3 }, b: 7 } }),
+    )
+    await client.begin('opus', 'opus')
+    expect(await client.move({ history: [] })).toMatchObject({ ok: true, usage: { w: ZERO, b: ZERO } })
+    expect(await client.move({ history: [] })).toMatchObject({ ok: true, usage: { w: { ...ZERO, calls: 3 }, b: ZERO } })
+  })
+})
+
 describe('move', () => {
   it('sends the stored game id and token and returns the move', async () => {
     const { fetch, client } = setup(started(), moved())
     await client.begin('opus', 'opus')
     expect(await client.move({ startFen: 'fen', history: ['e4'] })).toEqual({
-      ok: true, san: 'e4', why: 'centre', costUsd: 0.01, gameSpentUsd: 0.02,
+      ok: true, san: 'e4', why: 'centre', costUsd: 0.01, gameSpentUsd: 0.02, usage: { w: W_USAGE, b: B_USAGE },
     })
     expect(fetch.mock.calls[1]![0]).toBe('/api/game/move')
     expect(bodyOf(fetch, 1)).toEqual({ gameId: 'g1', token: 'tok', startFen: 'fen', history: ['e4'] })
@@ -165,9 +182,18 @@ describe('fetchBudget', () => {
 
   it('reads budgetLeftUsd with a plain GET (no owner header)', async () => {
     const f = vi.fn(async (_u: unknown, _i?: RequestInit) => reply(200, { budgetLeftUsd: 7, monthlyUsd: 20 }))
-    expect(await fetchBudget(opts(f))).toBe(7)
+    expect(await fetchBudget(opts(f))).toEqual({ budgetLeftUsd: 7, byModel: {}, earlierUsd: 0 })
     expect(f.mock.calls[0]![0]).toBe('/api/game/budget')
     expect(f.mock.calls[0]![1]).toBeUndefined()
+  })
+
+  it('reads the month\'s usage per model and the earlier dollars; unknown models are dropped', async () => {
+    const body = { budgetLeftUsd: 7, byModel: { fable: W_USAGE, haiku: B_USAGE, gpt: W_USAGE }, earlierUsd: 0.13 }
+    expect(await fetchBudget(opts(async () => reply(200, body)))).toEqual({
+      budgetLeftUsd: 7,
+      byModel: { fable: W_USAGE, haiku: B_USAGE },
+      earlierUsd: 0.13,
+    })
   })
 
   it('is null on a refusal, a bad body or a network error', async () => {

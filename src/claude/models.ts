@@ -54,6 +54,45 @@ export interface Usage {
 
 export const ZERO_USAGE: Usage = Object.freeze({ costUsd: 0, ms: 0, inputTokens: 0, outputTokens: 0, calls: 0 })
 
+/** Usage per side of a game, keyed like the board's colours. */
+export interface SideUsage {
+  w: Usage
+  b: Usage
+}
+
+/** Usage per model, only for models that have any. */
+export type UsageByModel = Partial<Record<ClaudeModelKey, Usage>>
+
+const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
+const finite = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0)
+
+/** A stored or received usage, field by field: anything missing or malformed reads as zero. */
+export function parseUsage(v: unknown): Usage {
+  if (!isObject(v)) return { ...ZERO_USAGE }
+  return {
+    costUsd: finite(v['costUsd']),
+    ms: finite(v['ms']),
+    inputTokens: finite(v['inputTokens']),
+    outputTokens: finite(v['outputTokens']),
+    calls: finite(v['calls']),
+  }
+}
+
+export function parseSideUsage(v: unknown): SideUsage {
+  const o = isObject(v) ? v : {}
+  return { w: parseUsage(o['w']), b: parseUsage(o['b']) }
+}
+
+/** Only known model keys with an object value are kept. */
+export function parseUsageByModel(v: unknown): UsageByModel {
+  const out: UsageByModel = {}
+  if (!isObject(v)) return out
+  for (const key of Object.keys(CLAUDE_MODELS) as ClaudeModelKey[]) {
+    if (isObject(v[key])) out[key] = parseUsage(v[key])
+  }
+  return out
+}
+
 /** Dollars for one response, from its `usage` and the list price. */
 export function costUsd(key: ClaudeModelKey, usage: { input_tokens: number; output_tokens: number }): number {
   const m = CLAUDE_MODELS[key]

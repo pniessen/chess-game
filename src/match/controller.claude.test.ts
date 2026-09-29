@@ -3,7 +3,7 @@ import { MatchController } from './controller'
 import { Game } from '../game-core/game'
 import type { MatchConfig } from './types'
 import { resultTagOf } from './result'
-import { CLAUDE_MAX_PLIES } from '../claude/models'
+import { CLAUDE_MAX_PLIES, ZERO_USAGE } from '../claude/models'
 import { Position } from '../game-core/position'
 import { STARTING_FEN } from '../game-core/types'
 import type { EngineInfo } from '../engine/uci'
@@ -65,6 +65,7 @@ const ok = (san: string, gameSpentUsd = 0, why = `because ${san}`): ClaudeMoveRe
   why,
   costUsd: 0.01,
   gameSpentUsd,
+  usage: { w: ZERO_USAGE, b: ZERO_USAGE },
 })
 const RETRY: ClaudeMoveResult = { ok: false, kind: 'retry' }
 
