@@ -1,13 +1,12 @@
 import { expect, test, type Page } from '@playwright/test'
-import { openSettings } from './helpers'
 
 /**
- * Claude vs Claude (owner-only), driven through the real UI with every
+ * Claude vs Claude (local-only), driven through the real UI with every
  * /api call stubbed: no request leaves the machine and nothing costs money.
- * The token below is a fake. Each test gets a fresh browser context.
+ * Playwright serves the app with `vite` in dev mode, so the build flag is on
+ * (see src/claude/enabled.ts) and the mode is offered with no setup step.
+ * Each test gets a fresh browser context.
  */
-
-const FAKE_TOKEN = 'fake-owner-token-for-e2e'
 
 /** Fool's mate: White loses. */
 const SCRIPT = [
@@ -21,6 +20,7 @@ interface Calls {
   start: number
   move: string[][]
   end: number
+  /** The x-owner-token header on each start: there is no owner token any more, so always absent. */
   ownerHeaders: (string | undefined)[]
 }
 
@@ -45,15 +45,6 @@ async function stubGame(page: Page, move: Parameters<Page['route']>[1]): Promise
   return calls
 }
 
-async function setOwnerToken(page: Page): Promise<void> {
-  await openSettings(page)
-  await page.getByTestId('owner-token').fill(FAKE_TOKEN)
-  await page.getByTestId('owner-token-save').click()
-  await expect(page.getByTestId('owner-token-status')).toHaveText('set')
-  await page.keyboard.press('Escape')
-  await expect(page.getByTestId('settings')).toHaveCount(0)
-}
-
 test('Claude vs Claude plays a scripted fool\'s mate to the end card', async ({ page }) => {
   let n = 0
   const calls = await stubGame(page, (route) => {
@@ -69,7 +60,6 @@ test('Claude vs Claude plays a scripted fool\'s mate to the end card', async ({ 
     })
   })
   await page.goto('/')
-  await setOwnerToken(page)
 
   await page.getByTestId('mode').selectOption('claude-vs-claude')
   await page.getByTestId('claude-white').selectOption('opus')
@@ -86,10 +76,10 @@ test('Claude vs Claude plays a scripted fool\'s mate to the end card', async ({ 
   await expect(page.getByTestId('game-end-headline')).toHaveText('Checkmate — Black wins')
   await expect(page.getByTestId('claude-cost')).toContainText('$0.10')
 
-  // The stub saw exactly one request per ply, in order, with the owner token on start.
+  // The stub saw exactly one request per ply, in order, and no owner token on start.
   expect(calls.move).toEqual([[], ['f3'], ['f3', 'e5'], ['f3', 'e5', 'g4']])
   expect(calls.start).toBe(1)
-  expect(calls.ownerHeaders).toEqual([FAKE_TOKEN])
+  expect(calls.ownerHeaders).toEqual([undefined])
   await expect.poll(() => calls.end).toBe(1)
 })
 
@@ -107,7 +97,6 @@ test('two illegal-reply answers hand the move to Stockfish, marked with a gear',
     return route.fulfill({ status: 402, json: { error: { kind: 'budget', message: 'The monthly Claude games budget is used up.' } } })
   })
   await page.goto('/')
-  await setOwnerToken(page)
   await page.getByTestId('mode').selectOption('claude-vs-claude')
   await page.getByTestId('new-game').click()
 
@@ -118,13 +107,36 @@ test('two illegal-reply answers hand the move to Stockfish, marked with a gear',
   await expect.poll(() => calls.move[2]?.length).toBe(1)
 })
 
-test('without an owner token the mode is not offered; saving one offers it', async ({ page }) => {
+test('in dev the mode is present; with /api/game/budget failing, Start is disabled and the hint shows', async ({ page }) => {
   await page.route('**/api/health', (r) => r.fulfill({ json: { ok: true, claude: true } }))
+  // The local server is not running: the budget request fails outright.
+  await page.route('**/api/game/budget', (r) => r.abort('connectionrefused'))
+  let starts = 0
+  await page.route('**/api/game/start', (r) => {
+    starts++
+    return r.fulfill({ status: 500, json: { error: { kind: 'upstream', message: 'x' } } })
+  })
   await page.goto('/')
-  const option = page.getByTestId('mode').locator('option[value="claude-vs-claude"]')
-  await expect(page.getByTestId('mode')).toBeVisible()
-  await expect(option).toHaveCount(0)
-  // Positive control: the same page does offer it once a token is saved.
-  await setOwnerToken(page)
-  await expect(option).toHaveCount(1)
+  await expect(page.getByTestId('mode').locator('option[value="claude-vs-claude"]')).toHaveCount(1)
+  // No owner-token field anywhere.
+  await expect(page.getByTestId('owner-token')).toHaveCount(0)
+
+  await page.getByTestId('mode').selectOption('claude-vs-claude')
+  await expect(page.getByTestId('claude-budget')).toContainText('unavailable')
+  await expect(page.getByTestId('claude-unavailable-hint')).toContainText(
+    'Start the local server (npm run server) with ANTHROPIC_API_KEY in .env',
+  )
+  await expect(page.getByTestId('new-game')).toBeDisabled()
+
+  // Positive control: once the server answers, re-selecting the mode clears
+  // the hint and Start comes back.
+  await page.unroute('**/api/game/budget')
+  await page.route('**/api/game/budget', (r) => r.fulfill({ json: { budgetLeftUsd: 12.5, monthlyUsd: 20 } }))
+  await page.getByTestId('mode').selectOption('two-player')
+  await expect(page.getByTestId('new-game')).toBeEnabled()
+  await page.getByTestId('mode').selectOption('claude-vs-claude')
+  await expect(page.getByTestId('claude-budget')).toContainText('$12.50')
+  await expect(page.getByTestId('claude-unavailable-hint')).toHaveCount(0)
+  await expect(page.getByTestId('new-game')).toBeEnabled()
+  expect(starts).toBe(0)
 })

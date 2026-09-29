@@ -3,18 +3,23 @@ import { TIME_CONTROLS } from '../../clock/types'
 import type { Level } from '../../storage/storage'
 import { CLAUDE_MODELS, type ClaudeModelKey } from '../../claude/models'
 import { claudeEstimateUsd } from '../app/matchConfig'
+import { CLAUDE_GAMES } from '../../claude/enabled'
 
 export type Mode = 'two-player' | 'one-player' | 'zero-player' | 'claude-vs-claude'
 
-/** Claude vs Claude's part of the panel; omitted on a build without coaching. */
+/**
+ * Claude vs Claude's part of the panel; omitted on a build without the flag
+ * (see claude/enabled.ts), which offers no such mode.
+ */
 export interface NewGameClaude {
-  /** An owner token is stored: the mode is offered. */
-  available: boolean
   white: ClaudeModelKey
   black: ClaudeModelKey
   onWhiteChange: (model: ClaudeModelKey) => void
   onBlackChange: (model: ClaudeModelKey) => void
-  /** Dollars left this month; undefined while loading, null when unreadable. */
+  /**
+   * Dollars left this month; undefined while loading, null when unreadable —
+   * the local server is not running or has no key, so Start is disabled.
+   */
   budgetLeftUsd: number | null | undefined
 }
 
@@ -49,11 +54,13 @@ export function NewGame({
   onPuzzles?: () => void
   claude?: NewGameClaude
 }) {
-  const isClaude = mode === 'claude-vs-claude'
-  // Listed while a token is set — and while the panel is showing a Claude
-  // game (a resumed one, the token since cleared), so the select never
-  // names a value it has no option for.
-  const offerClaude = claude !== undefined && (claude.available || isClaude)
+  // Every Claude branch starts with CLAUDE_GAMES, a build-time constant: in a
+  // public build it is `false`, so the minifier drops the option, the model
+  // selects and the hint (and the mode's name with them) from the bundle.
+  const isClaude = CLAUDE_GAMES && mode === 'claude-vs-claude'
+  const offerClaude = CLAUDE_GAMES && claude !== undefined
+  // The budget request failed: the local server is not running or has no key.
+  const claudeUnavailable = isClaude && claude !== undefined && claude.budgetLeftUsd === null
   return (
     <div className="new-game">
       <label>
@@ -72,7 +79,7 @@ export function NewGame({
           </option>
           {offerClaude ? (
             // Needs the engine too: a failed Claude reply falls back to Stockfish.
-            <option value="claude-vs-claude" disabled={!engineAvailable || !claude.available}>
+            <option value="claude-vs-claude" disabled={!engineAvailable}>
               Claude vs Claude
             </option>
           ) : null}
@@ -161,10 +168,15 @@ export function NewGame({
                 ? 'unavailable'
                 : usd(claude.budgetLeftUsd)}
           </p>
+          {claudeUnavailable ? (
+            <p className="claude-note" role="status" data-testid="claude-unavailable-hint">
+              Claude games are unavailable. Start the local server (npm run server) with ANTHROPIC_API_KEY in .env.
+            </p>
+          ) : null}
         </div>
       ) : null}
       <div className="new-game-actions">
-        <button data-testid="new-game" onClick={onStart}>
+        <button data-testid="new-game" disabled={claudeUnavailable} onClick={onStart}>
           New game
         </button>
         {onPuzzles ? (

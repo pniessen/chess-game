@@ -45,21 +45,19 @@ async function readJson(res: Response): Promise<unknown> {
 }
 
 /**
- * The browser's door to the owner-only `/api/game/*` endpoints. Like the coach
+ * The browser's door to the local server's `/api/game/*` endpoints. Like the coach
  * client it never throws: every failure is a result the controller can act on.
  * The gameId and per-game token from `begin` are held here, never exposed.
  */
 export class GameClient implements ClaudeMover {
   private readonly fetchImpl: typeof fetch
-  private readonly ownerToken: () => string | null
   private readonly now: () => number
   private game: { gameId: string; token: string } | null = null
   /** When the server last heard from this session: the send time of the last request it answered. */
   private lastContactAt: number | null = null
 
-  constructor(opts: { fetch?: typeof fetch; ownerToken: () => string | null; now?: () => number }) {
+  constructor(opts: { fetch?: typeof fetch; now?: () => number } = {}) {
     this.fetchImpl = opts.fetch ?? ((input, init) => fetch(input, init))
-    this.ownerToken = opts.ownerToken
     this.now = opts.now ?? Date.now
   }
 
@@ -68,7 +66,7 @@ export class GameClient implements ClaudeMover {
   }
 
   private headers(): Record<string, string> {
-    return { 'content-type': 'application/json', 'x-owner-token': this.ownerToken() ?? '' }
+    return { 'content-type': 'application/json' }
   }
 
   async begin(white: ClaudeModelKey, black: ClaudeModelKey): Promise<BeginResult> {
@@ -170,15 +168,18 @@ export class GameClient implements ClaudeMover {
   }
 }
 
-export function createGameClient(opts: { fetch?: typeof fetch; ownerToken: () => string | null; now?: () => number }): ClaudeMover {
+export function createGameClient(opts: { fetch?: typeof fetch; now?: () => number } = {}): ClaudeMover {
   return new GameClient(opts)
 }
 
-/** This month's remaining Claude games budget in dollars, or null on any failure. */
-export async function fetchBudget(opts: { fetch?: typeof fetch; ownerToken: () => string | null }): Promise<number | null> {
+/**
+ * This month's remaining Claude games budget in dollars, or null on any
+ * failure — the local server not running, or running without a key (503).
+ */
+export async function fetchBudget(opts: { fetch?: typeof fetch } = {}): Promise<number | null> {
   const f = opts.fetch ?? ((input: RequestInfo | URL, init?: RequestInit) => fetch(input, init))
   try {
-    const res = await f('/api/game/budget', { headers: { 'x-owner-token': opts.ownerToken() ?? '' } })
+    const res = await f('/api/game/budget')
     if (!res.ok) return null
     const payload = await readJson(res)
     const left = isRecord(payload) ? payload['budgetLeftUsd'] : null

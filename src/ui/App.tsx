@@ -28,13 +28,13 @@ import { useSettings } from './app/useSettings'
 import { useAppearance } from './app/useAppearance'
 import { useMoveSounds, useSoundPlayer } from './app/useSound'
 import { useCoachClient } from './app/useCoachClient'
-import { useOwnerToken } from './app/useOwnerToken'
 import { useClaudeBudget } from './app/useClaudeBudget'
 import { useClaudeSession } from './app/useClaudeSession'
 import { claudeErrorText } from './app/claudeText'
 import { ClaudeStatus, ClaudeWhy } from './app/ClaudePanel'
 import { claudeComments, claudeHeaders } from './app/claudeRecord'
 import { shortModelLabel } from '../claude/models'
+import { CLAUDE_GAMES } from '../claude/enabled'
 import type { Seat } from '../match/types'
 import { useEngineHealth } from './app/useEngineHealth'
 import { useEngineLoading } from './app/useEngineLoading'
@@ -97,9 +97,10 @@ function AppInner({
 
   const sound = useSoundPlayer(settings.soundEnabled, settings.volume)
   const { coach, coachState } = useCoachClient()
-  // Claude vs Claude: only a build with a server (coaching on) and a stored
-  // owner token ever offers the mode.
-  const ownerToken = useOwnerToken()
+  // Claude vs Claude runs only against the local server, so only a build
+  // with the flag (dev, or VITE_CLAUDE_GAMES=on) offers it: see
+  // claude/enabled.ts. CLAUDE_GAMES is a build-time constant, so every
+  // `CLAUDE_GAMES && …` below is dropped from a public build's bundle.
 
   const snapshot = useMatch(controller)
   // Phase 3: game <-> puzzles. Entering pauses a live match through the
@@ -200,7 +201,7 @@ function AppInner({
     claude: claudeSession,
   })
   const { choices, orientation } = lifecycle
-  const claudeBudget = useClaudeBudget(choices.mode === 'claude-vs-claude' && ownerToken.isSet)
+  const claudeBudget = useClaudeBudget(CLAUDE_GAMES && choices.mode === 'claude-vs-claude')
 
   // Task 14: a valid share link takes precedence over the normal start —
   // but ONLY when there is nothing to conflict with. When a saved
@@ -317,7 +318,8 @@ function AppInner({
 
   // A game with a Claude seat shows who is thinking, what it has cost, each
   // move's reason and the model names; every other game renders as before.
-  const claudeGame = snapshot.config.white.kind === 'claude' || snapshot.config.black.kind === 'claude'
+  const claudeGame =
+    CLAUDE_GAMES && (snapshot.config.white.kind === 'claude' || snapshot.config.black.kind === 'claude')
   const seatName = (seat: Seat, fallback: string) => (seat.kind === 'claude' ? shortModelLabel(seat.model) : fallback)
   const clockNames = claudeGame
     ? { w: seatName(snapshot.config.white, 'White'), b: seatName(snapshot.config.black, 'Black') }
@@ -373,17 +375,12 @@ function AppInner({
               onChange={updateSettings}
               onPreviewVolume={() => sound.play('move')}
               onOpenChange={setSettingsOpen}
-              ownerToken={
-                ownerToken.enabled
-                  ? { isSet: ownerToken.isSet, onSave: ownerToken.save, onClear: ownerToken.clear }
-                  : undefined
-              }
             />
           </>
         }
       />
 
-      {claudeSession.error ? (
+      {CLAUDE_GAMES && claudeSession.error ? (
         <p className="share-error-banner" role="alert" data-testid="claude-error">
           {claudeErrorText(claudeSession.error)}
           <button data-testid="claude-error-dismiss" onClick={claudeSession.dismissError}>
@@ -509,9 +506,8 @@ function AppInner({
             onPuzzles={openPuzzles}
             onOpenChange={setNewGameOpen}
             claude={
-              ownerToken.enabled
+              CLAUDE_GAMES
                 ? {
-                    available: ownerToken.isSet,
                     white: choices.claudeWhite,
                     black: choices.claudeBlack,
                     onWhiteChange: choices.setClaudeWhite,

@@ -3,6 +3,7 @@ import type { Level } from '../../storage/storage'
 import { TIME_CONTROLS } from '../../clock/types'
 import type { Mode } from '../panels/NewGame'
 import { RESERVE_PER_GAME_USD, type ClaudeModelKey } from '../../claude/models'
+import { CLAUDE_GAMES } from '../../claude/enabled'
 
 /** The pace a zero-player game (engines or Claude) starts at. */
 const ZERO_PLAYER_DELAY_MS = 500
@@ -33,7 +34,8 @@ export function buildConfig(opts: {
   if (opts.mode === 'two-player' || !opts.engineAvailable) {
     return { white: { kind: 'human' }, black: { kind: 'human' }, timeControl }
   }
-  if (opts.mode === 'claude-vs-claude') {
+  // CLAUDE_GAMES first, so a public build's bundle never names the mode.
+  if (CLAUDE_GAMES && opts.mode === 'claude-vs-claude') {
     // Untimed only (spec Q7), whatever the time-control select says.
     return {
       white: { kind: 'claude', model: opts.claudeWhite ?? 'haiku' },

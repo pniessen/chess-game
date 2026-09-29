@@ -10,7 +10,7 @@ import { useCoach } from '../useCoach'
  *
  * Read at call time, never cached, so tests can stub it (mirrors assetUrl.ts).
  */
-export function coachEnabled(): boolean {
+function coachEnabled(): boolean {
   return import.meta.env.VITE_COACH !== 'off'
 }
 

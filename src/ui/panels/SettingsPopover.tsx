@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import type { Appearance, Settings } from '../../storage/storage'
 import { BOARD_THEMES, boardTheme } from '../themes'
 import { PIECE_SETS, pieceImageSrc } from '../pieceSets'
@@ -44,7 +43,6 @@ export function SettingsPopover({
   onChange,
   onPreviewVolume,
   onOpenChange,
-  ownerToken,
 }: {
   settings: Settings
   onChange: (patch: Partial<Settings>) => void
@@ -52,11 +50,6 @@ export function SettingsPopover({
   onPreviewVolume?: () => void
   /** Task 13: lets the keyboard-shortcuts hook know an overlay owns the keyboard. */
   onOpenChange?: (open: boolean) => void
-  /**
-   * Claude vs Claude's owner token: whether one is stored, never its value.
-   * Omitted on a build without coaching (GitHub Pages), which hides the field.
-   */
-  ownerToken?: { isSet: boolean; onSave: (value: string) => void; onClear: () => void }
 }) {
   // Task 4: the trap, the focus dance and the outside-click dismissal now
   // live in `usePopover`, lifted out of this file verbatim so the Game file
@@ -94,17 +87,7 @@ export function SettingsPopover({
   // confirmation, a reset-confirm step, anything that can appear and
   // vanish from WITHIN this popover — and pass `documentEscape: true`
   // when you do; `GameFilePopover` has the long version of why.
-  //
-  // The owner-token field below IS such content: its Clear button exists
-  // only while a token is set, so pressing it unmounts the focused button.
-  // Hence `documentEscape` is on whenever that field is shown.
-  const { open, toggle, close, triggerRef, popRef, handleKeyDown } = usePopover({
-    onOpenChange,
-    documentEscape: ownerToken !== undefined,
-  })
-  // The typed-in token lives only here until saved, then is dropped: the
-  // stored value is never rendered back into the DOM.
-  const [tokenDraft, setTokenDraft] = useState('')
+  const { open, toggle, close, triggerRef, popRef, handleKeyDown } = usePopover({ onOpenChange })
 
   const volumePercent = Math.round(settings.volume * 100)
 
@@ -275,44 +258,6 @@ export function SettingsPopover({
               Evaluation bar
             </label>
           </fieldset>
-
-          {ownerToken ? (
-            <fieldset className="settings-group">
-              <legend>Claude games</legend>
-              <form
-                className="owner-token-form"
-                onSubmit={(e) => {
-                  e.preventDefault()
-                  if (!tokenDraft.trim()) return
-                  ownerToken.onSave(tokenDraft)
-                  setTokenDraft('')
-                }}
-              >
-                <label className="settings-row">
-                  <span>Owner token</span>
-                  <input
-                    type="password"
-                    data-testid="owner-token"
-                    autoComplete="off"
-                    spellCheck={false}
-                    value={tokenDraft}
-                    onChange={(e) => setTokenDraft(e.target.value)}
-                  />
-                </label>
-                <div className="settings-row owner-token-row">
-                  <output data-testid="owner-token-status">{ownerToken.isSet ? 'set' : 'not set'}</output>
-                  <button type="submit" data-testid="owner-token-save" disabled={!tokenDraft.trim()}>
-                    Save
-                  </button>
-                  {ownerToken.isSet ? (
-                    <button type="button" data-testid="owner-token-clear" onClick={ownerToken.onClear}>
-                      Clear
-                    </button>
-                  ) : null}
-                </div>
-              </form>
-            </fieldset>
-          ) : null}
 
           <div className="settings-actions">
             <button type="button" data-testid="settings-done" onClick={() => close(true)}>

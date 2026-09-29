@@ -69,9 +69,6 @@ const POPOVERS = [
       'sound-toggle',
       'volume',
       'eval-toggle',
-      // Claude vs Claude's owner token (a build with coaching, as here).
-      // Its Save is disabled while the field is empty, so not a stop.
-      'owner-token',
       'settings-done',
     ],
   },

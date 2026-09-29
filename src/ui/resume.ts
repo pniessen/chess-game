@@ -2,10 +2,11 @@ import { TIME_CONTROLS, type TimeControl } from '../clock/types'
 import type { MatchConfig } from '../match/types'
 import type { Level, StoredSetup } from '../storage/storage'
 import type { Mode } from './panels/NewGame'
+import { CLAUDE_GAMES } from '../claude/enabled'
 
 /**
  * What the running match's config looks like when persisted. A Claude seat
- * persists as its model key alone: no owner token, cost or game id is kept.
+ * persists as its model key alone: no game token, cost or game id is kept.
  */
 export function setupOf(config: MatchConfig): StoredSetup | null {
   return {
@@ -84,7 +85,8 @@ export function planResume(
         timeControl,
         ...(setup.engineDelayMs !== undefined ? { engineDelayMs: setup.engineDelayMs } : {}),
       },
-      mode: claudeVsClaude ? 'claude-vs-claude' : 'two-player',
+      // CLAUDE_GAMES first, so a public build's bundle never names the mode.
+      mode: CLAUDE_GAMES && claudeVsClaude ? 'claude-vs-claude' : 'two-player',
       level: null,
       humanColor: null,
       timeControlId: timeControlIdOf(timeControl),

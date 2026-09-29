@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { createGameClient, fetchBudget } from './gameClient'
 import { CLAUDE_SESSION_IDLE_MS } from './models'
-import { getOwnerToken, setOwnerToken } from './ownerToken'
 
 const reply = (status: number, body: unknown): Response =>
   new Response(typeof body === 'string' ? body : JSON.stringify(body), { status })
@@ -22,18 +21,18 @@ function setupAt(now: () => number, ...responses: Array<Response | Error>) {
     if (r instanceof Error) throw r
     return r
   })
-  const client = createGameClient({ fetch: fetch as unknown as typeof globalThis.fetch, ownerToken: () => 'owner', now })
+  const client = createGameClient({ fetch: fetch as unknown as typeof globalThis.fetch, now })
   return { fetch, client }
 }
 
 const bodyOf = (fetch: ReturnType<typeof setup>['fetch'], i: number) => JSON.parse(String(fetch.mock.calls[i]![1]!.body))
 
 describe('begin', () => {
-  it('posts the keys with the owner header and reports the budget', async () => {
+  it('posts the keys as JSON, with no owner header, and reports the budget', async () => {
     const { fetch, client } = setup(started())
     expect(await client.begin('opus', 'haiku')).toEqual({ ok: true, budgetLeftUsd: 12.5 })
     expect(fetch.mock.calls[0]![0]).toBe('/api/game/start')
-    expect((fetch.mock.calls[0]![1]!.headers as Record<string, string>)['x-owner-token']).toBe('owner')
+    expect(fetch.mock.calls[0]![1]!.headers).toEqual({ 'content-type': 'application/json' })
     expect(bodyOf(fetch, 0)).toEqual({ white: 'opus', black: 'haiku' })
   })
 
@@ -160,54 +159,20 @@ describe('end', () => {
 })
 
 describe('fetchBudget', () => {
-  const opts = (f: unknown) => ({ fetch: f as typeof globalThis.fetch, ownerToken: () => 'owner' })
+  const opts = (f: unknown) => ({ fetch: f as typeof globalThis.fetch })
 
-  it('reads budgetLeftUsd with the owner header', async () => {
+  it('reads budgetLeftUsd with a plain GET (no owner header)', async () => {
     const f = vi.fn(async (_u: unknown, _i?: RequestInit) => reply(200, { budgetLeftUsd: 7, monthlyUsd: 20 }))
     expect(await fetchBudget(opts(f))).toBe(7)
     expect(f.mock.calls[0]![0]).toBe('/api/game/budget')
-    expect((f.mock.calls[0]![1]!.headers as Record<string, string>)['x-owner-token']).toBe('owner')
+    expect(f.mock.calls[0]![1]).toBeUndefined()
   })
 
   it('is null on a refusal, a bad body or a network error', async () => {
     expect(await fetchBudget(opts(async () => err(403, 'forbidden')))).toBeNull()
+    expect(await fetchBudget(opts(async () => err(503, 'no-key')))).toBeNull()
     expect(await fetchBudget(opts(async () => reply(200, '{}')))).toBeNull()
     expect(await fetchBudget(opts(async () => { throw new Error('down') }))).toBeNull()
-  })
-})
-
-describe('ownerToken', () => {
-  it('round-trips through localStorage under chess.ownerToken', () => {
-    localStorage.clear()
-    expect(getOwnerToken()).toBeNull()
-    setOwnerToken('abc')
-    expect(localStorage.getItem('chess.ownerToken')).toBe('abc')
-    expect(getOwnerToken()).toBe('abc')
-  })
-
-  it('removes the key for null and empty', () => {
-    setOwnerToken('abc')
-    setOwnerToken(null)
-    expect(localStorage.getItem('chess.ownerToken')).toBeNull()
-    setOwnerToken('abc')
-    setOwnerToken('')
-    expect(localStorage.getItem('chess.ownerToken')).toBeNull()
-  })
-
-  it('survives a throwing localStorage', () => {
-    const boom = () => { throw new Error('blocked') }
-    const spies = [
-      vi.spyOn(Storage.prototype, 'getItem').mockImplementation(boom),
-      vi.spyOn(Storage.prototype, 'setItem').mockImplementation(boom),
-      vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(boom),
-    ]
-    try {
-      expect(getOwnerToken()).toBeNull()
-      expect(() => setOwnerToken('abc')).not.toThrow()
-      expect(() => setOwnerToken(null)).not.toThrow()
-    } finally {
-      spies.forEach((s) => s.mockRestore())
-    }
   })
 })
 
@@ -231,7 +196,7 @@ describe('sessionFresh: the server lock (30 min) is not outlived', () => {
     const fetch = vi.fn(async (url: unknown) =>
       String(url).endsWith('/start') ? started() : new Promise<Response>((resolve) => (answer = resolve)),
     )
-    const client = createGameClient({ fetch: fetch as unknown as typeof globalThis.fetch, ownerToken: () => 'o', now: () => t })
+    const client = createGameClient({ fetch: fetch as unknown as typeof globalThis.fetch, now: () => t })
     await client.begin('opus', 'opus')
     t = 20 * MIN
     const p = client.move({ history: [] })

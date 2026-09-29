@@ -18,7 +18,6 @@ function renderNewGame(opts: {
     opts.claude === null
       ? undefined
       : {
-          available: true,
           white: 'opus' as const,
           black: 'haiku' as const,
           onWhiteChange: onWhite,
@@ -49,18 +48,13 @@ const claudeOption = () =>
   screen.getByTestId('mode').querySelector('option[value="claude-vs-claude"]') as HTMLOptionElement | null
 
 describe('NewGame: Claude vs Claude', () => {
-  // Red if the mode is offered without an owner token.
-  test('no Claude option without a token (or on a build without coaching)', () => {
+  // Red if the mode is offered on a build without the flag (App passes no `claude`).
+  test('no Claude option when the app passes no claude (a public build)', () => {
     renderNewGame({ claude: null })
     expect(claudeOption()).toBeNull()
   })
 
-  test('no Claude option when a token is not set', () => {
-    renderNewGame({ claude: { available: false } })
-    expect(claudeOption()).toBeNull()
-  })
-
-  test('with a token: a fourth option, Claude vs Claude, that selects the mode', () => {
+  test('with the flag on: a fourth option, Claude vs Claude, that selects the mode', () => {
     const { onModeChange } = renderNewGame({})
     expect(optionTexts()).toEqual(['Two players', 'One player', 'Engine vs engine', 'Claude vs Claude'])
     fireEvent.change(screen.getByTestId('mode'), { target: { value: 'claude-vs-claude' } })
@@ -122,10 +116,32 @@ describe('NewGame: Claude vs Claude', () => {
     expect(screen.getByTestId('claude-budget')).toHaveTextContent('Budget left this month: …')
   })
 
-  // A resumed Claude game after the token was cleared still names its mode.
-  test('the option stays (disabled) while the panel shows a Claude game with no token', () => {
-    renderNewGame({ mode: 'claude-vs-claude', claude: { available: false } })
-    expect(claudeOption()).not.toBeNull()
-    expect(claudeOption()!.disabled).toBe(true)
+  // Red if Start stays live, or nothing says why, when the local server is
+  // not running or has no key (the budget request failed).
+  test('an unreadable budget shows the local-server hint and disables Start', () => {
+    renderNewGame({ mode: 'claude-vs-claude', claude: { budgetLeftUsd: null } })
+    expect(screen.getByTestId('claude-unavailable-hint')).toHaveTextContent(
+      'Start the local server (npm run server) with ANTHROPIC_API_KEY in .env',
+    )
+    expect(screen.getByTestId('new-game')).toBeDisabled()
+  })
+
+  test('a readable budget: no hint, Start enabled', () => {
+    renderNewGame({ mode: 'claude-vs-claude', claude: { budgetLeftUsd: 12.5 } })
+    expect(screen.queryByTestId('claude-unavailable-hint')).toBeNull()
+    expect(screen.getByTestId('new-game')).toBeEnabled()
+  })
+
+  test('while the budget is loading: no hint yet, Start enabled', () => {
+    renderNewGame({ mode: 'claude-vs-claude', claude: { budgetLeftUsd: undefined } })
+    expect(screen.queryByTestId('claude-unavailable-hint')).toBeNull()
+    expect(screen.getByTestId('new-game')).toBeEnabled()
+  })
+
+  // Only the Claude mode depends on the local server.
+  test('in another mode an unreadable budget changes nothing', () => {
+    renderNewGame({ mode: 'zero-player', claude: { budgetLeftUsd: null } })
+    expect(screen.queryByTestId('claude-unavailable-hint')).toBeNull()
+    expect(screen.getByTestId('new-game')).toBeEnabled()
   })
 })
