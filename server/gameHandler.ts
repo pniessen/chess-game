@@ -11,7 +11,7 @@
  * closed by throwing, so an unreadable ledger can never turn into a game.
  */
 import { LIMITS } from '../src/coach/protocol'
-import { ZERO_USAGE, isClaudeModelKey } from '../src/claude/models'
+import { ZERO_USAGE, isClaudeModelKey, type SideUsage } from '../src/claude/models'
 import { Position } from '../src/game-core/position'
 import { STARTING_FEN } from '../src/game-core/types'
 import type { MessagesClient } from './claude'
@@ -25,7 +25,6 @@ import {
   endGame,
   monthUsage,
   startGame,
-  type SideUsage,
 } from './games'
 import type { GameStore } from './store'
 

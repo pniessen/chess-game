@@ -77,8 +77,6 @@ export function checkGameToken(secret: Buffer, gameId: string, token: string): b
   return safeEqual(token, gameToken(gameId, secret))
 }
 
-export type { SideUsage }
-
 /** One call to Anthropic made for `side`, as measured around it on the server. */
 export interface MoveCall {
   side: Side
