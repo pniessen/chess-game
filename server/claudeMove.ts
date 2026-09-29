@@ -1,0 +1,104 @@
+import type Anthropic from '@anthropic-ai/sdk'
+import { Position } from '../src/game-core/position'
+import { STARTING_FEN } from '../src/game-core/types'
+import { CLAUDE_MODELS, costUsd, type ClaudeModelKey } from '../src/claude/models'
+import { numberedMoves } from '../src/review/moveNumber'
+import { classifyError, type FailureKind, type MessagesClient } from './claude'
+
+export type MoveOutcome =
+  | { ok: true; san: string; why: string; costUsd: number; ms: number }
+  | { ok: false; kind: 'bad-request' | 'illegal-reply' | FailureKind; costUsd: number; ms: number }
+
+/** Distributes over the union, unlike Omit. */
+type WithoutMs<T> = T extends unknown ? Omit<T, 'ms'> : never
+
+const MAX_WHY_WORDS = 20
+// Thinking tokens count toward max_tokens and cannot be switched off on the
+// 5.x models, so the cap leaves room for them; the reply itself is tiny.
+const MAX_TOKENS = 8000
+
+const cutWords = (s: string, n: number) => s.trim().split(/\s+/).filter(Boolean).slice(0, n).join(' ')
+
+/** The model's JSON reply -> its move and reason, or null when it is not that shape. */
+function parseReply(text: string): { move: string; why: string } | null {
+  try {
+    const v: unknown = JSON.parse(text)
+    if (typeof v !== 'object' || v === null) return null
+    const { move, why } = v as { move?: unknown; why?: unknown }
+    if (typeof move !== 'string') return null
+    return { move, why: typeof why === 'string' ? why : '' }
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Ask a Claude model for one move. The server derives the legal list itself
+ * and the schema's enum pins the reply to it; the reply is checked against
+ * the same list again, so a model can never inject an unlisted move.
+ */
+export async function requestMove(
+  deps: { client: MessagesClient },
+  req: { model: ClaudeModelKey; startFen?: string; history: string[] },
+): Promise<MoveOutcome> {
+  const started = Date.now()
+  const done = (o: WithoutMs<MoveOutcome>): MoveOutcome => ({ ...o, ms: Date.now() - started }) as MoveOutcome
+  const bad = () => done({ ok: false, kind: 'bad-request', costUsd: 0 })
+
+  const start = Position.fromFen(req.startFen ?? STARTING_FEN)
+  if (!start.ok) return bad()
+  const firstMover = start.position.turn()
+
+  const pos = new Position(req.startFen ?? STARTING_FEN)
+  for (const san of req.history) {
+    if (!pos.trySan(san).ok) return bad()
+  }
+  const legal = pos.legalSans()
+  // Checkmate, stalemate and other finished positions have no move to ask for.
+  if (pos.status().kind !== 'in-progress' || legal.length === 0) return bad()
+
+  const model = CLAUDE_MODELS[req.model]
+  const side = pos.turn() === 'w' ? 'White' : 'Black'
+  const system = `You are playing chess as ${side}. Choose one move from the list. Reply with the move and a reason of at most ${MAX_WHY_WORDS} words.`
+  const user = [
+    `FEN: ${pos.fen()}`,
+    `Moves so far: ${req.history.length ? numberedMoves(req.history, firstMover) : '(none)'}`,
+    `Legal moves: ${legal.join(', ')}`,
+  ].join('\n')
+
+  let response: Anthropic.Message
+  try {
+    response = await deps.client.messages.create({
+      model: model.id,
+      max_tokens: MAX_TOKENS,
+      // No `thinking` field: the 5.x models think adaptively when it is omitted
+      // (and 400 on `disabled`); Haiku 4.5 simply does not think.
+      output_config: {
+        ...(model.effort ? { effort: model.effort } : {}),
+        format: {
+          type: 'json_schema',
+          schema: {
+            type: 'object',
+            properties: { move: { type: 'string', enum: legal }, why: { type: 'string' } },
+            required: ['move', 'why'],
+            additionalProperties: false,
+          },
+        },
+      },
+      system,
+      messages: [{ role: 'user', content: user }],
+    })
+  } catch (err) {
+    return done({ ok: false, kind: classifyError(err), costUsd: 0 })
+  }
+
+  // A reply that arrived costs money whether or not it is usable.
+  const cost = costUsd(req.model, response.usage)
+  const illegal = () => done({ ok: false, kind: 'illegal-reply', costUsd: cost })
+  if (response.stop_reason === 'refusal' || response.stop_reason === 'max_tokens') return illegal()
+
+  const text = response.content.map((b) => (b.type === 'text' ? b.text : '')).join('')
+  const parsed = parseReply(text)
+  if (!parsed || !legal.includes(parsed.move)) return illegal()
+  return done({ ok: true, san: parsed.move, why: cutWords(parsed.why, MAX_WHY_WORDS), costUsd: cost })
+}
