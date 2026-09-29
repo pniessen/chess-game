@@ -90,4 +90,14 @@ describe('describeResult: Claude', () => {
       ),
     ).toBe("This month's Claude games budget is used up — game stopped")
   })
+
+  test('a claude-unavailable finish after a local-server restart says the game is lost', () => {
+    const inProgress = { kind: 'in-progress', inCheck: false } as const
+    expect(
+      describeResult(
+        { kind: 'finished', status: inProgress, reason: 'claude-unavailable', winner: null, detail: 'server-restarted' },
+        inProgress,
+      ),
+    ).toBe('Game lost — the local server restarted')
+  })
 })

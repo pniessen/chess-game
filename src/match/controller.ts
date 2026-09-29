@@ -520,7 +520,8 @@ export class MatchController {
    *  - retry: asked once more (`retried`); a second failure of any kind that
    *    is not terminal, or a SAN the position refuses, hands the turn to
    *    Stockfish (claudeFallback).
-   *  - budget / fatal: nothing more can come from Claude this game.
+   *  - budget / fatal / lost: nothing more can come from Claude this game
+   *    ('lost': the local server restarted and refuses the game's token).
    *
    * A reply to a stale request is held when it is an ok answer to the still
    * live position (a pause, a step's end), dropped otherwise.
@@ -572,8 +573,11 @@ export class MatchController {
       void this.claudeFallback(side, id)
       return
     }
-    if (reply.kind === 'budget' || reply.kind === 'fatal') {
-      this.finish('claude-unavailable', reply.kind === 'budget' ? 'budget' : undefined)
+    if (reply.kind === 'budget' || reply.kind === 'fatal' || reply.kind === 'lost') {
+      this.finish(
+        'claude-unavailable',
+        reply.kind === 'budget' ? 'budget' : reply.kind === 'lost' ? 'server-restarted' : undefined,
+      )
       return
     }
     if (!retried) {

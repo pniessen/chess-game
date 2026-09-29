@@ -29,8 +29,12 @@ export interface MatchConfig {
  */
 export type FinishReason = 'normal' | 'flag' | 'resign' | 'engine-error' | 'claude-unavailable' | 'adjudicated'
 
-/** Why a 'claude-unavailable' finish happened, when it is not simply "Claude failed": the server's 402. */
-export type FinishDetail = 'budget'
+/**
+ * Why a 'claude-unavailable' finish happened, when it is not simply "Claude
+ * failed": the server's 402 ('budget'), or a 403 on a begun game — the local
+ * server restarted and no longer knows it ('server-restarted').
+ */
+export type FinishDetail = 'budget' | 'server-restarted'
 
 export type MatchPhase =
   | { kind: 'idle' }

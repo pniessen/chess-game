@@ -35,9 +35,9 @@ export function describeResult(phase: MatchPhase, displayed: GameStatus): string
       case 'engine-error':
         return 'Game halted — engine error'
       case 'claude-unavailable':
-        return phase.detail === 'budget'
-          ? "This month's Claude games budget is used up — game stopped"
-          : 'Claude is unavailable — game stopped'
+        if (phase.detail === 'budget') return "This month's Claude games budget is used up — game stopped"
+        if (phase.detail === 'server-restarted') return 'Game lost — the local server restarted'
+        return 'Claude is unavailable — game stopped'
       case 'adjudicated':
         // Plies / 2: a chess "move" is one White and one Black ply.
         return `Draw by adjudication — ${CLAUDE_MAX_PLIES / 2} moves`

@@ -87,7 +87,9 @@ describe('move', () => {
     [500, 'upstream', 'retry'],
     [402, 'budget', 'budget'],
     [409, 'over', 'fatal'],
-    [403, 'forbidden', 'fatal'],
+    // The local server restarted: its new secret rejects this game's token.
+    // Nothing a retry can fix, and not a generic failure either.
+    [403, 'forbidden', 'lost'],
     [503, 'no-key', 'fatal'],
     [400, 'bad-request', 'fatal'],
   ] as const)('maps %i %s to %s', async (status, kind, want) => {

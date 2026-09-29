@@ -619,6 +619,20 @@ describe('why a Claude game stopped', () => {
       expect(phase.kind === 'finished' && phase.detail).toBe(kind === 'budget' ? 'budget' : undefined)
     }
   })
+
+  // Red if a restarted local server's 403 is retried, falls back to
+  // Stockfish, or ends the game as a generic failure.
+  test('a lost game (the local server restarted) finishes claude-unavailable, detail server-restarted, never retried', async () => {
+    const e = fakeEngine()
+    const cl = fakeClaude(() => ({ ok: false, kind: 'lost' }))
+    const c = new MatchController({ engine: e.client, claude: cl.mover })
+    c.start(CLAUDE_VS_CLAUDE)
+    await vi.advanceTimersByTimeAsync(0)
+    const phase = c.snapshot().phase
+    expect(phase).toMatchObject({ kind: 'finished', reason: 'claude-unavailable', winner: null, detail: 'server-restarted' })
+    expect(cl.move).toHaveBeenCalledTimes(1)
+    expect(e.calls).toHaveLength(0)
+  })
 })
 
 describe('resetClaudeSpend (a re-begun session)', () => {

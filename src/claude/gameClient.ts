@@ -6,7 +6,11 @@ export type BeginResult =
 
 export type ClaudeMoveResult =
   | { ok: true; san: string; why: string; costUsd: number; gameSpentUsd: number }
-  | { ok: false; kind: 'retry' | 'budget' | 'fatal' }
+  /**
+   * 'lost': the server no longer knows this game — its per-process secret
+   * changed, i.e. the local server restarted — so the game cannot go on.
+   */
+  | { ok: false; kind: 'retry' | 'budget' | 'fatal' | 'lost' }
 
 export interface GameRecord {
   pgn: string
@@ -140,11 +144,14 @@ export class GameClient implements ClaudeMover {
       }
     }
     // 502 (illegal-reply, timeout, upstream, rate-limited) and 500 are worth another try;
-    // 402 ends the Claude game on budget. 409 (the ply cap) is only the server's
+    // 402 ends the Claude game on budget. 403 on a begun game is its token
+    // refused: the local server restarted under a new secret and the game is
+    // lost (no retry can bring it back). 409 (the ply cap) is only the server's
     // backstop — the controller adjudicates the game before asking at the cap —
     // so reaching it is not a budget matter: fatal, like everything else here.
     if (res.status === 502 || res.status === 500) return { ok: false, kind: 'retry' }
     if (res.status === 402) return { ok: false, kind: 'budget' }
+    if (res.status === 403) return { ok: false, kind: 'lost' }
     return { ok: false, kind: 'fatal' }
   }
 
