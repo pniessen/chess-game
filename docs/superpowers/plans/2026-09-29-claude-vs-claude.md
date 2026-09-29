@@ -128,18 +128,56 @@ Behaviour:
 - Stub `/api/health` (claude true) and `/api/game/*` (start ok; move returns a scripted legal SAN sequence for a fool's-mate-length game; end 200). Set the owner token through the Settings field. Choose Claude vs Claude, Opus vs Haiku, start; assert the thinking label, a rationale caption, the cost meter, and the game ends in mate with the end card. A second test: a scripted `illegal-reply` twice → a ⚙ move appears. A third: no owner token → the mode is absent.
 - [ ] Prove each red by reverting Task 8's mode option; green; run with `PW_PORT=5199`, prove the served tree.
 
-### Task 10: Phase 0 measurement and tuning (needs `OWNER_TOKEN` set by Peter)
+### Task 10: Phase 0 measurement and tuning (local; supersedes the original Task 10 below)
 
-- [ ] Draft deploy (`deploy --build`, no `--prod`). With the owner token entered in that browser, play: 3 moves each of fable/opus/sonnet/haiku from the start position via `/api/game/move` (a start/end pair per model), then one full Haiku-vs-Haiku game. Stay under $3 (check `/api/game/budget`).
-- [ ] From the responses and the function logs record per model: median/max latency, median/max cost per move, whether the enum was honoured (any `illegal-reply`). Write the table into the spec's Phase 0 section.
-- [ ] Retune `MOVE_TIMEOUT_MS` and `RESERVE_PER_GAME_USD`; if structured outputs were rejected by the gateway, switch Task 2's request to plain JSON (validation already covers it) and note it.
+Supersedes the draft-deploy version (struck through below): since the local-only addendum there is
+no deployed `/api/game/*`, no owner token and no function log. Everything runs on Peter's machine.
+
+- [ ] Peter puts his own `ANTHROPIC_API_KEY` in `.env` (never committed, never pasted anywhere
+  else). Run `npm run server` and `npm run dev` (or `npm run start:claude`, which builds with
+  `VITE_CLAUDE_GAMES=on` and serves the build from the local server). Requests go from the local
+  server directly to Anthropic, not through the AI Gateway.
+- [ ] Play a few moves per model (fable/opus/sonnet/haiku) from the start position (a start/end pair
+  per model), then one full Haiku-vs-Haiku game. Stay under $3 in total: check
+  `GET /api/game/budget` before and after each step.
+- [ ] Record per model: median/max latency, median/max cost per move, whether the enum was honoured
+  (any `illegal-reply`). Cost comes from the `/api/game/move` responses (`costUsd` per move,
+  `gameSpentUsd` for the game so far); latency is timed on the client (the browser's network panel
+  or a timed curl). The server logs neither. Any hand-made curl to `/api/game/*` needs
+  `-H 'Origin: http://localhost:5173'` (POSTs without a loopback Origin are refused). Write the
+  table into the spec's Phase 0 section.
+- [ ] Retune `MOVE_TIMEOUT_MS` and `RESERVE_PER_GAME_USD` between games only, never while one is
+  in progress (the reservation is taken at start); restart the local server after the change. If
+  structured outputs are rejected by the API, switch Task 2's request to plain JSON (validation
+  already covers it) and note it.
 - [ ] Commit.
 
-### Task 11: Land
+### Task 11: Land (local; supersedes the original Task 11 below)
 
 - [ ] Full `npx vitest run` and `PW_PORT=5199 npx playwright test`; both green.
-- [ ] Update `docs/next-session-prompt.md` (the mode, the owner token, the budget, where games are saved).
-- [ ] Merge to `main`, push, `netlify deploy --build --prod`, then one live Haiku-vs-Haiku game from the owner browser; confirm the saved game and the budget figure.
+- [ ] Update `docs/next-session-prompt.md` (the mode, local-only setup, the budget, where games are
+  saved: `~/.chess-game/claude-games/`).
+- [ ] Merge to `main` and push. The Netlify deploy is only the normal public deploy of the app
+  (always `netlify deploy --build --prod`, never a bare `--prod` of an existing `dist/`); it
+  contains no Claude vs Claude.
+- [ ] Play the live Haiku-vs-Haiku game locally (`npm run server` + `npm run dev`, or
+  `npm run start:claude`); confirm the saved game under `games/saved/` and the budget figure from
+  `GET /api/game/budget`.
+
+#### Superseded originals (kept for the record)
+
+#### ~~Task 10: Phase 0 measurement and tuning (needs `OWNER_TOKEN` set by Peter)~~ (superseded)
+>
+> ~~- [ ] Draft deploy (`deploy --build`, no `--prod`). With the owner token entered in that browser, play: 3 moves each of fable/opus/sonnet/haiku from the start position via `/api/game/move` (a start/end pair per model), then one full Haiku-vs-Haiku game. Stay under $3 (check `/api/game/budget`).~~
+> ~~- [ ] From the responses and the function logs record per model: median/max latency, median/max cost per move, whether the enum was honoured (any `illegal-reply`). Write the table into the spec's Phase 0 section.~~
+> ~~- [ ] Retune `MOVE_TIMEOUT_MS` and `RESERVE_PER_GAME_USD`; if structured outputs were rejected by the gateway, switch Task 2's request to plain JSON (validation already covers it) and note it.~~
+> ~~- [ ] Commit.~~
+
+#### ~~Task 11: Land~~ (superseded)
+>
+> ~~- [ ] Full `npx vitest run` and `PW_PORT=5199 npx playwright test`; both green.~~
+> ~~- [ ] Update `docs/next-session-prompt.md` (the mode, the owner token, the budget, where games are saved).~~
+> ~~- [ ] Merge to `main`, push, `netlify deploy --build --prod`, then one live Haiku-vs-Haiku game from the owner browser; confirm the saved game and the budget figure.~~
 
 ---
 
