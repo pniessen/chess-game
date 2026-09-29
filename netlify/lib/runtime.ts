@@ -5,6 +5,7 @@
  */
 import { getDeployStore, getStore } from '@netlify/blobs'
 import { createClaude, type Claude } from '../../server/claude'
+import { anthropicConfig } from './anthropic'
 import { isProductionHost, type CoachStore } from './limits'
 
 /** Netlify's environment, including the deploy URLs the origin check reads. */
@@ -28,24 +29,13 @@ export function coachStore(requestUrl: string | undefined): CoachStore {
 }
 
 /**
- * The Claude client, or null when the site has no key configured — in which
+ * The Claude client, or null when the site has no usable key — in which
  * case the browser shows "coaching offline" and uses its built-in hints.
- * The key is read from the environment and handed straight to the SDK; it
- * is never logged, echoed or stored.
- *
- * Netlify's AI Gateway injects an `ANTHROPIC_API_KEY` and an
- * `ANTHROPIC_BASE_URL` of its own into every function, which is why
- * coaching works on a fresh site with nothing configured: those calls are
- * proxied and billed to the Netlify account. Setting your own
- * `ANTHROPIC_API_KEY` on the site replaces the gateway's — and then the
- * gateway's base URL must go with it, or your key would be handed to the
- * proxy instead of to Anthropic. That is the only thing the comparison
- * below decides; neither value is read, logged or stored.
+ * Which key and which base URL is `anthropicConfig`'s decision (see
+ * ./anthropic.ts); the key is handed straight to the SDK and never logged,
+ * echoed or stored.
  */
 export function coachClaude(env: Record<string, string | undefined>): Claude | null {
-  const apiKey = env['ANTHROPIC_API_KEY']?.trim()
-  if (!apiKey) return null
-  const usingGateway = apiKey === env['NETLIFY_AI_GATEWAY_KEY']?.trim()
-  const baseURL = usingGateway ? env['ANTHROPIC_BASE_URL'] : undefined
-  return createClaude({ apiKey, baseURL })
+  const config = anthropicConfig(env)
+  return config ? createClaude(config) : null
 }
