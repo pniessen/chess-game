@@ -95,9 +95,13 @@ export class GameClient implements ClaudeMover {
         }),
         ...(signal ? { signal } : {}),
       })
-    } catch {
+    } catch (err) {
       // A caller abort says nothing about the server; Task 6 drops the stale reply anyway.
-      return { ok: false, kind: signal?.aborted ? 'retry' : 'fatal' }
+      // fetch rejects with a TypeError on a network failure (a Wi-Fi blip, a
+      // dropped connection): worth another try, not the end of a paid game.
+      // At worst the server charged a reply that was lost, and the retry pays twice.
+      if (signal?.aborted || err instanceof TypeError) return { ok: false, kind: 'retry' }
+      return { ok: false, kind: 'fatal' }
     }
     const payload = await readJson(res)
     if (

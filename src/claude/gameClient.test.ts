@@ -91,7 +91,13 @@ describe('move', () => {
     expect(await client.move({ history: [] })).toEqual({ ok: false, kind: want })
   })
 
-  it('maps a network error or non-JSON body to fatal', async () => {
+  it('maps a network TypeError from fetch to retry: a Wi-Fi blip must not end a paid game', async () => {
+    const { client } = setup(started(), new TypeError('Failed to fetch'))
+    await client.begin('opus', 'opus')
+    expect(await client.move({ history: [] })).toEqual({ ok: false, kind: 'retry' })
+  })
+
+  it('maps any other thrown error or a non-JSON body to fatal', async () => {
     const a = setup(started(), new Error('down'))
     await a.client.begin('opus', 'opus')
     expect(await a.client.move({ history: [] })).toEqual({ ok: false, kind: 'fatal' })
