@@ -16,16 +16,16 @@ afterEach(() => vi.useRealTimers())
 describe('ClaudeStatus', () => {
   test('"{label} is thinking… {n}s", ticking each second', () => {
     render(<ClaudeStatus phase={thinking('w', 1)} config={CLAUDE} spentUsd={0} />)
-    expect(screen.getByTestId('claude-thinking')).toHaveTextContent('Claude Opus 5.5 is thinking… 0s')
+    expect(screen.getByTestId('claude-thinking')).toHaveTextContent('Opus 5.5 is thinking… 0s')
     act(() => vi.advanceTimersByTime(7_000))
-    expect(screen.getByTestId('claude-thinking')).toHaveTextContent('Claude Opus 5.5 is thinking… 7s')
+    expect(screen.getByTestId('claude-thinking')).toHaveTextContent(/^Opus 5\.5 is thinking… 7s$/)
   })
 
   test('the count restarts for the next turn, with that side’s model', () => {
     const { rerender } = render(<ClaudeStatus phase={thinking('w', 1)} config={CLAUDE} spentUsd={0} />)
     act(() => vi.advanceTimersByTime(5_000))
     rerender(<ClaudeStatus phase={thinking('b', 2)} config={CLAUDE} spentUsd={0} />)
-    expect(screen.getByTestId('claude-thinking')).toHaveTextContent('Claude Haiku 4.5 is thinking… 0s')
+    expect(screen.getByTestId('claude-thinking')).toHaveTextContent('Haiku 4.5 is thinking… 0s')
   })
 
   test('not thinking while paused; the line keeps its place (empty)', () => {

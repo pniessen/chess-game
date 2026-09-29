@@ -32,3 +32,11 @@ describe('claude models', () => {
     expect(MOVE_TIMEOUT_MS).toBe(45_000)
   })
 })
+
+describe('shortModelLabel', () => {
+  test('the label without "Claude "', async () => {
+    const { shortModelLabel } = await import('./models')
+    expect(shortModelLabel('opus')).toBe('Opus 5.5')
+    expect(shortModelLabel('haiku')).toBe('Haiku 4.5')
+  })
+})

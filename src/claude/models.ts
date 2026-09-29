@@ -28,6 +28,11 @@ export const CLAUDE_MODELS: Record<ClaudeModelKey, ClaudeModel> = {
   haiku: { id: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5', priceIn: 1, priceOut: 5 },
 }
 
+/** The label without its "Claude " prefix ("Opus 5.5"), for the clocks and the thinking line. */
+export function shortModelLabel(key: ClaudeModelKey): string {
+  return CLAUDE_MODELS[key].label.replace(/^Claude /, '')
+}
+
 export function isClaudeModelKey(v: unknown): v is ClaudeModelKey {
   return typeof v === 'string' && Object.prototype.hasOwnProperty.call(CLAUDE_MODELS, v)
 }

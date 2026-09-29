@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { CLAUDE_MODELS } from '../../claude/models'
+import { shortModelLabel } from '../../claude/models'
 import type { ClaudeNote, MatchConfig, MatchPhase } from '../../match/types'
 import { FALLBACK_TITLE } from '../panels/MoveList'
 
@@ -7,7 +7,7 @@ import { FALLBACK_TITLE } from '../panels/MoveList'
 function thinkingLabel(phase: MatchPhase, config: MatchConfig): string | null {
   if (phase.kind !== 'engine-thinking') return null
   const seat = phase.side === 'w' ? config.white : config.black
-  return seat.kind === 'claude' ? CLAUDE_MODELS[seat.model].label : null
+  return seat.kind === 'claude' ? shortModelLabel(seat.model) : null
 }
 
 /**

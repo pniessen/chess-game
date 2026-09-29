@@ -34,7 +34,7 @@ import { useClaudeSession } from './app/useClaudeSession'
 import { claudeErrorText } from './app/claudeText'
 import { ClaudeStatus, ClaudeWhy } from './app/ClaudePanel'
 import { claudeComments, claudeHeaders } from './app/claudeRecord'
-import { CLAUDE_MODELS } from '../claude/models'
+import { shortModelLabel } from '../claude/models'
 import type { Seat } from '../match/types'
 import { useEngineHealth } from './app/useEngineHealth'
 import { useEngineLoading } from './app/useEngineLoading'
@@ -318,7 +318,7 @@ function AppInner({
   // A game with a Claude seat shows who is thinking, what it has cost, each
   // move's reason and the model names; every other game renders as before.
   const claudeGame = snapshot.config.white.kind === 'claude' || snapshot.config.black.kind === 'claude'
-  const seatName = (seat: Seat, fallback: string) => (seat.kind === 'claude' ? CLAUDE_MODELS[seat.model].label : fallback)
+  const seatName = (seat: Seat, fallback: string) => (seat.kind === 'claude' ? shortModelLabel(seat.model) : fallback)
   const clockNames = claudeGame
     ? { w: seatName(snapshot.config.white, 'White'), b: seatName(snapshot.config.black, 'Black') }
     : undefined
