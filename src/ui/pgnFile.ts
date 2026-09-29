@@ -16,8 +16,8 @@ export function pgnFileName(now: Date = new Date()): string {
  * game-end card's "Export PGN" is the SAME export as the panel's button —
  * one implementation, one filename, one blob lifecycle.
  */
-export function downloadPgn(game: Game, headers?: PgnHeaders): void {
-  const pgn = exportPgn(game, headers)
+export function downloadPgn(game: Game, headers?: PgnHeaders, comments?: Readonly<Record<number, string>>): void {
+  const pgn = exportPgn(game, headers, comments)
   const blob = new Blob([pgn], { type: 'application/x-chess-pgn' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')

@@ -32,6 +32,10 @@ import { useOwnerToken } from './app/useOwnerToken'
 import { useClaudeBudget } from './app/useClaudeBudget'
 import { useClaudeSession } from './app/useClaudeSession'
 import { claudeErrorText } from './app/claudeText'
+import { ClaudeStatus, ClaudeWhy } from './app/ClaudePanel'
+import { claudeComments, claudeHeaders } from './app/claudeRecord'
+import { CLAUDE_MODELS } from '../claude/models'
+import type { Seat } from '../match/types'
 import { useEngineHealth } from './app/useEngineHealth'
 import { useEngineLoading } from './app/useEngineLoading'
 import { useEngineAnalysis } from './app/useEngineAnalysis'
@@ -311,6 +315,16 @@ function AppInner({
 
   const highlights = highlightsFor({ selection, position, lastMove, displayedStatus })
 
+  // A game with a Claude seat shows who is thinking, what it has cost, each
+  // move's reason and the model names; every other game renders as before.
+  const claudeGame = snapshot.config.white.kind === 'claude' || snapshot.config.black.kind === 'claude'
+  const seatName = (seat: Seat, fallback: string) => (seat.kind === 'claude' ? CLAUDE_MODELS[seat.model].label : fallback)
+  const clockNames = claudeGame
+    ? { w: seatName(snapshot.config.white, 'White'), b: seatName(snapshot.config.black, 'Black') }
+    : undefined
+  const exportGame = () =>
+    claudeGame ? downloadPgn(game, claudeHeaders(snapshot), claudeComments(snapshot)) : downloadPgn(game)
+
   return (
     <main className="app">
       <h1>Chess</h1>
@@ -380,9 +394,12 @@ function AppInner({
 
       {shortcuts.helpOpen ? <ShortcutsOverlay onClose={shortcuts.closeHelp} /> : null}
 
-      <div className="layout">
+      <div className={claudeGame ? 'layout claude-game' : 'layout'}>
         <div className="left-column" ref={leftColumnRef}>
-          <Clocks clock={snapshot.clock} readClock={readClock} orientation={orientation} />
+          <Clocks clock={snapshot.clock} readClock={readClock} orientation={orientation} names={clockNames} />
+          {claudeGame ? (
+            <ClaudeStatus phase={snapshot.phase} config={snapshot.config} spentUsd={snapshot.claude.spentUsd} />
+          ) : null}
           <Captured moves={game.moves.slice(0, game.ply)} pieceSet={settings.pieceSetId} />
           <Scoreboard score={records.score} />
           {/* Task 2: moved out of .board-column, below the fold behind a
@@ -452,11 +469,12 @@ function AppInner({
                   endCard.dismiss()
                   handleReview()
                 }}
-                onExport={() => downloadPgn(game)}
+                onExport={exportGame}
                 onDismiss={endCard.dismiss}
               />
             ) : null}
           </div>
+          {claudeGame ? <ClaudeWhy notes={snapshot.claude.notes} ply={game.ply} /> : null}
           <span className="sr-only" data-testid="ply-count">
             {game.moves.length}
           </span>
@@ -515,6 +533,7 @@ function AppInner({
               orientation,
               theme: settings.themeId,
               pieceSet: settings.pieceSetId,
+              ...(claudeGame ? { claudeNotes: snapshot.claude.notes } : {}),
             }}
             explorer={{ book, unavailable: bookFailed, current: opening, onStart: lifecycle.handleStartOpening }}
             review={{

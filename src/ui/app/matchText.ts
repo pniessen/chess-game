@@ -33,6 +33,8 @@ export function describeResult(phase: MatchPhase, displayed: GameStatus): string
       }
       case 'engine-error':
         return 'Game halted — engine error'
+      case 'claude-unavailable':
+        return 'Claude is unavailable — game stopped'
     }
   }
   return displayed.kind === 'in-progress' && displayed.inCheck ? 'Check' : ''

@@ -63,3 +63,12 @@ describe('resignableSide', () => {
     expect(resignableSide(cfg(engine, engine), { kind: 'awaiting-human', side: 'w' })).toBeNull()
   })
 })
+
+describe('describeResult: Claude', () => {
+  test('a claude-unavailable finish says the game stopped', () => {
+    const inProgress = { kind: 'in-progress', inCheck: false } as const
+    expect(
+      describeResult({ kind: 'finished', status: inProgress, reason: 'claude-unavailable', winner: null }, inProgress),
+    ).toBe('Claude is unavailable — game stopped')
+  })
+})
