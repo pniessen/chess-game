@@ -36,7 +36,7 @@ async function stubGame(page: Page, move: Parameters<Page['route']>[1]): Promise
   })
   await page.route('**/api/game/move', (r) => {
     calls.move.push((r.request().postDataJSON() as { history: string[] }).history)
-    return move(r)
+    return move(r, r.request())
   })
   await page.route('**/api/game/end', (r) => {
     calls.end++
@@ -62,7 +62,7 @@ test('Claude vs Claude plays a scripted fool\'s mate to the end card', async ({ 
       // Fails loudly: the UI skipped or repeated a request.
       return route.fulfill({ status: 400, json: { error: { kind: 'bad-request', message: 'Bad request.' } } })
     }
-    const step = SCRIPT[n]
+    const step = SCRIPT[n]!
     n++
     return route.fulfill({
       json: { san: step.san, why: step.why, costUsd: step.costUsd, gameSpentUsd: SCRIPT.slice(0, n).reduce((s, x) => s + x.costUsd, 0) },
@@ -79,7 +79,7 @@ test('Claude vs Claude plays a scripted fool\'s mate to the end card', async ({ 
   await page.getByTestId('new-game').click()
 
   await expect(page.getByTestId('claude-thinking')).toContainText('Opus 5.5 is thinking')
-  await expect(page.getByTestId('claude-why')).toContainText(SCRIPT[0].why)
+  await expect(page.getByTestId('claude-why')).toContainText(SCRIPT[0]!.why)
   await expect(page.getByTestId('claude-cost')).toContainText('This game: $')
 
   await expect(page.getByTestId('game-end-card')).toBeVisible({ timeout: 30_000 })
