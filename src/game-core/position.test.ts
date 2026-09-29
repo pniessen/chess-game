@@ -81,3 +81,29 @@ describe('trySan', () => {
     expect(p.trySan('Ke7')).toEqual({ ok: false, reason: 'game-over' })
   })
 })
+
+describe('legalSans', () => {
+  test('start position yields 20 SANs including e4 and Nf3', () => {
+    const p = new Position()
+    const sans = p.legalSans()
+    expect(sans).toHaveLength(20)
+    expect(sans).toContain('e4')
+    expect(sans).toContain('Nf3')
+  })
+
+  test('a promotion position contains e8=Q and e8=N', () => {
+    const p = new Position('8/4P3/8/8/8/8/k7/7K w - - 0 1')
+    const sans = p.legalSans()
+    expect(sans).toContain('e8=Q')
+    expect(sans).toContain('e8=N')
+    expect(sans).toContain('e8=R')
+    expect(sans).toContain('e8=B')
+  })
+
+  test('a mated position yields empty array', () => {
+    const p = new Position(RULE_FIXTURES.mateInOne)
+    p.trySan('Qxf7#')
+    const sans = p.legalSans()
+    expect(sans).toEqual([])
+  })
+})
