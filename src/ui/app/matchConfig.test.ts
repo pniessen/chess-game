@@ -63,7 +63,7 @@ describe('buildConfig: Claude vs Claude', () => {
 describe('claudeEstimateUsd', () => {
   test('the two per-game reserves summed, divided by 1.5', async () => {
     const { claudeEstimateUsd } = await import('./matchConfig')
-    expect(claudeEstimateUsd('fable', 'opus')).toBeCloseTo((2.18 + 0.87) / 1.5)
-    expect(claudeEstimateUsd('haiku', 'haiku')).toBeCloseTo(0.08)
+    expect(claudeEstimateUsd('fable', 'opus')).toBeCloseTo((1.5 + 0.63) / 1.5)
+    expect(claudeEstimateUsd('haiku', 'haiku')).toBeCloseTo((0.14 + 0.14) / 1.5)
   })
 })

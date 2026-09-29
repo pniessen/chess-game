@@ -95,10 +95,10 @@ describe('NewGame: Claude vs Claude', () => {
     expect(screen.getByTestId('time-control')).toBeDisabled()
   })
 
-  // opus 0.87 + haiku 0.06 = 0.93, / 1.5 = 0.62
+  // opus 0.63 + haiku 0.14 = 0.77, / 1.5 = 0.51
   test('the estimate is the two reserves summed and divided by 1.5', () => {
     renderNewGame({ mode: 'claude-vs-claude' })
-    expect(screen.getByTestId('claude-estimate')).toHaveTextContent('Estimated cost: $0.62')
+    expect(screen.getByTestId('claude-estimate')).toHaveTextContent('Estimated cost: $0.51')
   })
 
   test('the budget left this month, formatted to the cent', () => {
