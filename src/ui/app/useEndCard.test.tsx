@@ -3,7 +3,7 @@ import { describe, expect, test } from 'vitest'
 import { Game } from '../../game-core/game'
 import { gameFromSan } from '../../game-core/io'
 import type { Square } from '../../game-core/types'
-import type { MatchConfig, MatchSnapshot } from '../../match/types'
+import { NO_CLAUDE, type MatchConfig, type MatchSnapshot } from '../../match/types'
 import { useEndCard } from './useEndCard'
 
 /**
@@ -43,6 +43,7 @@ const live = (game: Game): MatchSnapshot => ({
   game,
   clock,
   config,
+  claude: NO_CLAUDE,
 })
 
 const finished = (game: Game): MatchSnapshot => ({
@@ -50,6 +51,7 @@ const finished = (game: Game): MatchSnapshot => ({
   game,
   clock,
   config,
+  claude: NO_CLAUDE,
 })
 
 describe('useEndCard', () => {

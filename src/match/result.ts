@@ -3,7 +3,8 @@ import type { MatchConfig, MatchPhase } from './types'
 
 /** The PGN result of a match: decided by phase.winner, never by status alone (resign/flag). */
 export function resultTagOf(phase: MatchPhase): '1-0' | '0-1' | '1/2-1/2' | '*' {
-  if (phase.kind !== 'finished' || phase.reason === 'engine-error') return '*'
+  // An aborted game (the engine or Claude could not go on) has no result.
+  if (phase.kind !== 'finished' || phase.reason === 'engine-error' || phase.reason === 'claude-unavailable') return '*'
   return phase.winner === 'w' ? '1-0' : phase.winner === 'b' ? '0-1' : '1/2-1/2'
 }
 

@@ -3,8 +3,13 @@ import type { MatchConfig } from '../match/types'
 import type { Level, StoredSetup } from '../storage/storage'
 import type { Mode } from './panels/NewGame'
 
-/** What the running match's config looks like when persisted. */
-export function setupOf(config: MatchConfig): StoredSetup {
+/**
+ * What the running match's config looks like when persisted. A Claude seat
+ * has no stored form yet, so it takes the path an unreadable stored seat
+ * already takes: no setup at all, i.e. a resume (or rematch) as two-player.
+ */
+export function setupOf(config: MatchConfig): StoredSetup | null {
+  if (config.white.kind === 'claude' || config.black.kind === 'claude') return null
   return {
     white: config.white,
     black: config.black,

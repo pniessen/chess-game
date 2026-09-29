@@ -1,7 +1,7 @@
 import { renderHook } from '@testing-library/react'
 import { beforeEach, describe, expect, test } from 'vitest'
 import { gameFromSan } from '../../game-core/io'
-import type { MatchConfig, MatchSnapshot } from '../../match/types'
+import { NO_CLAUDE, type MatchConfig, type MatchSnapshot } from '../../match/types'
 import { loadHistory, loadInProgress, loadScore } from '../../storage/storage'
 import { useMatchRecords } from './useMatchRecords'
 
@@ -17,7 +17,7 @@ function snapshotOf(sans: string[], config: MatchConfig, finished: boolean): Mat
   const phase: MatchSnapshot['phase'] = finished
     ? { kind: 'finished', status: game.status(), reason: 'normal', winner: 'w' }
     : { kind: 'awaiting-human', side: game.current().turn() }
-  return { phase, game, clock, config }
+  return { phase, game, clock, config, claude: NO_CLAUDE }
 }
 
 beforeEach(() => localStorage.clear())

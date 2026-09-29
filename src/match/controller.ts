@@ -1,12 +1,37 @@
 import { Clock } from '../clock/clock'
 import { Game } from '../game-core/game'
 import { uciToIntent, type EngineInfo } from '../engine/uci'
-import type { Color, GameStatus, MoveIntent, MoveResult, PlayedMove } from '../game-core/types'
+import { STARTING_FEN, type Color, type GameStatus, type MoveIntent, type MoveResult, type PlayedMove } from '../game-core/types'
 import { profileFor, type StrengthProfile } from '../engine/strength'
 import { EngineLane, type AnalysisRequest, type SearchOutcome } from '../engine/lane'
 import type { Level } from '../storage/storage'
-import type { MatchConfig, MatchPhase, MatchSnapshot, Seat } from './types'
+import {
+  NO_CLAUDE,
+  isBotSeat,
+  type ClaudeNote,
+  type ClaudeSnapshot,
+  type MatchConfig,
+  type MatchPhase,
+  type MatchSnapshot,
+  type Seat,
+} from './types'
 import type { ClockState } from '../clock/types'
+import type { ClaudeMover, ClaudeMoveResult } from '../claude/gameClient'
+
+/** Stockfish stands in for a failed Claude turn at full strength, so the stand-in is never the weak link. */
+const CLAUDE_FALLBACK_LEVEL: Level = 8
+/** This many Stockfish stand-ins for one side in one game, and that Claude is out. */
+const CLAUDE_FALLBACK_LIMIT = 5
+
+/**
+ * The one Claude reply the controller may keep for later (Q8), and the
+ * request that produces it. `reply` settles once; awaiting it again is free.
+ */
+interface ClaudeAsk {
+  /** The live FEN the ask was about: the only position it may be played in. */
+  fen: string
+  reply: Promise<ClaudeMoveResult>
+}
 
 /** The subset of EngineClient the controller needs; keeps tests trivial. */
 export interface EngineLike {
@@ -139,11 +164,40 @@ export class MatchController {
    * would re-render (and can warn about an infinite loop) on every check.
    */
   private cachedSnapshot: MatchSnapshot
+  /** Asked for a Claude seat's moves; the UI owns its begin()/end() lifecycle. */
+  private readonly claude: ClaudeMover | null
+  /**
+   * Claude's notes, spend and fallback counts for this game. Replaced (never
+   * mutated) when any of it changes, so the snapshot's `claude` object keeps
+   * its identity across emits that did not touch it.
+   */
+  private claudeState: ClaudeSnapshot = NO_CLAUDE
+  /**
+   * The single Claude reply held for later — or still on its way (Q8).
+   *
+   * A Claude reply costs real money, so one that arrives after its request
+   * went stale is not thrown away if it still answers the live position: a
+   * pause (or step) invalidates the request but not the position. The next
+   * askClaude() for the same live FEN awaits this instead of calling move()
+   * again — whether the reply has landed already or is still in flight, so a
+   * quick pause/resume never pays for the same move twice.
+   *
+   * Any change of the live position (a move, undo, redo, a new game) makes
+   * the reply unusable, and every one of those paths clears this; the FEN
+   * key is checked again on use as belt-and-braces.
+   */
+  private claudeAsk: ClaudeAsk | null = null
+  /**
+   * Bumped by every new game. A Claude reply's spend is only credited to the
+   * game that asked for it, even when the reply itself is dropped as stale.
+   */
+  private gameEpoch = 0
 
-  constructor(deps: { engine: EngineLike; random?: () => number }) {
+  constructor(deps: { engine: EngineLike; random?: () => number; claude?: ClaudeMover }) {
     this.engine = deps.engine
     this.lane = new EngineLane(this.engine)
     this.random = deps.random ?? Math.random
+    this.claude = deps.claude ?? null
     this.cachedSnapshot = this.buildSnapshot()
   }
 
@@ -162,6 +216,7 @@ export class MatchController {
       game: this.game,
       clock: this.clock.getState(),
       config: this.config,
+      claude: this.claudeState,
     }
   }
 
@@ -255,6 +310,9 @@ export class MatchController {
     this.requestId++
     this.illegalEngineMoves = 0
     this.stepRequestId = null
+    this.gameEpoch++
+    this.claudeAsk = null
+    this.claudeState = NO_CLAUDE
 
     this.clock.dispose()
     this.config = config
@@ -315,7 +373,13 @@ export class MatchController {
     return side === 'w' ? this.config.white : this.config.black
   }
 
-  /** Set the phase for whoever must move, and kick the engine if it is theirs. */
+  /**
+   * Set the phase for whoever must move, and kick the engine (or Claude) if
+   * it is theirs. A Claude turn is an 'engine-thinking' phase too: every
+   * guard keyed on that phase (goTo refused, step's request tie, the stale
+   * requestId drop) applies to it unchanged, and the UI tells the two apart
+   * from config[side].
+   */
   private toMoveOf(side: Color): void {
     const seat = this.seatFor(side)
     if (seat.kind === 'human') {
@@ -324,7 +388,8 @@ export class MatchController {
     }
     const id = ++this.requestId
     this.phase = { kind: 'engine-thinking', side, requestId: id }
-    void this.askEngine(side, seat.level, id)
+    if (seat.kind === 'claude') void this.askClaude(side, id)
+    else void this.askEngine(side, seat.level, id)
   }
 
   private async askEngine(side: Color, level: Level, id: number): Promise<void> {
@@ -398,7 +463,197 @@ export class MatchController {
       return
     }
     this.illegalEngineMoves = 0
+    this.notePlayed(null)
     this.afterMove(id)
+  }
+
+  // ---- Claude turns -----------------------------------------------------
+
+  /**
+   * The Claude reply for the live position: the held one (Q8) if it answers
+   * this very FEN, else a fresh move() call, which becomes the held ask.
+   */
+  private claudeAskFor(fen: string, claude: ClaudeMover): ClaudeAsk {
+    if (this.claudeAsk?.fen === fen) return this.claudeAsk
+    const game = this.game
+    const history = game.moves.map((m) => m.san)
+    const ask: ClaudeAsk = {
+      fen,
+      reply: claude.move({
+        // The server assumes the standard start unless told otherwise.
+        ...(game.startFen !== STARTING_FEN ? { startFen: game.startFen } : {}),
+        history,
+      }),
+    }
+    this.claudeAsk = ask
+    return ask
+  }
+
+  /**
+   * Ask Claude for `side`'s move. Claude's failures are Claude's alone: they
+   * never touch `illegalEngineMoves` nor end the game as 'engine-error'.
+   *
+   *  - ok: played via its SAN on the live position (see playClaudeSan).
+   *  - retry: asked once more (`retried`); a second failure of any kind that
+   *    is not terminal, or a SAN the position refuses, hands the turn to
+   *    Stockfish (claudeFallback).
+   *  - budget / fatal: nothing more can come from Claude this game.
+   *
+   * A reply to a stale request is held when it is an ok answer to the still
+   * live position (a pause, a step's end), dropped otherwise.
+   */
+  private async askClaude(side: Color, id: number, retried = false): Promise<void> {
+    const claude = this.claude
+    if (!claude) {
+      this.finish('claude-unavailable')
+      return
+    }
+    const epoch = this.gameEpoch
+    const ask = this.claudeAskFor(this.livePosition().fen(), claude)
+    let reply: ClaudeMoveResult
+    try {
+      reply = await ask.reply
+    } catch {
+      // A ClaudeMover never throws by contract; treat a broken one as fatal.
+      reply = { ok: false, kind: 'fatal' }
+    }
+    // Spend is the server's running total for the game: credit it whenever
+    // it is reported, even on a reply we end up dropping, since that move
+    // was paid for all the same. Never across games, though.
+    if (reply.ok && epoch === this.gameEpoch) this.recordSpend(reply.gameSpentUsd)
+
+    // Pace a zero-player game exactly as an engine move is paced.
+    const delay = this.config.engineDelayMs ?? 0
+    if (reply.ok && delay > 0 && id === this.requestId) {
+      await new Promise((r) => setTimeout(r, delay))
+    }
+
+    if (id !== this.requestId) {
+      // Stale. Keep an ok reply for the live position it answers (the next
+      // ask for that FEN picks it up); anything else goes. Only touch the
+      // slot if it still holds THIS ask: every live-position change has
+      // already cleared it, and a newer ask may since have taken its place.
+      if (this.claudeAsk === ask && (!reply.ok || ask.fen !== this.livePosition().fen())) {
+        this.claudeAsk = null
+      }
+      return
+    }
+    // Current: this ask is consumed whatever it says.
+    if (this.claudeAsk === ask) this.claudeAsk = null
+
+    if (reply.ok) {
+      if (this.playClaudeSan(reply.san, reply.why)) {
+        this.afterMove(id)
+        return
+      }
+      void this.claudeFallback(side, id)
+      return
+    }
+    if (reply.kind === 'budget' || reply.kind === 'fatal') {
+      this.finish('claude-unavailable')
+      return
+    }
+    if (!retried) {
+      void this.askClaude(side, id, true)
+      return
+    }
+    void this.claudeFallback(side, id)
+  }
+
+  /**
+   * Play Claude's SAN on the live position. SAN is resolved to a move intent
+   * against the live position first (livePosition() is a fresh copy, so
+   * trying it there changes nothing), then played through Game.play like any
+   * other move. False, with nothing changed, if the position refuses it.
+   */
+  private playClaudeSan(san: string, why: string): boolean {
+    this.viewLive() // same belt-and-braces as applyEngineMove
+    const resolved = this.livePosition().trySan(san)
+    if (!resolved.ok) return false
+    const { from, to, promotion } = resolved.move
+    const played = this.game.play({ from, to, ...(promotion ? { promotion } : {}) })
+    if (!played.ok) return false
+    this.notePlayed({ why, fallback: false })
+    return true
+  }
+
+  /**
+   * Stockfish plays Claude's turn at full strength, through the lane like
+   * any engine move and dropped the same way when its request goes stale.
+   * Unlike an engine seat's move, it is not re-requested on an illegal
+   * reply and never counts toward `illegalEngineMoves`: if even the
+   * fallback cannot move, Claude's side cannot go on — 'claude-unavailable'.
+   */
+  private async claudeFallback(side: Color, id: number): Promise<void> {
+    const profile = profileFor(CLAUDE_FALLBACK_LEVEL)
+    const delay = this.config.engineDelayMs ?? 0
+    try {
+      const result = await this.lane.move(
+        {
+          profile,
+          fen: this.livePosition().fen(),
+          limits: { depth: profile.depth, moveTimeMs: profile.moveTimeMs, multiPv: 1 },
+        },
+        () => id === this.requestId,
+      )
+      if (id !== this.requestId) return
+      if (delay > 0) {
+        await new Promise((r) => setTimeout(r, delay))
+        if (id !== this.requestId) return
+      }
+      const intent = uciToIntent(result.best)
+      this.viewLive()
+      const played = intent ? this.game.play(intent) : ({ ok: false } as const)
+      if (!played.ok) {
+        this.finish('claude-unavailable')
+        return
+      }
+    } catch {
+      // Same stale-versus-real distinction as askEngine's catch.
+      if (id !== this.requestId) return
+      this.finish('claude-unavailable')
+      return
+    }
+
+    this.notePlayed({ why: '', fallback: true })
+    const { fallbacks } = this.claudeState
+    const count = fallbacks[side] + 1
+    this.claudeState = { ...this.claudeState, fallbacks: { ...fallbacks, [side]: count } }
+    // The limit ends the game after the move that reached it is on the board
+    // — unless that very move already ended it by the rules.
+    if (count >= CLAUDE_FALLBACK_LIMIT && this.game.status().kind === 'in-progress') {
+      this.claudeAsk = null
+      this.finish('claude-unavailable')
+      return
+    }
+    this.afterMove(id)
+  }
+
+  /**
+   * Bookkeeping for the move just played at the live ply: its Claude note
+   * (null for a human or engine move) replaces whatever the notes held for
+   * that ply or beyond. Notes past the live ply survive an undo, so a redo
+   * brings a Claude move back with its note; a different move played there
+   * instead cuts that future off, here as in Game.play.
+   */
+  private notePlayed(note: ClaudeNote | null): void {
+    const ply = this.game.livePly - 1
+    const notes = this.claudeState.notes
+    const kept: Record<number, ClaudeNote> = {}
+    let dropped = false
+    for (const [key, value] of Object.entries(notes)) {
+      if (Number(key) < ply) kept[Number(key)] = value
+      else dropped = true
+    }
+    if (!note && !dropped) return // nothing Claude-side changed: keep the identity
+    if (note) kept[ply] = note
+    this.claudeState = { ...this.claudeState, notes: kept }
+  }
+
+  /** `spentUsd` is the largest running total the server has reported (replies can land out of order). */
+  private recordSpend(gameSpentUsd: number): void {
+    if (gameSpentUsd <= this.claudeState.spentUsd) return
+    this.claudeState = { ...this.claudeState, spentUsd: gameSpentUsd }
   }
 
   // ---- moves ------------------------------------------------------------
@@ -409,6 +664,7 @@ export class MatchController {
     }
     const result = this.game.play(intent)
     if (!result.ok) return result
+    this.notePlayed(null)
     this.afterMove()
     return result
   }
@@ -423,6 +679,8 @@ export class MatchController {
    * can't be mistaken for the original one completing.
    */
   private afterMove(completedRequestId?: number): void {
+    // The live position just moved on: no held Claude reply answers it now.
+    this.claudeAsk = null
     const status = this.game.status()
     if (status.kind !== 'in-progress') {
       this.phase = { kind: 'finished', status, reason: 'normal', winner: winnerFor(status) }
@@ -448,8 +706,8 @@ export class MatchController {
 
   // ---- ending -----------------------------------------------------------
 
-  /** Only reachable for 'engine-error': no winner is declared. */
-  private finish(reason: 'engine-error'): void {
+  /** An aborted game ('engine-error' or 'claude-unavailable'): no winner is declared. */
+  private finish(reason: 'engine-error' | 'claude-unavailable'): void {
     this.requestId++
     this.stepRequestId = null
     this.clock.pause()
@@ -549,8 +807,9 @@ export class MatchController {
     return (this.config.white.kind === 'human') !== (this.config.black.kind === 'human')
   }
 
+  /** No human seat: engines and/or Claude on both sides. */
   private isZeroPlayer(): boolean {
-    return this.config.white.kind === 'engine' && this.config.black.kind === 'engine'
+    return isBotSeat(this.config.white) && isBotSeat(this.config.black)
   }
 
   /**
@@ -580,14 +839,17 @@ export class MatchController {
   undo(): void {
     this.requestId++
     this.stepRequestId = null
-
     // Even with nothing to take back, fall through and re-derive the phase:
     // the requestId bump above has just orphaned any in-flight request.
     const undone = this.game.undo()
+    // A held Claude reply answers the position undo() just left. With
+    // nothing taken back (ply 0) the position is unchanged, and it still
+    // answers it: keep it, the re-derived turn below picks it up.
+    if (undone) this.claudeAsk = null
     if (undone && this.isOnePlayer()) {
       // At most one more pop: turns alternate, so after it the human is to
       // move. (It fails harmlessly at ply 0, e.g. the engine opened as White.)
-      if (this.seatFor(this.livePosition().turn()).kind === 'engine') this.game.undo()
+      if (isBotSeat(this.seatFor(this.livePosition().turn()))) this.game.undo()
     }
 
     const status = this.game.status()
@@ -626,13 +888,14 @@ export class MatchController {
   redo(): boolean {
     if (!this.game.redo()) return false
     if (this.isOnePlayer() && this.game.status().kind === 'in-progress') {
-      if (this.seatFor(this.livePosition().turn()).kind === 'engine') this.game.redo()
+      if (isBotSeat(this.seatFor(this.livePosition().turn()))) this.game.redo()
     }
 
     // The live position just changed under whatever engine request (if any)
     // was in flight for the position we redid away from.
     this.requestId++
     this.stepRequestId = null
+    this.claudeAsk = null
 
     const status = this.game.status()
     if (status.kind !== 'in-progress') {
