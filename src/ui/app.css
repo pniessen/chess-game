@@ -990,6 +990,14 @@ body {
   background: #f7f7f5;
 }
 .clocks > .clock:has([data-testid='clock-b']) .clock-label::before { background: #20242b; }
+/* The finished game's winner: a brass star after the name. It sits inside the
+   label's own flex row (the gap spaces it), so the clock's height and the
+   time readout on the right never move when it appears. */
+.winner-star {
+  color: var(--brass);
+  font-size: 1.1em;
+  line-height: 1;
+}
 
 .clock-time {
   font-family: var(--font-display);

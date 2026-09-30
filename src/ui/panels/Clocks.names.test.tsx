@@ -55,3 +55,21 @@ describe('Clocks model time (a game with a Claude seat)', () => {
     expect(screen.getByTestId('clock-b')).toHaveTextContent('3:00')
   })
 })
+
+describe('Clocks winner star', () => {
+  test('a ★ after the winning side’s name only, announced as the winner', () => {
+    render(<Clocks clock={clock} orientation="white" names={{ w: 'Fable 5.1', b: 'Haiku 4.5' }} winner="b" />)
+    const stars = screen.getAllByTestId('winner-star')
+    expect(stars).toHaveLength(1)
+    expect(stars[0]).toHaveTextContent('★')
+    expect(stars[0]).toHaveAccessibleName('winner')
+    expect(stars[0]?.closest('.clock')).toContainElement(screen.getByTestId('clock-b'))
+  })
+
+  test('no star in a draw or a game still going', () => {
+    const { rerender } = render(<Clocks clock={clock} orientation="white" winner={null} />)
+    expect(screen.queryByTestId('winner-star')).toBeNull()
+    rerender(<Clocks clock={clock} orientation="white" />)
+    expect(screen.queryByTestId('winner-star')).toBeNull()
+  })
+})

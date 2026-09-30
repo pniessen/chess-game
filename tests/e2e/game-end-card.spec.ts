@@ -49,6 +49,9 @@ test('a live checkmate raises the card, with the header’s own result text', as
   await expect(page.getByTestId('game-end-headline')).toHaveText('Checkmate — White wins')
   await expect(page.getByTestId('game-end-headline')).toHaveAttribute('aria-live', 'polite')
   await expect(page.getByTestId('result')).toHaveText('Checkmate — White wins')
+  // The winner star: on White's clock only (every mode, not just Claude games).
+  await expect(page.getByTestId('winner-star')).toHaveCount(1)
+  await expect(page.locator('.clock', { has: page.getByTestId('clock-w') }).getByTestId('winner-star')).toBeVisible()
   // The final position is still there to read: the card covers part of the
   // board, never all of it.
   const room = await page.evaluate(() => {
@@ -85,6 +88,8 @@ test('a draw raises the card with the draw wording', async ({ page }) => {
   await expect(page.getByTestId('game-end-card')).toHaveCount(0)
   await play(page, [['f6', 'f7']])
   await expect(page.getByTestId('game-end-headline')).toHaveText('Draw — stalemate')
+  // A draw has no winner, so no star.
+  await expect(page.getByTestId('winner-star')).toHaveCount(0)
 })
 
 // Red if the card starts firing for a game that did not end in front of the

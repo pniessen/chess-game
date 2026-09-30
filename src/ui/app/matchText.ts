@@ -57,3 +57,12 @@ export function resignableSide(config: MatchConfig, phase: MatchPhase): Color | 
   if (blackHuman) return 'b'
   return null
 }
+
+/**
+ * The side that won the match, for the clocks' winner star: set only once the
+ * game is finished with a winner (checkmate, resignation, a flag). A draw, a
+ * game still going, and a Claude game stopped without a result all give null.
+ */
+export function matchWinner(phase: MatchPhase): Color | null {
+  return phase.kind === 'finished' ? phase.winner : null
+}

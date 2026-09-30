@@ -18,7 +18,7 @@ import { SettingsPopover } from './panels/SettingsPopover'
 import { currentMoveText, reviewAnnotations } from './review/reviewView'
 import { PuzzleScreen } from './puzzles/PuzzleScreen'
 import { usePuzzleMode } from './puzzles/usePuzzleMode'
-import { describeResult, resignableSide } from './app/matchText'
+import { describeResult, matchWinner, resignableSide } from './app/matchText'
 import { highlightsFor } from './app/highlights'
 import { StatusHeader } from './app/StatusHeader'
 import { GameEndCard } from './app/GameEndCard'
@@ -408,6 +408,7 @@ function AppInner({
             readClock={readClock}
             orientation={orientation}
             names={clockNames}
+            winner={matchWinner(snapshot.phase)}
             {...(claudeGame ? { modelTime: claudeModelTime, thinking: claudeThinking } : {})}
           />
           {claudeGame ? (
