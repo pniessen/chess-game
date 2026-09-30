@@ -155,7 +155,7 @@ describe('NewGame: this month\'s usage per model', () => {
     calls,
   })
 
-  test('models with calls, in list order, with moves and seconds per move; output tokens in the title', () => {
+  test('models with calls, in list order, with calls and seconds per call; output tokens in the title', () => {
     renderNewGame({
       mode: 'claude-vs-claude',
       claude: {
@@ -166,9 +166,10 @@ describe('NewGame: this month\'s usage per model', () => {
       },
     })
     const line = screen.getByTestId('claude-month')
-    expect(line).toHaveTextContent(/^This month: Fable \$0\.23 \(12 moves, 3\.9 s\/move\) · Haiku \$0\.00 \(1 move, 0\.8 s\/move\)$/)
+    expect(line).toHaveTextContent(/^This month: Fable \$0\.23 \(12 calls, 3\.9 s\/call\) · Haiku \$0\.00 \(1 call, 0\.8 s\/call\)$/)
     const parts = [...line.querySelectorAll('[title]')].map((e) => e.getAttribute('title'))
-    expect(parts).toEqual(['Fable 5.1: 12,345 output tokens', 'Haiku 4.5: 40 output tokens'])
+    const note = 'A call is one request to the model, retries included.'
+    expect(parts).toEqual([`Fable 5.1: 12,345 output tokens. ${note}`, `Haiku 4.5: 40 output tokens. ${note}`])
   })
 
   test('dollars from before per-model tracking show as Earlier', () => {
@@ -176,7 +177,7 @@ describe('NewGame: this month\'s usage per model', () => {
       mode: 'claude-vs-claude',
       claude: { month: { byModel: { opus: u(0.01, 2, 3000, 100) }, earlierUsd: 0.13 } },
     })
-    expect(screen.getByTestId('claude-month')).toHaveTextContent(/^This month: Opus \$0\.01 \(2 moves, 1\.5 s\/move\) · Earlier: \$0\.13$/)
+    expect(screen.getByTestId('claude-month')).toHaveTextContent(/^This month: Opus \$0\.01 \(2 calls, 1\.5 s\/call\) · Earlier: \$0\.13$/)
   })
 
   test('only Earlier when no model has calls', () => {

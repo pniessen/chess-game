@@ -87,7 +87,8 @@ supersedes the owner-only sections), plan `docs/superpowers/plans/2026-09-29-cla
   (a timeout counts its estimated tokens) and a call count to the game's `usage.{w,b}` (also in
   `games/saved/<id>`) and to `byModel` in the month's `games/budget/<month>`; month records from
   before it show their dollars as "Earlier". The UI shows it in the cost line, on each Claude
-  clock (model time) and in the New game panel's "This month" line (`claude-month`).
+  clock (model time) and in the New game panel's "This month" line (`claude-month`, counted in
+  calls: a retry or a timeout is a call too).
 - **Constants** (model ids, list prices, per-game reserves, move timeout, the 160-ply
   adjudication cap, the 25-minute session idle limit) live in `src/claude/models.ts`.
 - **Task 10 (live measurement) is still pending:** it now runs locally with Peter's own key,

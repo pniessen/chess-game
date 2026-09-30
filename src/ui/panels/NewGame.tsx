@@ -29,11 +29,14 @@ const MODEL_KEYS = Object.keys(CLAUDE_MODELS) as ClaudeModelKey[]
 
 const usd = (n: number) => `$${n.toFixed(2)}`
 
+/** Calls, not moves: a retried or timed-out request is a call too. */
+const CALL_NOTE = 'A call is one request to the model, retries included.'
+
 /** "Fable" from "Claude Fable 5.1": the month line is kept short. */
 const familyLabel = (k: ClaudeModelKey) => shortModelLabel(k).replace(/ [\d.]+$/, '')
 
 /**
- * "This month: Fable $0.23 (12 moves, 3.9 s/move) · … · Earlier: $0.13", for
+ * "This month: Fable $0.23 (12 calls, 3.9 s/call) · … · Earlier: $0.13", for
  * the models with calls; output tokens only in each model's title. Null when
  * there is nothing to show.
  */
@@ -41,10 +44,10 @@ function MonthLine({ month }: { month: NonNullable<NewGameClaude['month']> }) {
   const parts = MODEL_KEYS.flatMap((k) => {
     const u = month.byModel[k]
     if (!u || u.calls <= 0) return []
-    const perMove = (u.ms / u.calls / 1000).toFixed(1)
+    const perCall = (u.ms / u.calls / 1000).toFixed(1)
     return [
-      <span key={k} title={`${shortModelLabel(k)}: ${u.outputTokens.toLocaleString('en-US')} output tokens`}>
-        {`${familyLabel(k)} ${usd(u.costUsd)} (${u.calls} ${u.calls === 1 ? 'move' : 'moves'}, ${perMove} s/move)`}
+      <span key={k} title={`${shortModelLabel(k)}: ${u.outputTokens.toLocaleString('en-US')} output tokens. ${CALL_NOTE}`}>
+        {`${familyLabel(k)} ${usd(u.costUsd)} (${u.calls} ${u.calls === 1 ? 'call' : 'calls'}, ${perCall} s/call)`}
       </span>,
     ]
   })

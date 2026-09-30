@@ -104,7 +104,7 @@ test('Claude vs Claude plays a scripted fool\'s mate to the end card', async ({ 
   await expect(page.getByTestId('claude-budget')).toContainText('$12.50')
   await expect(page.getByTestId('claude-estimate')).toContainText('$')
   await expect(page.getByTestId('claude-month')).toHaveText(
-    'This month: Fable $0.23 (12 moves, 3.9 s/move) · Haiku $0.00 (1 move, 0.8 s/move) · Earlier: $0.13',
+    'This month: Fable $0.23 (12 calls, 3.9 s/call) · Haiku $0.00 (1 call, 0.8 s/call) · Earlier: $0.13',
   )
   await page.getByTestId('new-game').click()
 
@@ -201,6 +201,6 @@ test('at 1440x800 the month line fits without page scroll', async ({ page }) => 
   expect(await page.getByTestId('claude-month').getAttribute('title')).toBeNull()
   await expect(page.getByTestId('claude-month').locator('span[title]').first()).toHaveAttribute(
     'title',
-    'Fable 5.1: 12,345 output tokens',
+    'Fable 5.1: 12,345 output tokens. A call is one request to the model, retries included.',
   )
 })
