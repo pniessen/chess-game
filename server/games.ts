@@ -87,12 +87,15 @@ export interface MoveCall {
   outputTokens: number
 }
 
+/** A non-negative finite amount, or 0: a NaN or Infinity must never reach the ledger (it would store as null and read back as 0). */
+const amount = (v: number): number => (Number.isFinite(v) ? Math.max(0, v) : 0)
+
 function addCall(u: Usage, c: MoveCall): Usage {
   return {
-    costUsd: round(u.costUsd + Math.max(0, c.costUsd)),
-    ms: u.ms + Math.max(0, Math.round(c.ms)),
-    inputTokens: u.inputTokens + Math.max(0, Math.round(c.inputTokens)),
-    outputTokens: u.outputTokens + Math.max(0, Math.round(c.outputTokens)),
+    costUsd: round(u.costUsd + amount(c.costUsd)),
+    ms: u.ms + Math.round(amount(c.ms)),
+    inputTokens: u.inputTokens + Math.round(amount(c.inputTokens)),
+    outputTokens: u.outputTokens + Math.round(amount(c.outputTokens)),
     calls: u.calls + 1,
   }
 }
@@ -278,7 +281,7 @@ export async function chargeMove(
 ): Promise<{ spent: number; usage: SideUsage }> {
   const game = await readGame(store, gameId)
   if (!game) return { spent: 0, usage: { w: { ...ZERO_USAGE }, b: { ...ZERO_USAGE } } }
-  const costUsd = Math.max(0, call.costUsd)
+  const costUsd = amount(call.costUsd)
   const key = call.side === 'white' ? 'w' : 'b'
   const model = game[call.side]
   // The game was settled while this reply was in flight: its reservation is already

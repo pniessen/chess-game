@@ -274,6 +274,36 @@ describe('usage per side and per model', () => {
     expect((await monthUsage(store, NOW)).earlierUsd).toBe(0)
   })
 
+  test('a non-finite cost adds nothing: spent and reserved stay intact', async () => {
+    const g = await start()
+    await chargeMove(store, NOW, g.gameId, call(0.05, { ms: 100 }))
+    const budget = JSON.stringify(store.data.get('games/budget/2026-09'))
+    for (const bad of [Number.NaN, Number.POSITIVE_INFINITY]) {
+      const r = await chargeMove(store, NOW, g.gameId, call(bad, { ms: 100 }))
+      expect(r.spent).toBeCloseTo(0.05, 6)
+      expect(r.usage.w.costUsd).toBeCloseTo(0.05, 6)
+    }
+    const after = store.data.get('games/budget/2026-09') as Record<string, unknown>
+    const before = JSON.parse(budget) as Record<string, unknown>
+    expect(after['spent']).toBe(before['spent'])
+    expect(after['reserved']).toBe(before['reserved'])
+    expect((store.data.get(`games/${g.gameId}`) as Record<string, unknown>)['spent']).toBeCloseTo(0.05, 6)
+    expect((await monthUsage(store, NOW)).byModel.haiku!.costUsd).toBeCloseTo(0.05, 6)
+  })
+
+  test('a NaN or Infinity time or token count leaves the totals intact', async () => {
+    const g = await start()
+    await chargeMove(store, NOW, g.gameId, call(0.01, { ms: 500, inputTokens: 10, outputTokens: 20 }))
+    const r = await chargeMove(
+      store,
+      NOW,
+      g.gameId,
+      call(0.01, { ms: Number.NaN, inputTokens: Number.POSITIVE_INFINITY, outputTokens: Number.NaN }),
+    )
+    expect(r.usage.w).toEqual({ costUsd: 0.02, ms: 500, inputTokens: 10, outputTokens: 20, calls: 2 })
+    expect((await monthUsage(store, NOW)).byModel.haiku).toEqual(r.usage.w)
+  })
+
   test('a game record from before usage loads as zero usage', async () => {
     const g = await start()
     const rec = store.data.get(`games/${g.gameId}`) as Record<string, unknown>
