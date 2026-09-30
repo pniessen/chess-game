@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import type { GameStore } from './store'
@@ -22,6 +22,11 @@ import type { GameStore } from './store'
  *   error names the file, and the file is logged once (until it reads or is
  *   written cleanly again) through `opts.log`, so the owner knows what to
  *   repair; the HTTP layer never sends error text, so the path stays local.
+ * - `keys(prefix)` lists the prefix's directory and maps each `.json` file name
+ *   back through the escaping above (temp files and subdirectories are not
+ *   keys); a missing directory lists nothing. The escape writes a code unit
+ *   above U+00FF as `%` and more than two hex digits, which does not decode
+ *   back exactly; every key the games write is ASCII.
  */
 export function fileStore(dir: string, opts: { log?: (line: string) => void } = {}): GameStore {
   const log = opts.log ?? ((line: string) => console.error(line))
@@ -29,11 +34,16 @@ export function fileStore(dir: string, opts: { log?: (line: string) => void } = 
   /** Corrupt files already reported, so a polled budget does not flood the log. */
   const reported = new Set<string>()
 
+  const escapeSegment = (seg: string): string => {
+    const esc = seg.replace(/[^A-Za-z0-9._-]/g, (c) => `%${c.charCodeAt(0).toString(16).padStart(2, '0')}`)
+    return /^\.*$/.test(esc) ? esc.replace(/\./g, '%2e') || '%00' : esc
+  }
+  /** The inverse of escapeSegment for everything it writes (see the note on keys above). */
+  const unescapeSegment = (name: string): string =>
+    name === '%00' ? '' : name.replace(/%([0-9a-f]{2})/g, (_, hex: string) => String.fromCharCode(parseInt(hex, 16)))
+
   const fileFor = (key: string): string => {
-    const parts = key.split('/').map((seg) => {
-      const esc = seg.replace(/[^A-Za-z0-9._-]/g, (c) => `%${c.charCodeAt(0).toString(16).padStart(2, '0')}`)
-      return /^\.*$/.test(esc) ? esc.replace(/\./g, '%2e') || '%00' : esc
-    })
+    const parts = key.split('/').map(escapeSegment)
     parts[parts.length - 1] += '.json'
     return join(dir, ...parts)
   }
@@ -76,6 +86,21 @@ export function fileStore(dir: string, opts: { log?: (line: string) => void } = 
       const run = (tails.get(file) ?? Promise.resolve()).then(write, write)
       tails.set(file, run.catch(() => undefined))
       await run
+    },
+    async keys(prefix) {
+      const segs = (prefix.endsWith('/') ? prefix.slice(0, -1) : prefix).split('/')
+      const base = segs.join('/')
+      let entries
+      try {
+        entries = await readdir(join(dir, ...segs.map(escapeSegment)), { withFileTypes: true })
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException).code === 'ENOENT') return []
+        throw e
+      }
+      return entries
+        .filter((e) => e.isFile() && e.name.endsWith('.json'))
+        .map((e) => `${base}/${unescapeSegment(e.name.slice(0, -'.json'.length))}`)
+        .sort()
     },
   }
 }

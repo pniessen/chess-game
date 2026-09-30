@@ -361,7 +361,7 @@ describe('move', () => {
 })
 
 describe('a failing store fails closed', () => {
-  const broken = { get: async () => Promise.reject(new Error('blob down')), setJSON: async () => undefined }
+  const broken = { get: async () => Promise.reject(new Error('blob down')), setJSON: async () => undefined, keys: async () => [] }
   test.each(['start', 'move', 'end', 'budget'] as const)('%s answers 500 upstream, never 200', async (ep) => {
     // Real tokens, so the request gets past the token check and reaches the store.
     const g = await startGame()
@@ -374,7 +374,7 @@ describe('a failing store fails closed', () => {
     const r = await call(ep, { store: broken, body })
     if (ep === 'end') {
       // end needs no store read to authorize; its write is what breaks.
-      const failingWrite = { get: store.get, setJSON: async () => Promise.reject(new Error('blob down')) }
+      const failingWrite = { get: store.get, setJSON: async () => Promise.reject(new Error('blob down')), keys: store.keys }
       const r2 = await call(ep, { store: failingWrite, body })
       expect(r2.res.status).toBe(500)
       return
@@ -387,6 +387,7 @@ describe('a failing store fails closed', () => {
     const g = await startGame()
     const flaky = {
       get: store.get,
+      keys: store.keys,
       setJSON: async (k: string, v: unknown) => {
         if (k === `games/${g.gameId}` && (v as any).spent > 0) throw new Error('write failed')
         return store.setJSON(k, v)

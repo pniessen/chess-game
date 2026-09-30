@@ -364,7 +364,7 @@ describe('abandoned games and failing reads', () => {
     expect(store.data.get('games/budget/2026-09')).toMatchObject({ reserved: expect.closeTo(reserveB, 6) })
   })
   test('a store whose reads fail makes the guards reject, not open', async () => {
-    const broken = { get: async () => Promise.reject(new Error('blob down')), setJSON: async () => undefined }
+    const broken = { get: async () => Promise.reject(new Error('blob down')), setJSON: async () => undefined, keys: async () => [] }
     await expect(startGame(broken, NOW, SECRET, SIDES, BOOT)).rejects.toThrow('blob down')
     await expect(budgetLeft(broken, NOW)).rejects.toThrow('blob down')
   })
