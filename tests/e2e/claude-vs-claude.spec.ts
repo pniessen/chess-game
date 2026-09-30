@@ -45,17 +45,23 @@ const BYMODEL = {
   haiku: { costUsd: 0.004, ms: 800, inputTokens: 900, outputTokens: 40, calls: 1 },
 }
 
+/** The head-to-head the record stub answers: before the scripted game ends, and after (Haiku, as Black, won it). */
+const RECORD_BEFORE = { games: 3, whiteModelWins: 1, blackModelWins: 0, draws: 2, whiteWins: 1, blackWins: 0 }
+const RECORD_AFTER = { games: 4, whiteModelWins: 1, blackModelWins: 1, draws: 2, whiteWins: 1, blackWins: 1 }
+
 interface Calls {
   start: number
   move: string[][]
   end: number
+  /** The URL of each /api/game/record request, and whether the game had ended when it came. */
+  record: { url: string; afterEnd: boolean }[]
   /** The x-owner-token header on each start: there is no owner token any more, so always absent. */
   ownerHeaders: (string | undefined)[]
 }
 
 /** Health + budget + start + end stubs; `move` is supplied by each test. */
 async function stubGame(page: Page, move: Parameters<Page['route']>[1]): Promise<Calls> {
-  const calls: Calls = { start: 0, move: [], end: 0, ownerHeaders: [] }
+  const calls: Calls = { start: 0, move: [], end: 0, record: [], ownerHeaders: [] }
   await page.route('**/api/health', (r) => r.fulfill({ json: { ok: true, claude: true } }))
   await page.route('**/api/game/budget', (r) =>
     r.fulfill({ json: { budgetLeftUsd: 12.5, monthlyUsd: 20, byModel: BYMODEL, earlierUsd: 0.13 } }),
@@ -72,6 +78,12 @@ async function stubGame(page: Page, move: Parameters<Page['route']>[1]): Promise
   await page.route('**/api/game/end', (r) => {
     calls.end++
     return r.fulfill({ json: { ok: true } })
+  })
+  // The saved record is written as the server answers end: from then on the stub's record includes the game.
+  await page.route(/\/api\/game\/record\?/, (r) => {
+    const url = new URL(r.request().url())
+    calls.record.push({ url: url.pathname + url.search, afterEnd: calls.end > 0 })
+    return r.fulfill({ json: calls.end > 0 ? RECORD_AFTER : RECORD_BEFORE })
   })
   return calls
 }
@@ -106,8 +118,14 @@ test('Claude vs Claude plays a scripted fool\'s mate to the end card', async ({ 
   await expect(page.getByTestId('claude-month')).toHaveText(
     'This month: Fable $0.23 (12 calls, 3.9 s/call) · Haiku $0.00 (1 call, 0.8 s/call) · Earlier: $0.13',
   )
+  // Before any Claude game the card is the human score.
+  await expect(page.getByTestId('scoreboard')).toContainText('Score')
+  await expect(page.getByTestId('claude-record')).toHaveCount(0)
   await page.getByTestId('new-game').click()
 
+  // In the Claude game the Score card is the two models' head-to-head.
+  await expect(page.getByTestId('scoreboard')).toContainText('Head to head')
+  await expect(page.getByTestId('claude-record')).toHaveText('Opus 5.5 1 – 0 Haiku 4.5 · 2 draws')
   await expect(page.getByTestId('claude-thinking')).toContainText('Opus 5.5 is thinking')
   await expect(page.getByTestId('claude-why')).toContainText(SCRIPT[0]!.why)
   await expect(page.getByTestId('claude-cost')).toContainText('This game: $')
@@ -130,6 +148,11 @@ test('Claude vs Claude plays a scripted fool\'s mate to the end card', async ({ 
   expect(calls.start).toBe(1)
   expect(calls.ownerHeaders).toEqual([undefined])
   await expect.poll(() => calls.end).toBe(1)
+
+  // Once the end has landed the record is read again, now counting this game.
+  await expect(page.getByTestId('claude-record')).toHaveText('Opus 5.5 1 – 1 Haiku 4.5 · 2 draws')
+  expect(calls.record[0]).toEqual({ url: '/api/game/record?white=opus&black=haiku', afterEnd: false })
+  expect(calls.record.some((c) => c.afterEnd)).toBe(true)
 })
 
 test('two illegal-reply answers hand the move to Stockfish, marked with a gear', async ({ page }) => {
