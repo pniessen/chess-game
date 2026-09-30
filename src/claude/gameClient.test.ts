@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { createGameClient, fetchBudget } from './gameClient'
+import { createGameClient, fetchBudget, fetchRecord } from './gameClient'
 import { CLAUDE_SESSION_IDLE_MS } from './models'
 
 const reply = (status: number, body: unknown): Response =>
@@ -201,6 +201,39 @@ describe('fetchBudget', () => {
     expect(await fetchBudget(opts(async () => err(503, 'no-key')))).toBeNull()
     expect(await fetchBudget(opts(async () => reply(200, '{}')))).toBeNull()
     expect(await fetchBudget(opts(async () => { throw new Error('down') }))).toBeNull()
+  })
+})
+
+describe('fetchRecord', () => {
+  const opts = (f: unknown) => ({ fetch: f as typeof globalThis.fetch })
+  const RECORD = { games: 3, whiteModelWins: 2, blackModelWins: 1, draws: 0, whiteWins: 1, blackWins: 2 }
+
+  it('reads the head-to-head with a plain GET naming the two models', async () => {
+    const f = vi.fn(async (_u: unknown, _i?: RequestInit) => reply(200, RECORD))
+    expect(await fetchRecord('sonnet', 'haiku', opts(f))).toEqual(RECORD)
+    expect(f.mock.calls[0]![0]).toBe('/api/game/record?white=sonnet&black=haiku')
+    expect(f.mock.calls[0]![1]).toBeUndefined()
+  })
+
+  it('keeps only the six counts', async () => {
+    expect(await fetchRecord('haiku', 'haiku', opts(async () => reply(200, { ...RECORD, extra: 'x' })))).toEqual(RECORD)
+  })
+
+  it('is null on a refusal, a bad body or a network error', async () => {
+    expect(await fetchRecord('sonnet', 'haiku', opts(async () => err(400, 'bad-request')))).toBeNull()
+    expect(await fetchRecord('sonnet', 'haiku', opts(async () => err(500, 'upstream')))).toBeNull()
+    expect(await fetchRecord('sonnet', 'haiku', opts(async () => reply(200, 'not json')))).toBeNull()
+    expect(await fetchRecord('sonnet', 'haiku', opts(async () => reply(200, [])))).toBeNull()
+    expect(await fetchRecord('sonnet', 'haiku', opts(async () => { throw new TypeError('Failed to fetch') }))).toBeNull()
+  })
+
+  it.each([
+    ['a missing count', { ...RECORD, draws: undefined }],
+    ['a string count', { ...RECORD, games: '3' }],
+    ['a negative count', { ...RECORD, blackWins: -1 }],
+    ['a fractional count', { ...RECORD, whiteModelWins: 1.5 }],
+  ])('is null for %s', async (_what, body) => {
+    expect(await fetchRecord('sonnet', 'haiku', opts(async () => reply(200, body)))).toBeNull()
   })
 })
 
