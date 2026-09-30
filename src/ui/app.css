@@ -2494,3 +2494,5 @@ body {
 .scoreboard.head-to-head .scoreboard-value {
   font-size: 0.95rem;
 }
+/* It wraps between the pieces of the line, never inside a model's name. */
+.head-to-head-part { white-space: nowrap; }
