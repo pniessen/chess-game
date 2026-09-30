@@ -3,6 +3,7 @@ import {
   parseSideUsage,
   parseUsageByModel,
   type ClaudeModelKey,
+  type HeadToHead,
   type SideUsage,
   type UsageByModel,
 } from './models'
@@ -223,6 +224,38 @@ export async function fetchBudget(opts: { fetch?: typeof fetch } = {}): Promise<
       byModel: parseUsageByModel(payload['byModel']),
       earlierUsd: typeof earlier === 'number' && Number.isFinite(earlier) && earlier > 0 ? earlier : 0,
     }
+  } catch {
+    return null
+  }
+}
+
+const RECORD_FIELDS = ['games', 'whiteModelWins', 'blackModelWins', 'draws', 'whiteWins', 'blackWins'] as const
+const isCount = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 0
+
+/**
+ * The head-to-head record of `white`'s model against `black`'s over the
+ * saved Claude games (see HeadToHead), or null on any failure — the local
+ * server not running, a refusal, or a body that is not six counts.
+ */
+export async function fetchRecord(
+  white: ClaudeModelKey,
+  black: ClaudeModelKey,
+  opts: { fetch?: typeof fetch } = {},
+): Promise<HeadToHead | null> {
+  const f = opts.fetch ?? ((input: RequestInfo | URL, init?: RequestInit) => fetch(input, init))
+  try {
+    const query = new URLSearchParams({ white, black }).toString()
+    const res = await f(`/api/game/record?${query}`)
+    if (!res.ok) return null
+    const payload = await readJson(res)
+    if (!isRecord(payload)) return null
+    const out = {} as HeadToHead
+    for (const k of RECORD_FIELDS) {
+      const v = payload[k]
+      if (!isCount(v)) return null
+      out[k] = v
+    }
+    return out
   } catch {
     return null
   }

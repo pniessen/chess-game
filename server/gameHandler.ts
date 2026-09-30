@@ -26,9 +26,13 @@ import {
   monthUsage,
   startGame,
 } from './games'
+import { headToHead } from './headToHead'
 import type { GameStore } from './store'
 
-export type GameEndpoint = 'start' | 'move' | 'end' | 'budget'
+export type GameEndpoint = 'start' | 'move' | 'end' | 'budget' | 'record'
+
+/** The endpoints read with GET: no body, and a same-origin fetch of them carries no Origin. */
+const GET_ENDPOINTS: ReadonlySet<GameEndpoint> = new Set(['budget', 'record'])
 
 export interface GameDeps {
   store: GameStore
@@ -102,17 +106,18 @@ export function isLoopbackOrigin(origin: string | null | undefined): boolean {
 
 export async function handleGame(endpoint: GameEndpoint, request: Request, deps: GameDeps): Promise<Response> {
   const now = deps.now?.() ?? Date.now()
-  const wantMethod = endpoint === 'budget' ? 'GET' : 'POST'
+  const isGet = GET_ENDPOINTS.has(endpoint)
+  const wantMethod = isGet ? 'GET' : 'POST'
   if (request.method !== wantMethod) return json(405, { error: { kind: 'bad-request', message: `Use ${wantMethod}.` } })
 
   // Same-origin GETs carry no Origin header, so it is only judged when present; POSTs must carry a loopback one.
   const origin = request.headers.get('origin')
-  if (origin !== null || endpoint !== 'budget') {
+  if (origin !== null || !isGet) {
     if (!isLoopbackOrigin(origin)) return fail(403, 'forbidden')
   }
 
   let body: unknown = null
-  if (endpoint !== 'budget') {
+  if (!isGet) {
     const raw = await request.text()
     if (Buffer.byteLength(raw) > LIMITS.maxBodyBytes) return fail(413, 'bad-request')
     try {
@@ -125,7 +130,8 @@ export async function handleGame(endpoint: GameEndpoint, request: Request, deps:
 
   // Without a key no game can be played: say so on budget (the browser's
   // readiness probe, which then disables Start) and on start (nothing is
-  // reserved or locked). A begun game's move/end keep their own handling.
+  // reserved or locked). A begun game's move/end keep their own handling,
+  // and the record only reads the saved games, so it needs no key.
   if (!deps.client && (endpoint === 'budget' || endpoint === 'start')) return fail(503, 'no-key')
 
   try {
@@ -142,6 +148,8 @@ export async function handleGame(endpoint: GameEndpoint, request: Request, deps:
         return await move(body as Record<string, unknown>, deps, now)
       case 'end':
         return await end(body as Record<string, unknown>, deps, now)
+      case 'record':
+        return await record(request, deps)
     }
   } catch {
     // A store failure: not logged with detail here (it may carry request-derived text); the status says enough.
@@ -201,4 +209,18 @@ async function end(body: Record<string, unknown>, deps: GameDeps, now: number): 
   if (!checkGameToken(deps.secret, gameId, token)) return fail(403, 'forbidden')
   await endGame(deps.store, now, gameId, { pgn, fallbacks: { w: fallbacks['w'], b: fallbacks['b'] } })
   return json(200, { ok: true })
+}
+
+/**
+ * `GET /api/game/record?white=<key>&black=<key>`: the head-to-head of the two
+ * models over the saved games (see HeadToHead in src/claude/models.ts), where
+ * the model counts are for the model asked for as `white` / `black`. A saved
+ * game that cannot be read is left out; a failed listing is a 500.
+ */
+async function record(request: Request, deps: GameDeps): Promise<Response> {
+  const params = new URL(request.url).searchParams
+  const white = params.get('white')
+  const black = params.get('black')
+  if (!isClaudeModelKey(white) || !isClaudeModelKey(black)) return fail(400, 'bad-request')
+  return json(200, await headToHead(deps.store, white, black))
 }

@@ -101,9 +101,11 @@ export function createApp(deps: { claude: Claude | null; staticDir?: string | nu
     app.post('/api/game/move', game('move'))
     app.post('/api/game/end', game('end'))
     app.get('/api/game/budget', game('budget'))
+    app.get('/api/game/record', game('record'))
     // Wrong method on a known path: the handler's own 405, not the generic 404.
     app.all(['/api/game/start', '/api/game/move', '/api/game/end'], game('start'))
     app.all('/api/game/budget', game('budget'))
+    app.all('/api/game/record', game('record'))
   }
 
   app.use('/api', (_req, res) => {

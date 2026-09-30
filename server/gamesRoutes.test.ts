@@ -43,7 +43,7 @@ function send(base: string, method: string, path: string, body?: unknown, host?:
       {
         hostname: url.hostname,
         port: url.port,
-        path: url.pathname,
+        path: url.pathname + url.search,
         method,
         headers: {
           origin,
@@ -80,6 +80,18 @@ describe('the game routes on the local relay', () => {
     expect(b.json.budgetLeftUsd).toBeLessThan(20)
     const e = await send(base, 'POST', '/api/game/end', { gameId, token, pgn: '1. e4 *', fallbacks: { w: 0, b: 0 } })
     expect(e.status).toBe(200)
+  })
+
+  test('GET /api/game/record is wired, behind the Host check; POST is 405', async () => {
+    const base = await start()
+    const r = await send(base, 'GET', '/api/game/record?white=haiku&black=sonnet')
+    expect(r.status).toBe(200)
+    expect(r.json).toEqual({ games: 0, whiteModelWins: 0, blackModelWins: 0, draws: 0, whiteWins: 0, blackWins: 0 })
+    expect((await send(base, 'GET', '/api/game/record?white=haiku')).status).toBe(400)
+    expect((await send(base, 'POST', '/api/game/record?white=haiku&black=sonnet', {})).status).toBe(405)
+    const h = await send(base, 'GET', '/api/game/record?white=haiku&black=sonnet', undefined, 'attacker.example')
+    expect(h.status).toBe(403)
+    expect(h.json.error.message).toBe('Forbidden host.')
   })
 
   test('a non-loopback Origin is refused', async () => {

@@ -93,4 +93,25 @@ describe('fileStore', () => {
     expect(logged[0]).toContain(file)
     expect(logged[0]).toMatch(/repair or remove/)
   })
+
+  test('keys(prefix) of a missing directory is empty and creates nothing', async () => {
+    const s = fileStore(dir)
+    expect(await s.keys('games/saved/')).toEqual([])
+    expect(existsSync(dir)).toBe(false)
+  })
+
+  test('keys(prefix) round-trips escaped keys, one level deep, skipping temp files and subdirectories', async () => {
+    const s = fileStore(dir)
+    const direct = ['games/saved/a b', 'games/saved/..', 'games/saved/x%y', 'games/saved/\u00fc', 'games/saved/plain-1']
+    for (const k of direct) await s.setJSON(k, { k })
+    await s.setJSON('games/saved/sub/deep', 1)
+    await s.setJSON('games/saved', 2)
+    await s.setJSON('games/lock', 3)
+    await writeFile(join(dir, 'games', 'saved', 'plain-1.json.0000.tmp'), '{}')
+    const keys = await s.keys('games/saved/')
+    expect(keys).toEqual([...direct].sort())
+    for (const k of keys) expect(await s.get(k, { type: 'json' })).toEqual({ k })
+    // Without the trailing slash, the same listing.
+    expect(await s.keys('games/saved')).toEqual(keys)
+  })
 })

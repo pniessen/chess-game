@@ -49,14 +49,17 @@ interface Opts {
   secret?: Buffer
   boot?: string
   store?: Parameters<typeof handleGame>[2]['store']
+  /** The query string, without its `?`. */
+  query?: string
 }
 
-async function call(endpoint: 'start' | 'move' | 'end' | 'budget', o: Opts = {}) {
+async function call(endpoint: 'start' | 'move' | 'end' | 'budget' | 'record', o: Opts = {}) {
   const headers: Record<string, string> = { 'content-type': 'application/json' }
   const origin = o.origin === undefined ? ORIGIN : o.origin
   if (origin) headers['origin'] = origin
-  const method = o.method ?? (endpoint === 'budget' ? 'GET' : 'POST')
-  const res = await handleGame(endpoint, new Request(`${BASE}/api/game/${endpoint}`, {
+  const method = o.method ?? (endpoint === 'budget' || endpoint === 'record' ? 'GET' : 'POST')
+  const query = o.query !== undefined ? `?${o.query}` : ''
+  const res = await handleGame(endpoint, new Request(`${BASE}/api/game/${endpoint}${query}`, {
     method,
     headers,
     body: method === 'GET' ? undefined : (o.raw ?? JSON.stringify(o.body ?? {})),
@@ -361,7 +364,7 @@ describe('move', () => {
 })
 
 describe('a failing store fails closed', () => {
-  const broken = { get: async () => Promise.reject(new Error('blob down')), setJSON: async () => undefined }
+  const broken = { get: async () => Promise.reject(new Error('blob down')), setJSON: async () => undefined, keys: async () => [] }
   test.each(['start', 'move', 'end', 'budget'] as const)('%s answers 500 upstream, never 200', async (ep) => {
     // Real tokens, so the request gets past the token check and reaches the store.
     const g = await startGame()
@@ -374,7 +377,7 @@ describe('a failing store fails closed', () => {
     const r = await call(ep, { store: broken, body })
     if (ep === 'end') {
       // end needs no store read to authorize; its write is what breaks.
-      const failingWrite = { get: store.get, setJSON: async () => Promise.reject(new Error('blob down')) }
+      const failingWrite = { get: store.get, setJSON: async () => Promise.reject(new Error('blob down')), keys: store.keys }
       const r2 = await call(ep, { store: failingWrite, body })
       expect(r2.res.status).toBe(500)
       return
@@ -387,6 +390,7 @@ describe('a failing store fails closed', () => {
     const g = await startGame()
     const flaky = {
       get: store.get,
+      keys: store.keys,
       setJSON: async (k: string, v: unknown) => {
         if (k === `games/${g.gameId}` && (v as any).spent > 0) throw new Error('write failed')
         return store.setJSON(k, v)
@@ -428,5 +432,83 @@ describe('a corrupt ledger file', () => {
     } finally {
       await rm(root, { recursive: true, force: true })
     }
+  })
+})
+
+describe('record: the head-to-head of two models', () => {
+  const pgn = (result: string) => `[Result "${result}"]\n\n1. e4 e5 ${result}\n`
+  async function play(white: string, black: string, result: string) {
+    const g = await startGame({ white, black })
+    const r = await call('end', { body: { gameId: g.gameId, token: g.token, pgn: pgn(result), fallbacks: { w: 0, b: 0 } } })
+    expect(r.res.status).toBe(200)
+  }
+
+  test('answers the record for the pair, crediting the model asked for as white', async () => {
+    const empty = await call('record', { query: 'white=sonnet&black=haiku' })
+    expect(empty.res.status).toBe(200)
+    expect(empty.res.headers.get('cache-control')).toBe('no-store')
+    expect(empty.json).toEqual({ games: 0, whiteModelWins: 0, blackModelWins: 0, draws: 0, whiteWins: 0, blackWins: 0 })
+    await play('sonnet', 'haiku', '1-0')
+    await play('haiku', 'sonnet', '0-1')
+    await play('haiku', 'sonnet', '1/2-1/2')
+    await play('haiku', 'sonnet', '*')
+    const r = await call('record', { query: 'white=sonnet&black=haiku' })
+    expect(r.json).toEqual({ games: 3, whiteModelWins: 2, blackModelWins: 0, draws: 1, whiteWins: 1, blackWins: 1 })
+  })
+
+  test('a mirror match answers by colour', async () => {
+    await play('haiku', 'haiku', '0-1')
+    const r = await call('record', { query: 'white=haiku&black=haiku' })
+    expect(r.json).toMatchObject({ games: 1, whiteWins: 0, blackWins: 1, draws: 0 })
+  })
+
+  test.each(['', 'white=sonnet', 'black=haiku', 'white=gpt&black=haiku', 'white=sonnet&black=', 'white=__proto__&black=haiku', 'white=Sonnet&black=haiku'])(
+    'query %j is 400 bad-request',
+    async (query) => {
+      const r = await call('record', { query })
+      expect(r.res.status).toBe(400)
+      expect(r.json.error.kind).toBe('bad-request')
+    },
+  )
+
+  test('same Origin rules as budget: none is fine, a foreign one is 403; POST is 405', async () => {
+    const q = 'white=sonnet&black=haiku'
+    expect((await call('record', { query: q, origin: null })).res.status).toBe(200)
+    expect((await call('record', { query: q, origin: 'https://evil.example' })).res.status).toBe(403)
+    expect((await call('record', { query: q, origin: 'http://localhost.evil.example' })).res.status).toBe(403)
+    expect((await call('record', { query: q, method: 'POST' })).res.status).toBe(405)
+  })
+
+  test('reading history needs no Anthropic key', async () => {
+    expect((await call('record', { query: 'white=sonnet&black=haiku', client: null })).res.status).toBe(200)
+  })
+
+  test('a corrupt saved game is skipped (not a 500) and logged once, server-side', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'ledger-'))
+    try {
+      const logged: string[] = []
+      const fs = fileStore(root, { log: (line) => logged.push(line) })
+      await fs.setJSON('games/saved/good', { white: 'sonnet', black: 'haiku', pgn: pgn('1-0') })
+      await fs.setJSON('games/saved/bad', { white: 'sonnet', black: 'haiku', pgn: pgn('1-0') })
+      await writeFile(join(root, 'games', 'saved', 'bad.json'), '{oops')
+      for (let i = 0; i < 2; i++) {
+        const r = await call('record', { store: fs, query: 'white=sonnet&black=haiku' })
+        expect(r.res.status).toBe(200)
+        expect(r.json).toMatchObject({ games: 1, whiteModelWins: 1 })
+        expect(r.text).not.toContain(root)
+      }
+      expect(logged).toHaveLength(1)
+      expect(logged[0]).toContain(join(root, 'games', 'saved', 'bad.json'))
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  test('a store that cannot list its saved games answers 500 upstream', async () => {
+    const broken = { ...store, keys: async () => Promise.reject(new Error('disk gone')) }
+    const r = await call('record', { store: broken, query: 'white=sonnet&black=haiku' })
+    expect(r.res.status).toBe(500)
+    expect(r.json.error.kind).toBe('upstream')
+    expect(r.text).not.toContain('disk gone')
   })
 })

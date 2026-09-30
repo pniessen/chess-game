@@ -14,8 +14,11 @@ import {
   type CoachStore,
 } from './limits'
 
-/** An in-memory stand-in for Netlify Blobs, with the same two methods. */
-export function fakeStore(): CoachStore & { data: Map<string, unknown> } {
+/**
+ * An in-memory stand-in for Netlify Blobs, with the same two methods, plus the
+ * `keys` listing the server's GameStore adds (the server tests reuse this).
+ */
+export function fakeStore(): CoachStore & { data: Map<string, unknown>; keys: (prefix: string) => Promise<string[]> } {
   const data = new Map<string, unknown>()
   return {
     data,
@@ -23,6 +26,10 @@ export function fakeStore(): CoachStore & { data: Map<string, unknown> } {
     setJSON: async (key, value) => {
       // Round-trip through JSON, as the real store does.
       data.set(key, JSON.parse(JSON.stringify(value)))
+    },
+    keys: async (prefix) => {
+      const base = prefix.endsWith('/') ? prefix : `${prefix}/`
+      return [...data.keys()].filter((k) => k.startsWith(base) && !k.slice(base.length).includes('/')).sort()
     },
   }
 }

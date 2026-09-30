@@ -14,5 +14,9 @@ export function memoryStore(): GameStore {
     setJSON: async (key, value) => {
       data.set(key, JSON.stringify(value))
     },
+    keys: async (prefix) => {
+      const base = prefix.endsWith('/') ? prefix : `${prefix}/`
+      return [...data.keys()].filter((k) => k.startsWith(base) && !k.slice(base.length).includes('/')).sort()
+    },
   }
 }
