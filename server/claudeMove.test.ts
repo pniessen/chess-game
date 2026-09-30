@@ -1,7 +1,7 @@
 // @vitest-environment node
 import Anthropic from '@anthropic-ai/sdk'
 import { describe, expect, test } from 'vitest'
-import { CLAUDE_MODELS, costUsd, timeoutCostUsd } from '../src/claude/models'
+import { CLAUDE_MODELS, costUsd, estimateInputTokens, timeoutCostUsd } from '../src/claude/models'
 import { requestMove } from './claudeMove'
 import type { MessagesClient } from './claude'
 
@@ -36,6 +36,31 @@ const promptCharsOf = (p: Anthropic.MessageCreateParamsNonStreaming) =>
   p.messages.map((m) => String(m.content)).join('').length +
   JSON.stringify(p.output_config?.format ?? null).length
 const json = (move: string, why = 'Claims the centre.') => JSON.stringify({ move, why })
+
+describe('requestMove tokens (for the usage totals)', () => {
+  test('a reply reports its usage tokens, usable or not', async () => {
+    for (const text of [json('e4'), json('e5')]) {
+      const { client } = fakeClient(async () => reply(text))
+      const r = await requestMove({ client }, { model: 'sonnet', history: [] })
+      expect(r.tokens).toEqual({ inputTokens: 1200, outputTokens: 300 })
+    }
+  })
+  test('a timeout reports the estimated tokens it is charged for', async () => {
+    const { client, calls } = fakeClient(async () => {
+      throw new Anthropic.APIConnectionTimeoutError()
+    })
+    const r = await requestMove({ client }, { model: 'haiku', history: [] })
+    expect(r.tokens).toEqual({ inputTokens: estimateInputTokens(promptCharsOf(calls[0]!)), outputTokens: 8000 })
+  })
+  test('another SDK error made a call with no tokens; a bad request made no call at all', async () => {
+    const { client } = fakeClient(async () => {
+      throw new Error('boom')
+    })
+    expect((await requestMove({ client }, { model: 'haiku', history: [] })).tokens).toEqual({ inputTokens: 0, outputTokens: 0 })
+    const ok = fakeClient(async () => reply(json('e4')))
+    expect((await requestMove({ client: ok.client }, { model: 'haiku', history: ['e5'] })).tokens).toBeNull()
+  })
+})
 
 describe('requestMove', () => {
   test('a legal reply is ok, priced from usage, with the reason kept', async () => {

@@ -16,7 +16,7 @@ describe('useClaudeBudget', () => {
   test('fetches the budget when the mode is selected', async () => {
     const fetch = vi.fn().mockResolvedValue(json({ budgetLeftUsd: 7.25 }))
     const { result } = renderHook(() => useClaudeBudget(true, fetch))
-    await waitFor(() => expect(result.current).toBe(7.25))
+    await waitFor(() => expect(result.current).toEqual({ budgetLeftUsd: 7.25, byModel: {}, earlierUsd: 0 }))
     expect(fetch).toHaveBeenCalledWith('/api/game/budget')
   })
 
@@ -32,7 +32,7 @@ describe('useClaudeBudget', () => {
   test('re-fetches each time the mode is selected again', async () => {
     const fetch = vi.fn().mockResolvedValue(json({ budgetLeftUsd: 3 }))
     const { result, rerender } = renderHook(({ on }) => useClaudeBudget(on, fetch), { initialProps: { on: true } })
-    await waitFor(() => expect(result.current).toBe(3))
+    await waitFor(() => expect(result.current).toMatchObject({ budgetLeftUsd: 3 }))
     rerender({ on: false })
     rerender({ on: true })
     await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2))

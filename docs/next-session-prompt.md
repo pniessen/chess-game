@@ -82,6 +82,13 @@ supersedes the owner-only sections), plan `docs/superpowers/plans/2026-09-29-cla
 - **A corrupt ledger file fails closed:** `GET /api/game/budget` answers 500 and the mode shows
   the start-the-server hint. The server log names the JSON file that failed to parse; repair or
   remove that file rather than deleting `lock.json` (which would strand the game's reservation).
+- **Usage tracking:** every Anthropic call for a seat (retries and timeouts included; not the
+  pacing delay or Stockfish fallbacks) adds cost, server wall time (`ms`), input/output tokens
+  (a timeout counts its estimated tokens) and a call count to the game's `usage.{w,b}` (also in
+  `games/saved/<id>`) and to `byModel` in the month's `games/budget/<month>`; month records from
+  before it show their dollars as "Earlier". The UI shows it in the cost line, on each Claude
+  clock (model time) and in the New game panel's "This month" line (`claude-month`, counted in
+  calls: a retry or a timeout is a call too).
 - **Constants** (model ids, list prices, per-game reserves, move timeout, the 160-ply
   adjudication cap, the 25-minute session idle limit) live in `src/claude/models.ts`.
 - **Task 10 (live measurement) is still pending:** it now runs locally with Peter's own key,

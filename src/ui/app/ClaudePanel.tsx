@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { shortModelLabel } from '../../claude/models'
+import { shortModelLabel, type SideUsage } from '../../claude/models'
 import type { ClaudeNote, MatchConfig, MatchPhase } from '../../match/types'
 import { FALLBACK_TITLE } from '../panels/MoveList'
 
@@ -20,11 +20,14 @@ export function ClaudeStatus({
   phase,
   config,
   spentUsd,
+  usage,
 }: {
   phase: MatchPhase
   config: MatchConfig
   /** The server's running total for this game, in dollars. */
   spentUsd: number
+  /** The server's running per-side usage for this game: each Claude seat's share of the cost. */
+  usage: SideUsage
 }) {
   const label = thinkingLabel(phase, config)
   // Each ask is its own count: the request id changes with every turn.
@@ -46,6 +49,15 @@ export function ClaudeStatus({
       </p>
       <p className="claude-cost" data-testid="claude-cost">
         This game: ${spentUsd.toFixed(2)}
+        {(['w', 'b'] as const).map((side) => {
+          const seat = side === 'w' ? config.white : config.black
+          if (seat.kind !== 'claude') return null
+          return (
+            <span key={side} data-testid={`claude-cost-${side}`}>
+              {` · ${shortModelLabel(seat.model)} $${usage[side].costUsd.toFixed(2)}`}
+            </span>
+          )
+        })}
       </p>
     </div>
   )

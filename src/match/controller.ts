@@ -18,7 +18,7 @@ import {
 } from './types'
 import type { ClockState } from '../clock/types'
 import type { ClaudeMover, ClaudeMoveResult } from '../claude/gameClient'
-import { CLAUDE_MAX_PLIES } from '../claude/models'
+import { CLAUDE_MAX_PLIES, type SideUsage } from '../claude/models'
 
 /** Stockfish stands in for a failed Claude turn at full strength, so the stand-in is never the weak link. */
 const CLAUDE_FALLBACK_LEVEL: Level = 8
@@ -544,7 +544,7 @@ export class MatchController {
     // Spend is the server's running total for the game: credit it whenever
     // it is reported, even on a reply we end up dropping, since that move
     // was paid for all the same. Never across games, though.
-    if (reply.ok && epoch === this.gameEpoch) this.recordSpend(reply.gameSpentUsd)
+    if (reply.ok && epoch === this.gameEpoch) this.recordSpend(reply.gameSpentUsd, reply.usage)
 
     // Pace a zero-player game exactly as an engine move is paced.
     const delay = this.config.engineDelayMs ?? 0
@@ -679,20 +679,30 @@ export class MatchController {
 
   /**
    * A new server session began for the game on the board (a Resume after the
-   * old session lapsed): its running total starts again from zero, so the
-   * meter must too — recordSpend keeps the largest total, which would
-   * otherwise pin it at the old session's. Notes and fallbacks stay.
+   * old session lapsed): its running totals start again from zero, so the
+   * meter and the per-side usage must too — recordSpend keeps the largest
+   * totals, which would otherwise pin them at the old session's. Notes and
+   * fallbacks stay.
    */
   resetClaudeSpend(): void {
-    if (this.claudeState.spentUsd === 0) return
-    this.claudeState = { ...this.claudeState, spentUsd: 0 }
+    const { spentUsd, usage } = this.claudeState
+    if (spentUsd === 0 && usage === NO_CLAUDE.usage) return
+    this.claudeState = { ...this.claudeState, spentUsd: 0, usage: NO_CLAUDE.usage }
     this.emit()
   }
 
-  /** `spentUsd` is the largest running total the server has reported (replies can land out of order). */
-  private recordSpend(gameSpentUsd: number): void {
-    if (gameSpentUsd <= this.claudeState.spentUsd) return
-    this.claudeState = { ...this.claudeState, spentUsd: gameSpentUsd }
+  /**
+   * `spentUsd` is the largest running total the server has reported, and each
+   * side's usage the report with the most calls (replies can land out of order).
+   */
+  private recordSpend(gameSpentUsd: number, usage: SideUsage): void {
+    const cur = this.claudeState
+    const w = usage.w.calls > cur.usage.w.calls ? usage.w : cur.usage.w
+    const b = usage.b.calls > cur.usage.b.calls ? usage.b : cur.usage.b
+    const spentUsd = Math.max(cur.spentUsd, gameSpentUsd)
+    const usageChanged = w !== cur.usage.w || b !== cur.usage.b
+    if (spentUsd === cur.spentUsd && !usageChanged) return
+    this.claudeState = { ...cur, spentUsd, usage: usageChanged ? { w, b } : cur.usage }
   }
 
   // ---- moves ------------------------------------------------------------

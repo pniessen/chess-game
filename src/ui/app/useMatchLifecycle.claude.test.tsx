@@ -6,6 +6,7 @@ import { DEFAULT_SETTINGS } from '../../storage/storage'
 import { useMatchLifecycle } from './useMatchLifecycle'
 import { useClaudeSession } from './useClaudeSession'
 import { fakeMover, silentEngine, type FakeMover } from './claudeTestKit'
+import { ZERO_USAGE } from '../../claude/models'
 
 const HUMANS: MatchConfig = { white: { kind: 'human' }, black: { kind: 'human' }, timeControl: { kind: 'untimed' } }
 
@@ -271,7 +272,7 @@ describe('resuming a paused Claude game', () => {
     act(() => h.result.current.lifecycle.withClaudeSession(() => h.controller.resume()))
     await settle()
     expect(h.result.current.claude.isOpen()).toBe(true)
-    await act(async () => mover.moves[0]!.resolve({ ok: true, san: 'Nf3', why: 'x', costUsd: 0.4, gameSpentUsd: 0.4 }))
+    await act(async () => mover.moves[0]!.resolve({ ok: true, san: 'Nf3', why: 'x', costUsd: 0.4, gameSpentUsd: 0.4, usage: { w: ZERO_USAGE, b: ZERO_USAGE } }))
     act(() => h.controller.pause())
     expect(h.controller.snapshot().claude.spentUsd).toBeCloseTo(0.4)
     mover.fresh = false

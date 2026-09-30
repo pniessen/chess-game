@@ -3,7 +3,7 @@ import { MatchController } from './controller'
 import { Game } from '../game-core/game'
 import type { MatchConfig } from './types'
 import { resultTagOf } from './result'
-import { CLAUDE_MAX_PLIES } from '../claude/models'
+import { CLAUDE_MAX_PLIES, ZERO_USAGE, type SideUsage, type Usage } from '../claude/models'
 import { Position } from '../game-core/position'
 import { STARTING_FEN } from '../game-core/types'
 import type { EngineInfo } from '../engine/uci'
@@ -59,13 +59,22 @@ function fakeClaude(respond: (req: MoveReq, n: number) => ClaudeMoveResult | und
   return { calls, move, mover }
 }
 
-const ok = (san: string, gameSpentUsd = 0, why = `because ${san}`): ClaudeMoveResult => ({
+const ok = (
+  san: string,
+  gameSpentUsd = 0,
+  why = `because ${san}`,
+  usage: SideUsage = { w: ZERO_USAGE, b: ZERO_USAGE },
+): ClaudeMoveResult => ({
   ok: true,
   san,
   why,
   costUsd: 0.01,
   gameSpentUsd,
+  usage,
 })
+/** A side's usage after `calls` calls of 1 s and $0.01 each. */
+const used = (calls: number): Usage => ({ costUsd: calls / 100, ms: calls * 1000, inputTokens: calls * 900, outputTokens: calls * 50, calls })
+const NO_USAGE: SideUsage = { w: ZERO_USAGE, b: ZERO_USAGE }
 const RETRY: ClaudeMoveResult = { ok: false, kind: 'retry' }
 
 /** Answers from a fixed line of SANs, in ply order, whoever asks. */
@@ -125,6 +134,7 @@ describe('MatchController: the claude seat', () => {
       },
       spentUsd: 0.03,
       fallbacks: { w: 0, b: 0 },
+      usage: NO_USAGE,
     })
     expect(e.calls).toHaveLength(0) // Stockfish was never asked
     expect(illegalEngineMovesOf(c)).toBe(0)
@@ -372,7 +382,7 @@ describe('MatchController: the claude seat', () => {
     expect(c.snapshot().claude).toMatchObject({ spentUsd: 0.1, fallbacks: { w: 1, b: 0 } })
 
     c.start(CLAUDE_VS_CLAUDE)
-    expect(c.snapshot().claude).toEqual({ notes: {}, spentUsd: 0, fallbacks: { w: 0, b: 0 } })
+    expect(c.snapshot().claude).toEqual({ notes: {}, spentUsd: 0, fallbacks: { w: 0, b: 0 }, usage: NO_USAGE })
   })
 
   test('step() on a Claude turn lets exactly one Claude move through', async () => {
@@ -635,6 +645,86 @@ describe('why a Claude game stopped', () => {
   })
 })
 
+describe('per-side usage in the claude snapshot', () => {
+  beforeEach(() => vi.useFakeTimers())
+  afterEach(() => vi.useRealTimers())
+
+  test('is the server\'s last reported per-side totals', async () => {
+    const line: [string, SideUsage][] = [
+      ['e4', { w: used(1), b: ZERO_USAGE }],
+      ['e5', { w: used(1), b: used(2) }], // Black's first move took a retry: two calls
+    ]
+    const cl = fakeClaude((req) => {
+      const step = line[req.history.length]
+      return step ? ok(step[0], 0, 'x', step[1]) : undefined
+    })
+    const c = new MatchController({ engine: fakeEngine().client, claude: cl.mover })
+    c.start(CLAUDE_VS_CLAUDE)
+    expect(c.snapshot().claude.usage).toEqual(NO_USAGE)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(sans(c)).toEqual(['e4', 'e5'])
+    expect(c.snapshot().claude.usage).toEqual({ w: used(1), b: used(2) })
+  })
+
+  test('a reply carrying older totals never lowers a side', async () => {
+    const line: [string, SideUsage][] = [
+      ['e4', { w: used(3), b: used(1) }],
+      ['e5', { w: used(2), b: used(2) }], // out of order for White, newer for Black
+    ]
+    const cl = fakeClaude((req) => {
+      const step = line[req.history.length]
+      return step ? ok(step[0], 0, 'x', step[1]) : undefined
+    })
+    const c = new MatchController({ engine: fakeEngine().client, claude: cl.mover })
+    c.start(CLAUDE_VS_CLAUDE)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(c.snapshot().claude.usage).toEqual({ w: used(3), b: used(2) })
+  })
+
+  test('a reply from the previous game never lands in the new one', async () => {
+    const cl = fakeClaude()
+    const c = new MatchController({ engine: fakeEngine().client, claude: cl.mover })
+    c.start(CLAUDE_VS_CLAUDE)
+    await vi.advanceTimersByTimeAsync(0)
+    c.start(CLAUDE_VS_CLAUDE)
+    await vi.advanceTimersByTimeAsync(0)
+    cl.calls[0]?.resolve(ok('e4', 0.5, 'x', { w: used(5), b: used(5) }))
+    await vi.advanceTimersByTimeAsync(0)
+    expect(c.snapshot().claude.usage).toEqual(NO_USAGE)
+    cl.calls[1]?.resolve(ok('d4', 0.01, 'x', { w: used(1), b: ZERO_USAGE }))
+    await vi.advanceTimersByTimeAsync(0)
+    expect(c.snapshot().claude.usage).toEqual({ w: used(1), b: ZERO_USAGE })
+  })
+
+  test('a reply held while paused is credited once, and the replay makes no second call', async () => {
+    const cl = fakeClaude()
+    const c = new MatchController({ engine: fakeEngine().client, claude: cl.mover })
+    c.start(CLAUDE_VS_CLAUDE)
+    await vi.advanceTimersByTimeAsync(0)
+    c.pause()
+    cl.calls[0]?.resolve(ok('c4', 0.01, 'x', { w: used(1), b: ZERO_USAGE }))
+    await vi.advanceTimersByTimeAsync(0)
+    c.resume() // plays the held reply: no second call
+    await vi.advanceTimersByTimeAsync(0)
+    expect(cl.calls.map((x) => x.req.history)).toEqual([[], ['c4']])
+    expect(sans(c)).toEqual(['c4'])
+    expect(c.snapshot().claude.usage.w).toEqual(used(1))
+  })
+
+  test('an unchanged report keeps the claude snapshot\'s identity', async () => {
+    const cl = fakeClaude()
+    const c = new MatchController({ engine: fakeEngine().client, claude: cl.mover })
+    c.start(CLAUDE_VS_CLAUDE)
+    await vi.advanceTimersByTimeAsync(0)
+    c.pause()
+    const before = c.snapshot().claude
+    // Same spend and usage as the snapshot already holds: nothing Claude-side changes.
+    cl.calls[0]?.resolve(ok('c4', 0, 'x', NO_USAGE))
+    await vi.advanceTimersByTimeAsync(0)
+    expect(c.snapshot().claude).toBe(before)
+  })
+})
+
 describe('resetClaudeSpend (a re-begun session)', () => {
   beforeEach(() => vi.useFakeTimers())
   afterEach(() => vi.useRealTimers())
@@ -653,5 +743,30 @@ describe('resetClaudeSpend (a re-begun session)', () => {
     expect(c.snapshot().claude.spentUsd).toBe(0)
     expect(c.snapshot().claude.notes).toBe(notes)
     expect(seen).toHaveBeenCalled()
+  })
+
+  test('zeroes the per-side usage too, even with no spend to reset; a later report counts from zero', async () => {
+    const line: [string, SideUsage][] = [['e4', { w: used(2), b: ZERO_USAGE }]]
+    const cl = fakeClaude((req) => {
+      const step = line[req.history.length]
+      return step ? ok(step[0], 0, 'x', step[1]) : undefined
+    })
+    const c = new MatchController({ engine: fakeEngine().client, claude: cl.mover })
+    c.start(CLAUDE_VS_CLAUDE)
+    await vi.advanceTimersByTimeAsync(0)
+    c.pause()
+    expect(c.snapshot().claude.usage.w).toEqual(used(2))
+    expect(c.snapshot().claude.spentUsd).toBe(0)
+    c.resetClaudeSpend()
+    expect(c.snapshot().claude.usage).toEqual(NO_USAGE)
+    const same = c.snapshot().claude
+    c.resetClaudeSpend() // nothing left to reset: identity kept
+    expect(c.snapshot().claude).toBe(same)
+    // The new session's first report, smaller than the old session's, is taken.
+    c.resume()
+    await vi.advanceTimersByTimeAsync(0)
+    cl.calls.at(-1)?.resolve(ok('e5', 0.01, 'x', { w: ZERO_USAGE, b: used(1) }))
+    await vi.advanceTimersByTimeAsync(0)
+    expect(c.snapshot().claude.usage).toEqual({ w: ZERO_USAGE, b: used(1) })
   })
 })

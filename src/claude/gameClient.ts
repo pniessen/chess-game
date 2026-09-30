@@ -1,11 +1,26 @@
-import { CLAUDE_SESSION_IDLE_MS, type ClaudeModelKey } from './models'
+import {
+  CLAUDE_SESSION_IDLE_MS,
+  parseSideUsage,
+  parseUsageByModel,
+  type ClaudeModelKey,
+  type SideUsage,
+  type UsageByModel,
+} from './models'
 
 export type BeginResult =
   | { ok: true; budgetLeftUsd: number }
   | { ok: false; kind: 'busy' | 'budget' | 'forbidden' | 'unavailable' }
 
 export type ClaudeMoveResult =
-  | { ok: true; san: string; why: string; costUsd: number; gameSpentUsd: number }
+  | {
+      ok: true
+      san: string
+      why: string
+      costUsd: number
+      gameSpentUsd: number
+      /** The game's running per-side usage after this call, as the server tracks it. */
+      usage: SideUsage
+    }
   /**
    * 'lost': the server no longer knows this game — its per-process secret
    * changed, i.e. the local server restarted — so the game cannot go on.
@@ -141,6 +156,8 @@ export class GameClient implements ClaudeMover {
         why: payload['why'],
         costUsd: payload['costUsd'],
         gameSpentUsd: payload['gameSpentUsd'],
+        // An older server sends none: zero usage, not a failed move.
+        usage: parseSideUsage(payload['usage']),
       }
     }
     // 502 (illegal-reply, timeout, upstream, rate-limited) and 500 are worth another try;
@@ -179,18 +196,33 @@ export function createGameClient(opts: { fetch?: typeof fetch; now?: () => numbe
   return new GameClient(opts)
 }
 
+/** This month's Claude games budget as the New game panel shows it. */
+export interface ClaudeBudget {
+  budgetLeftUsd: number
+  /** This month's usage per model, for models with calls. */
+  byModel: UsageByModel
+  /** Dollars spent this month before usage was tracked per model; 0 when none. */
+  earlierUsd: number
+}
+
 /**
- * This month's remaining Claude games budget in dollars, or null on any
- * failure — the local server not running, or running without a key (503).
+ * This month's remaining Claude games budget in dollars and its usage per
+ * model, or null on any failure — the local server not running, or running
+ * without a key (503).
  */
-export async function fetchBudget(opts: { fetch?: typeof fetch } = {}): Promise<number | null> {
+export async function fetchBudget(opts: { fetch?: typeof fetch } = {}): Promise<ClaudeBudget | null> {
   const f = opts.fetch ?? ((input: RequestInfo | URL, init?: RequestInit) => fetch(input, init))
   try {
     const res = await f('/api/game/budget')
     if (!res.ok) return null
     const payload = await readJson(res)
-    const left = isRecord(payload) ? payload['budgetLeftUsd'] : null
-    return typeof left === 'number' ? left : null
+    if (!isRecord(payload) || typeof payload['budgetLeftUsd'] !== 'number') return null
+    const earlier = payload['earlierUsd']
+    return {
+      budgetLeftUsd: payload['budgetLeftUsd'],
+      byModel: parseUsageByModel(payload['byModel']),
+      earlierUsd: typeof earlier === 'number' && Number.isFinite(earlier) && earlier > 0 ? earlier : 0,
+    }
   } catch {
     return null
   }

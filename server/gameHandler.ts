@@ -11,7 +11,7 @@
  * closed by throwing, so an unreadable ledger can never turn into a game.
  */
 import { LIMITS } from '../src/coach/protocol'
-import { isClaudeModelKey } from '../src/claude/models'
+import { ZERO_USAGE, isClaudeModelKey, type SideUsage } from '../src/claude/models'
 import { Position } from '../src/game-core/position'
 import { STARTING_FEN } from '../src/game-core/types'
 import type { MessagesClient } from './claude'
@@ -23,6 +23,7 @@ import {
   chargeMove,
   checkGameToken,
   endGame,
+  monthUsage,
   startGame,
 } from './games'
 import type { GameStore } from './store'
@@ -130,7 +131,11 @@ export async function handleGame(endpoint: GameEndpoint, request: Request, deps:
   try {
     switch (endpoint) {
       case 'budget':
-        return json(200, { budgetLeftUsd: await budgetLeft(deps.store, now), monthlyUsd: GAMES_LIMITS.monthlyUsd })
+        return json(200, {
+          budgetLeftUsd: await budgetLeft(deps.store, now),
+          monthlyUsd: GAMES_LIMITS.monthlyUsd,
+          ...(await monthUsage(deps.store, now)),
+        })
       case 'start':
         return await start(body as Record<string, unknown>, deps, now)
       case 'move':
@@ -177,9 +182,14 @@ async function move(body: Record<string, unknown>, deps: GameDeps, now: number):
     { model: auth.model, ...(startFen !== undefined ? { startFen } : {}), history },
   )
   // A reply that arrived cost money even when it was unusable: charge before answering either way.
-  const spent = await chargeMove(deps.store, now, gameId, outcome.costUsd)
+  // Every call made counts toward the side's usage; a bad request made none.
+  const side = white ? 'white' : 'black'
+  const noCall: { spent: number; usage: SideUsage } = { spent: 0, usage: { w: ZERO_USAGE, b: ZERO_USAGE } }
+  const { spent, usage } = outcome.tokens
+    ? await chargeMove(deps.store, now, gameId, { side, costUsd: outcome.costUsd, ms: outcome.ms, ...outcome.tokens })
+    : noCall
   if (!outcome.ok) return fail(moveStatus(moveKind(outcome.kind)), moveKind(outcome.kind))
-  return json(200, { san: outcome.san, why: outcome.why, costUsd: outcome.costUsd, gameSpentUsd: spent })
+  return json(200, { san: outcome.san, why: outcome.why, costUsd: outcome.costUsd, gameSpentUsd: spent, usage })
 }
 
 async function end(body: Record<string, unknown>, deps: GameDeps, now: number): Promise<Response> {

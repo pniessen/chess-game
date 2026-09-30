@@ -9,7 +9,9 @@ import {
   chargeMove,
   checkGameToken,
   endGame,
+  monthUsage,
   startGame,
+  type MoveCall,
 } from './games'
 import { fakeStore } from '../netlify/lib/limits.test'
 
@@ -22,6 +24,16 @@ const SIDES = { white: 'haiku', black: 'sonnet' } as const
 let store: ReturnType<typeof fakeStore>
 beforeEach(() => {
   store = fakeStore()
+})
+
+/** One API call's charge; the side defaults to White and the usage beyond its cost to zero. */
+const call = (costUsd: number, over: Partial<MoveCall> = {}): MoveCall => ({
+  side: 'white',
+  costUsd,
+  ms: 0,
+  inputTokens: 0,
+  outputTokens: 0,
+  ...over,
 })
 
 async function start(now = NOW, sides: { white: string; black: string } = SIDES) {
@@ -117,7 +129,7 @@ describe('authorizeMove', () => {
   })
   test('spent at or over the reservation is budget', async () => {
     const g = await start()
-    await chargeMove(store, NOW, g.gameId, RESERVE_PER_GAME_USD.haiku + RESERVE_PER_GAME_USD.sonnet)
+    await chargeMove(store, NOW, g.gameId, call(RESERVE_PER_GAME_USD.haiku + RESERVE_PER_GAME_USD.sonnet))
     expect(await authorizeMove(store, NOW, SECRET, { gameId: g.gameId, token: g.token, side: 'white', plies: 2 })).toEqual({
       ok: false,
       kind: 'budget',
@@ -129,12 +141,12 @@ describe('chargeMove and endGame', () => {
   test('charges do not change what is left until the game ends', async () => {
     const g = await start()
     const before = await budgetLeft(store, NOW)
-    await chargeMove(store, NOW, g.gameId, 0.05)
+    await chargeMove(store, NOW, g.gameId, call(0.05))
     expect(await budgetLeft(store, NOW)).toBeCloseTo(before, 6)
   })
   test('ending releases the lock and the unused reservation, and saves the record', async () => {
     const g = await start()
-    await chargeMove(store, NOW, g.gameId, 0.05)
+    await chargeMove(store, NOW, g.gameId, call(0.05))
     await endGame(store, NOW, g.gameId, { pgn: '1. e4 *', costUsd: 0.05 })
     expect(await budgetLeft(store, NOW)).toBeCloseTo(GAMES_LIMITS.monthlyUsd - 0.05, 6)
     expect(store.data.get(`games/saved/${g.gameId}`)).toMatchObject({ pgn: '1. e4 *' })
@@ -142,7 +154,7 @@ describe('chargeMove and endGame', () => {
   })
   test('the saved record takes its money from the server-tracked game, not the caller', async () => {
     const g = await start()
-    await chargeMove(store, NOW, g.gameId, 0.05)
+    await chargeMove(store, NOW, g.gameId, call(0.05))
     await endGame(store, NOW, g.gameId, { pgn: '1. e4 *', spent: 999, reserved: 999, costUsd: 999 })
     const saved = store.data.get(`games/saved/${g.gameId}`) as Record<string, number>
     expect(saved['spent']).toBeCloseTo(0.05, 6)
@@ -150,9 +162,9 @@ describe('chargeMove and endGame', () => {
   })
   test('chargeMove reports the game total so far', async () => {
     const g = await start()
-    expect(await chargeMove(store, NOW, g.gameId, 0.05)).toBeCloseTo(0.05, 6)
-    expect(await chargeMove(store, NOW, g.gameId, 0)).toBeCloseTo(0.05, 6)
-    expect(await chargeMove(store, NOW, g.gameId, 0.01)).toBeCloseTo(0.06, 6)
+    expect((await chargeMove(store, NOW, g.gameId, call(0.05))).spent).toBeCloseTo(0.05, 6)
+    expect((await chargeMove(store, NOW, g.gameId, call(0))).spent).toBeCloseTo(0.05, 6)
+    expect((await chargeMove(store, NOW, g.gameId, call(0.01))).spent).toBeCloseTo(0.06, 6)
   })
   test('checkGameToken accepts only that game\'s token', async () => {
     const g = await start()
@@ -164,7 +176,7 @@ describe('chargeMove and endGame', () => {
     await endGame(store, NOW, g.gameId, { pgn: '*' })
     const before = await budgetLeft(store, NOW)
     const saved = JSON.stringify(store.data.get(`games/saved/${g.gameId}`))
-    await chargeMove(store, NOW, g.gameId, 0.07)
+    await chargeMove(store, NOW, g.gameId, call(0.07))
     expect(await budgetLeft(store, NOW)).toBeCloseTo(before - 0.07, 6)
     expect(store.data.get('games/budget/2026-09')).toMatchObject({ spent: expect.closeTo(0.07, 6), reserved: 0 })
     expect(JSON.stringify(store.data.get(`games/saved/${g.gameId}`))).toBe(saved)
@@ -174,7 +186,7 @@ describe('chargeMove and endGame', () => {
     const t = NOW + GAMES_LIMITS.lockTtlMs + 1
     await start(t)
     const before = await budgetLeft(store, t)
-    await chargeMove(store, t, a.gameId, 0.07)
+    await chargeMove(store, t, a.gameId, call(0.07))
     expect(await budgetLeft(store, t)).toBeCloseTo(before - 0.07, 6)
   })
   test('ending twice does not refund twice', async () => {
@@ -192,11 +204,130 @@ describe('chargeMove and endGame', () => {
   })
 })
 
+describe('usage per side and per model', () => {
+  const ZERO = { costUsd: 0, ms: 0, inputTokens: 0, outputTokens: 0, calls: 0 }
+
+  test('each call adds to its own side, with the model taken from the game record', async () => {
+    const g = await start()
+    await chargeMove(store, NOW, g.gameId, call(0.01, { ms: 1200, inputTokens: 900, outputTokens: 40 }))
+    await chargeMove(store, NOW, g.gameId, call(0.02, { side: 'black', ms: 3000, inputTokens: 950, outputTokens: 200 }))
+    const r = await chargeMove(store, NOW, g.gameId, call(0.03, { ms: 800, inputTokens: 1000, outputTokens: 60 }))
+    const w = { costUsd: expect.closeTo(0.04, 6), ms: 2000, inputTokens: 1900, outputTokens: 100, calls: 2 }
+    const b = { costUsd: expect.closeTo(0.02, 6), ms: 3000, inputTokens: 950, outputTokens: 200, calls: 1 }
+    expect(r.usage).toEqual({ w, b })
+    expect(r.spent).toBeCloseTo(0.06, 6)
+    expect(store.data.get(`games/${g.gameId}`)).toMatchObject({ usage: { w, b } })
+    // SIDES is haiku (White) vs sonnet (Black).
+    expect(await monthUsage(store, NOW)).toEqual({ byModel: { haiku: w, sonnet: b }, earlierUsd: 0 })
+  })
+
+  test('a call that cost nothing (an SDK error) still counts its time; a timeout counts its estimated tokens', async () => {
+    const g = await start()
+    await chargeMove(store, NOW, g.gameId, call(0, { ms: 150 }))
+    // A timeout: the ledger's worst-case cost and its estimated tokens.
+    const r = await chargeMove(store, NOW, g.gameId, call(0.0412, { ms: 45_000, inputTokens: 700, outputTokens: 8000 }))
+    expect(r.usage.w).toEqual({ costUsd: expect.closeTo(0.0412, 6), ms: 45_150, inputTokens: 700, outputTokens: 8000, calls: 2 })
+    expect(r.usage.b).toEqual(ZERO)
+    expect((await monthUsage(store, NOW)).byModel.haiku).toMatchObject({ calls: 2, ms: 45_150 })
+  })
+
+  test('a charge after the game ended adds to the game and the month, not to the saved record', async () => {
+    const g = await start()
+    await chargeMove(store, NOW, g.gameId, call(0.01, { ms: 500, outputTokens: 10 }))
+    await endGame(store, NOW, g.gameId, { pgn: '*' })
+    const saved = JSON.stringify(store.data.get(`games/saved/${g.gameId}`))
+    const r = await chargeMove(store, NOW, g.gameId, call(0.07, { side: 'black', ms: 900, outputTokens: 30 }))
+    expect(r.usage.b).toMatchObject({ costUsd: expect.closeTo(0.07, 6), ms: 900, outputTokens: 30, calls: 1 })
+    expect(r.usage.w).toMatchObject({ calls: 1, ms: 500 })
+    expect((await monthUsage(store, NOW)).byModel.sonnet).toMatchObject({ calls: 1, ms: 900 })
+    expect(JSON.stringify(store.data.get(`games/saved/${g.gameId}`))).toBe(saved)
+  })
+
+  test('the month adds up per model across games; the budget record keeps spent and reserved', async () => {
+    const a = await start()
+    await chargeMove(store, NOW, a.gameId, call(0.01, { ms: 100 }))
+    await endGame(store, NOW, a.gameId, { pgn: '*' })
+    const b = await start(NOW + 1, { white: 'sonnet', black: 'haiku' })
+    await chargeMove(store, NOW, b.gameId, call(0.02, { side: 'black', ms: 200 }))
+    const { byModel } = await monthUsage(store, NOW)
+    expect(byModel.haiku).toMatchObject({ costUsd: expect.closeTo(0.03, 6), ms: 300, calls: 2 })
+    expect(byModel.sonnet).toBeUndefined()
+    expect(store.data.get('games/budget/2026-09')).toMatchObject({ spent: expect.closeTo(0.03, 6) })
+  })
+
+  test('a month record from before byModel loads as empty; its dollars show as earlier', async () => {
+    await store.setJSON('games/budget/2026-09', { spent: 0.13, reserved: 0 })
+    expect(await monthUsage(store, NOW)).toEqual({ byModel: {}, earlierUsd: 0.13 })
+    const g = await start()
+    await chargeMove(store, NOW, g.gameId, call(0.02, { ms: 100 }))
+    const m = await monthUsage(store, NOW)
+    expect(m.byModel).toEqual({ haiku: expect.objectContaining({ calls: 1 }) })
+    expect(m.earlierUsd).toBeCloseTo(0.13, 6)
+    expect(await budgetLeft(store, NOW)).toBeCloseTo(
+      GAMES_LIMITS.monthlyUsd - 0.15 - (RESERVE_PER_GAME_USD.haiku + RESERVE_PER_GAME_USD.sonnet - 0.02),
+      6,
+    )
+  })
+
+  test('an earlier remainder under half a cent is not shown', async () => {
+    await store.setJSON('games/budget/2026-09', { spent: 0.004, reserved: 0 })
+    expect((await monthUsage(store, NOW)).earlierUsd).toBe(0)
+  })
+
+  test('a non-finite cost adds nothing: spent and reserved stay intact', async () => {
+    const g = await start()
+    await chargeMove(store, NOW, g.gameId, call(0.05, { ms: 100 }))
+    const budget = JSON.stringify(store.data.get('games/budget/2026-09'))
+    for (const bad of [Number.NaN, Number.POSITIVE_INFINITY]) {
+      const r = await chargeMove(store, NOW, g.gameId, call(bad, { ms: 100 }))
+      expect(r.spent).toBeCloseTo(0.05, 6)
+      expect(r.usage.w.costUsd).toBeCloseTo(0.05, 6)
+    }
+    const after = store.data.get('games/budget/2026-09') as Record<string, unknown>
+    const before = JSON.parse(budget) as Record<string, unknown>
+    expect(after['spent']).toBe(before['spent'])
+    expect(after['reserved']).toBe(before['reserved'])
+    expect((store.data.get(`games/${g.gameId}`) as Record<string, unknown>)['spent']).toBeCloseTo(0.05, 6)
+    expect((await monthUsage(store, NOW)).byModel.haiku!.costUsd).toBeCloseTo(0.05, 6)
+  })
+
+  test('a NaN or Infinity time or token count leaves the totals intact', async () => {
+    const g = await start()
+    await chargeMove(store, NOW, g.gameId, call(0.01, { ms: 500, inputTokens: 10, outputTokens: 20 }))
+    const r = await chargeMove(
+      store,
+      NOW,
+      g.gameId,
+      call(0.01, { ms: Number.NaN, inputTokens: Number.POSITIVE_INFINITY, outputTokens: Number.NaN }),
+    )
+    expect(r.usage.w).toEqual({ costUsd: 0.02, ms: 500, inputTokens: 10, outputTokens: 20, calls: 2 })
+    expect((await monthUsage(store, NOW)).byModel.haiku).toEqual(r.usage.w)
+  })
+
+  test('a game record from before usage loads as zero usage', async () => {
+    const g = await start()
+    const rec = store.data.get(`games/${g.gameId}`) as Record<string, unknown>
+    delete rec['usage']
+    await store.setJSON(`games/${g.gameId}`, rec)
+    const r = await chargeMove(store, NOW, g.gameId, call(0.01, { ms: 10 }))
+    expect(r.usage).toEqual({ w: { costUsd: 0.01, ms: 10, inputTokens: 0, outputTokens: 0, calls: 1 }, b: ZERO })
+  })
+
+  test('the saved record carries the per-side usage from the game record, not the caller', async () => {
+    const g = await start()
+    await chargeMove(store, NOW, g.gameId, call(0.01, { ms: 700, inputTokens: 5, outputTokens: 6 }))
+    await endGame(store, NOW, g.gameId, { pgn: '*', usage: 'forged' })
+    expect(store.data.get(`games/saved/${g.gameId}`)).toMatchObject({
+      usage: { w: { costUsd: 0.01, ms: 700, inputTokens: 5, outputTokens: 6, calls: 1 }, b: ZERO },
+    })
+  })
+})
+
 describe('abandoned games and failing reads', () => {
   test('a lock from an earlier boot of the server does not block a start: the old game is settled as abandoned at once', async () => {
     // The server restarted: the old game's token no longer verifies, so its /end can never arrive.
     const a = await start()
-    await chargeMove(store, NOW, a.gameId, 0.05)
+    await chargeMove(store, NOW, a.gameId, call(0.05))
     const b = await startGame(store, NOW + 1, randomBytes(32), SIDES, 'boot-b')
     expect(b.ok).toBe(true)
     expect(store.data.get(`games/${a.gameId}`)).toMatchObject({ ended: true })
@@ -223,7 +354,7 @@ describe('abandoned games and failing reads', () => {
   })
   test('starting after the lock expired settles the abandoned game', async () => {
     const a = await start()
-    await chargeMove(store, NOW, a.gameId, 0.05)
+    await chargeMove(store, NOW, a.gameId, call(0.05))
     const t = NOW + GAMES_LIMITS.lockTtlMs + 1
     const b = await start(t)
     expect(store.data.get(`games/${a.gameId}`)).toMatchObject({ ended: true })

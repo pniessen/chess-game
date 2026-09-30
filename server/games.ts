@@ -16,7 +16,18 @@
  * more than the overshoot it prevents.
  */
 import { createHash, createHmac, randomUUID, timingSafeEqual } from 'node:crypto'
-import { CLAUDE_MAX_PLIES, RESERVE_PER_GAME_USD, isClaudeModelKey, type ClaudeModelKey } from '../src/claude/models'
+import {
+  CLAUDE_MAX_PLIES,
+  RESERVE_PER_GAME_USD,
+  ZERO_USAGE,
+  isClaudeModelKey,
+  parseSideUsage,
+  parseUsageByModel,
+  type ClaudeModelKey,
+  type SideUsage,
+  type Usage,
+  type UsageByModel,
+} from '../src/claude/models'
 import type { GameStore } from './store'
 
 /** Every limit, in one place. */
@@ -66,11 +77,39 @@ export function checkGameToken(secret: Buffer, gameId: string, token: string): b
   return safeEqual(token, gameToken(gameId, secret))
 }
 
+/** One call to Anthropic made for `side`, as measured around it on the server. */
+export interface MoveCall {
+  side: Side
+  costUsd: number
+  ms: number
+  inputTokens: number
+  /** Includes thinking; for a timeout the estimate the ledger charges for. */
+  outputTokens: number
+}
+
+/** A non-negative finite amount, or 0: a NaN or Infinity must never reach the ledger (it would store as null and read back as 0). */
+const amount = (v: number): number => (Number.isFinite(v) ? Math.max(0, v) : 0)
+
+function addCall(u: Usage, c: MoveCall): Usage {
+  return {
+    costUsd: round(u.costUsd + amount(c.costUsd)),
+    ms: u.ms + Math.round(amount(c.ms)),
+    inputTokens: u.inputTokens + Math.round(amount(c.inputTokens)),
+    outputTokens: u.outputTokens + Math.round(amount(c.outputTokens)),
+    calls: u.calls + 1,
+  }
+}
+
 interface Budget {
   /** Dollars actually charged this month. */
   spent: number
   /** Dollars held for games in progress and not yet spent. */
   reserved: number
+  /**
+   * What each model's calls added up to this month. Absent in records written
+   * before it existed: their dollars are in `spent` only (see monthUsage).
+   */
+  byModel: UsageByModel
 }
 
 interface Game {
@@ -83,16 +122,23 @@ interface Game {
   /** The month whose budget holds this game's reservation. */
   month: string
   ended?: boolean
+  /** Per side; absent in records written before it existed, which read as zero. */
+  usage: SideUsage
 }
 
 async function readBudget(store: GameStore, month: string): Promise<Budget> {
   // Read errors propagate on purpose: a failed read must not look like an empty ledger (fail closed).
   const v = await store.get(budgetKey(month), { type: 'json' })
-  return isRecord(v) ? { spent: num(v['spent']), reserved: num(v['reserved']) } : { spent: 0, reserved: 0 }
+  if (!isRecord(v)) return { spent: 0, reserved: 0, byModel: {} }
+  return { spent: num(v['spent']), reserved: num(v['reserved']), byModel: parseUsageByModel(v['byModel']) }
 }
 
 async function writeBudget(store: GameStore, month: string, b: Budget): Promise<void> {
-  await store.setJSON(budgetKey(month), { spent: round(Math.max(0, b.spent)), reserved: round(Math.max(0, b.reserved)) })
+  await store.setJSON(budgetKey(month), {
+    spent: round(Math.max(0, b.spent)),
+    reserved: round(Math.max(0, b.reserved)),
+    byModel: b.byModel,
+  })
 }
 
 async function readGame(store: GameStore, gameId: string): Promise<Game | null> {
@@ -108,6 +154,7 @@ async function readGame(store: GameStore, gameId: string): Promise<Game | null> 
     startedAt: num(v['startedAt']),
     month: typeof v['month'] === 'string' ? v['month'] : '',
     ended: v['ended'] === true,
+    usage: parseSideUsage(v['usage']),
   }
 }
 
@@ -136,6 +183,18 @@ async function readLock(store: GameStore): Promise<Lock | null> {
 export async function budgetLeft(store: GameStore, now: number): Promise<number> {
   const b = await readBudget(store, utcMonth(now))
   return round(Math.max(0, GAMES_LIMITS.monthlyUsd - b.spent - b.reserved))
+}
+
+/**
+ * This month's usage per model, and `earlierUsd`: dollars spent before usage
+ * was tracked per model (spent minus the per-model costs), or 0 when that
+ * remainder is under half a cent.
+ */
+export async function monthUsage(store: GameStore, now: number): Promise<{ byModel: UsageByModel; earlierUsd: number }> {
+  const b = await readBudget(store, utcMonth(now))
+  const tracked = Object.values(b.byModel).reduce((sum, u) => sum + u.costUsd, 0)
+  const earlier = round(b.spent - tracked)
+  return { byModel: b.byModel, earlierUsd: earlier > 0.005 ? earlier : 0 }
 }
 
 /**
@@ -170,8 +229,9 @@ export async function startGame(
   if (round(budget.spent + budget.reserved + reserve) > GAMES_LIMITS.monthlyUsd) return { ok: false, kind: 'budget' }
 
   const gameId = randomUUID()
-  await writeBudget(store, month, { spent: budget.spent, reserved: budget.reserved + reserve })
-  const game: Game = { white, black, reserved: reserve, spent: 0, plies: 0, startedAt: now, month }
+  await writeBudget(store, month, { ...budget, reserved: budget.reserved + reserve })
+  const usage: SideUsage = { w: { ...ZERO_USAGE }, b: { ...ZERO_USAGE } }
+  const game: Game = { white, black, reserved: reserve, spent: 0, plies: 0, startedAt: now, month, usage }
   await store.setJSON(`games/${gameId}`, game)
   await store.setJSON(LOCK_KEY, { gameId, until: now + GAMES_LIMITS.lockTtlMs, boot } satisfies Lock)
   return { ok: true, gameId, token: gameToken(gameId, secret), budgetLeftUsd: await budgetLeft(store, now) }
@@ -206,30 +266,38 @@ export async function authorizeMove(
 }
 
 /**
- * Record what a move cost. It counts against the game's reservation first,
- * so the month's "left" only moves when a game ends or overspends.
- * Returns what the game has spent so far.
+ * Record one call to Anthropic made for `call.side`: its cost counts against
+ * the game's reservation first, so the month's "left" only moves when a game
+ * ends or overspends, and its usage adds to the side's totals and to its
+ * model's for the month. The model is the game record's, never the caller's.
+ * Every call counts, a free one (an SDK error) included.
+ * Returns what the game has spent so far and its per-side usage.
  */
-export async function chargeMove(store: GameStore, _now: number, gameId: string, costUsd: number): Promise<number> {
+export async function chargeMove(
+  store: GameStore,
+  _now: number,
+  gameId: string,
+  call: MoveCall,
+): Promise<{ spent: number; usage: SideUsage }> {
   const game = await readGame(store, gameId)
-  if (!game) return 0
-  if (!(costUsd > 0)) return game.spent
-  if (game.ended) {
-    // The game was settled while this reply was in flight: its reservation is already
-    // released, so the money is simply spent. The saved record is not rewritten.
-    const budget = await readBudget(store, game.month)
-    await writeBudget(store, game.month, { spent: budget.spent + costUsd, reserved: budget.reserved })
-    const spent = round(game.spent + costUsd)
-    await store.setJSON(`games/${gameId}`, { ...game, spent })
-    return spent
-  }
-  const held = Math.max(0, game.reserved - game.spent)
+  if (!game) return { spent: 0, usage: { w: { ...ZERO_USAGE }, b: { ...ZERO_USAGE } } }
+  const costUsd = amount(call.costUsd)
+  const key = call.side === 'white' ? 'w' : 'b'
+  const model = game[call.side]
+  // The game was settled while this reply was in flight: its reservation is already
+  // released, so the money is simply spent. The saved record is not rewritten.
+  const held = game.ended ? 0 : Math.max(0, game.reserved - game.spent)
   const fromReservation = Math.min(costUsd, held)
   const budget = await readBudget(store, game.month)
-  await writeBudget(store, game.month, { spent: budget.spent + costUsd, reserved: budget.reserved - fromReservation })
+  await writeBudget(store, game.month, {
+    spent: budget.spent + costUsd,
+    reserved: budget.reserved - fromReservation,
+    byModel: { ...budget.byModel, [model]: addCall(budget.byModel[model] ?? { ...ZERO_USAGE }, call) },
+  })
   const spent = round(game.spent + costUsd)
-  await store.setJSON(`games/${gameId}`, { ...game, spent })
-  return spent
+  const usage: SideUsage = { ...game.usage, [key]: addCall(game.usage[key], call) }
+  await store.setJSON(`games/${gameId}`, { ...game, spent, usage })
+  return { spent, usage }
 }
 
 /**
@@ -253,16 +321,17 @@ async function settleGame(store: GameStore, now: number, gameId: string, record:
   if (!game || game.ended) return
   const unused = Math.max(0, game.reserved - game.spent)
   const budget = await readBudget(store, game.month)
-  await writeBudget(store, game.month, { spent: budget.spent, reserved: budget.reserved - unused })
+  await writeBudget(store, game.month, { ...budget, reserved: budget.reserved - unused })
   await store.setJSON(`games/${gameId}`, { ...game, ended: true })
   await store.setJSON(`games/saved/${gameId}`, {
     ...record,
     gameId,
     white: game.white,
     black: game.black,
-    // Money comes from the server-tracked game; whatever the caller put in the record is overwritten.
+    // Money and usage come from the server-tracked game; whatever the caller put in the record is overwritten.
     spent: round(game.spent),
     reserved: round(game.reserved),
+    usage: game.usage,
     endedAt: now,
   })
 }

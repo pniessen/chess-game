@@ -37,6 +37,62 @@ export function isClaudeModelKey(v: unknown): v is ClaudeModelKey {
   return typeof v === 'string' && Object.prototype.hasOwnProperty.call(CLAUDE_MODELS, v)
 }
 
+/**
+ * What a Claude seat's calls to Anthropic added up to: every call made for it,
+ * a retried or timed-out one included (the pacing delay and Stockfish fallback
+ * moves are not calls). `ms` is the server's wall time around each call;
+ * `outputTokens` includes thinking. Kept per side of a game and per model per month.
+ */
+export interface Usage {
+  costUsd: number
+  ms: number
+  inputTokens: number
+  outputTokens: number
+  /** Calls made; the divisor for per-move averages. */
+  calls: number
+}
+
+export const ZERO_USAGE: Usage = Object.freeze({ costUsd: 0, ms: 0, inputTokens: 0, outputTokens: 0, calls: 0 })
+
+/** Usage per side of a game, keyed like the board's colours. */
+export interface SideUsage {
+  w: Usage
+  b: Usage
+}
+
+/** Usage per model, only for models that have any. */
+export type UsageByModel = Partial<Record<ClaudeModelKey, Usage>>
+
+const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
+const finite = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0)
+
+/** A stored or received usage, field by field: anything missing or malformed reads as zero. */
+export function parseUsage(v: unknown): Usage {
+  if (!isObject(v)) return { ...ZERO_USAGE }
+  return {
+    costUsd: finite(v['costUsd']),
+    ms: finite(v['ms']),
+    inputTokens: finite(v['inputTokens']),
+    outputTokens: finite(v['outputTokens']),
+    calls: finite(v['calls']),
+  }
+}
+
+export function parseSideUsage(v: unknown): SideUsage {
+  const o = isObject(v) ? v : {}
+  return { w: parseUsage(o['w']), b: parseUsage(o['b']) }
+}
+
+/** Only known model keys with an object value are kept. */
+export function parseUsageByModel(v: unknown): UsageByModel {
+  const out: UsageByModel = {}
+  if (!isObject(v)) return out
+  for (const key of Object.keys(CLAUDE_MODELS) as ClaudeModelKey[]) {
+    if (isObject(v[key])) out[key] = parseUsage(v[key])
+  }
+  return out
+}
+
 /** Dollars for one response, from its `usage` and the list price. */
 export function costUsd(key: ClaudeModelKey, usage: { input_tokens: number; output_tokens: number }): number {
   const m = CLAUDE_MODELS[key]
@@ -58,7 +114,12 @@ export function estimateInputTokens(promptChars: number): number {
  * worst: the estimated input plus the whole `maxTokens` output cap.
  */
 export function timeoutCostUsd(key: ClaudeModelKey, promptChars: number, maxTokens: number): number {
-  return costUsd(key, { input_tokens: estimateInputTokens(promptChars), output_tokens: maxTokens })
+  return costUsd(key, timeoutTokens(promptChars, maxTokens))
+}
+
+/** The tokens a timed-out request is charged for (an estimate: its real `usage` never arrived). */
+export function timeoutTokens(promptChars: number, maxTokens: number): { input_tokens: number; output_tokens: number } {
+  return { input_tokens: estimateInputTokens(promptChars), output_tokens: maxTokens }
 }
 
 /**

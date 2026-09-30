@@ -192,6 +192,70 @@ describe('a game from start to end', () => {
   })
 })
 
+describe('usage', () => {
+  const ZERO = { costUsd: 0, ms: 0, inputTokens: 0, outputTokens: 0, calls: 0 }
+
+  test('the move response carries the game\'s running per-side usage, the side from the history', async () => {
+    const g = await startGame()
+    const m1 = await call('move', { body: { gameId: g.gameId, token: g.token, history: [] } })
+    expect(m1.json.usage).toEqual({
+      w: { costUsd: expect.closeTo(m1.json.costUsd, 6), ms: expect.any(Number), inputTokens: 1000, outputTokens: 200, calls: 1 },
+      b: ZERO,
+    })
+    reply = () => message(JSON.stringify({ move: 'e5', why: 'Mirror.' }), { input_tokens: 1100, output_tokens: 50 })
+    const m2 = await call('move', { body: { gameId: g.gameId, token: g.token, history: ['e4'] } })
+    expect(m2.json.usage.w).toEqual(m1.json.usage.w)
+    expect(m2.json.usage.b).toMatchObject({ inputTokens: 1100, outputTokens: 50, calls: 1 })
+    expect(m2.json.gameSpentUsd).toBeCloseTo(m1.json.usage.w.costUsd + m2.json.usage.b.costUsd, 6)
+  })
+
+  test('a timed-out call counts toward its side with estimated tokens; a later reply reports it', async () => {
+    const g = await startGame()
+    reply = () => Promise.reject(new Anthropic.APIConnectionTimeoutError())
+    await call('move', { body: { gameId: g.gameId, token: g.token, history: [] } })
+    reply = () => message(JSON.stringify({ move: 'e4', why: 'x' }))
+    const m = await call('move', { body: { gameId: g.gameId, token: g.token, history: [] } })
+    expect(m.json.usage.w.calls).toBe(2)
+    expect(m.json.usage.w.outputTokens).toBe(8000 + 200)
+    expect(m.json.usage.w.costUsd).toBeCloseTo(m.json.gameSpentUsd, 6)
+  })
+
+  test('a request refused before any call (bad history) adds no usage', async () => {
+    const g = await startGame()
+    await call('move', { body: { gameId: g.gameId, token: g.token, history: ['e5'] } })
+    expect((store.data.get(`games/${g.gameId}`) as any).usage).toEqual({ w: ZERO, b: ZERO })
+  })
+
+  test('a reply that lands after the game ended still counts, for the game and the month', async () => {
+    const g = await startGame()
+    reply = async () => {
+      await call('end', { body: { gameId: g.gameId, token: g.token, pgn: '*', fallbacks: { w: 0, b: 0 } } })
+      return message(JSON.stringify({ move: 'e4', why: 'x' }))
+    }
+    const m = await call('move', { body: { gameId: g.gameId, token: g.token, history: [] } })
+    expect(m.json.usage.w.calls).toBe(1)
+    expect((await call('budget')).json.byModel.haiku).toMatchObject({ calls: 1, outputTokens: 200 })
+  })
+
+  test('budget reports usage per model this month and the dollars from before it was tracked', async () => {
+    const empty = await call('budget')
+    expect(empty.json).toMatchObject({ byModel: {}, earlierUsd: 0 })
+    await store.setJSON('games/budget/2026-09', { spent: 0.13, reserved: 0 })
+    const g = await startGame()
+    const m = await call('move', { body: { gameId: g.gameId, token: g.token, history: [] } })
+    const b = await call('budget')
+    expect(b.json.byModel).toEqual({ haiku: m.json.usage.w })
+    expect(b.json.earlierUsd).toBeCloseTo(0.13, 6)
+  })
+
+  test('the saved record carries the per-side usage', async () => {
+    const g = await startGame()
+    const m = await call('move', { body: { gameId: g.gameId, token: g.token, history: [] } })
+    await call('end', { body: { gameId: g.gameId, token: g.token, pgn: '1. e4 *', fallbacks: { w: 0, b: 0 }, usage: 1 } })
+    expect((store.data.get(`games/saved/${g.gameId}`) as any).usage).toEqual(m.json.usage)
+  })
+})
+
 describe('move', () => {
   test('a wrong game token is 403 and never reaches Claude', async () => {
     const g = await startGame()

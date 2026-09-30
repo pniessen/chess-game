@@ -2,7 +2,7 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, test, vi } from 'vitest'
 import type { ComponentProps } from 'react'
 import { NewGame, type Mode } from './NewGame'
-import { CLAUDE_MODELS } from '../../claude/models'
+import { CLAUDE_MODELS, type Usage } from '../../claude/models'
 
 const noop = () => {}
 
@@ -143,5 +143,50 @@ describe('NewGame: Claude vs Claude', () => {
     renderNewGame({ mode: 'zero-player', claude: { budgetLeftUsd: null } })
     expect(screen.queryByTestId('claude-unavailable-hint')).toBeNull()
     expect(screen.getByTestId('new-game')).toBeEnabled()
+  })
+})
+
+describe('NewGame: this month\'s usage per model', () => {
+  const u = (costUsd: number, calls: number, ms: number, outputTokens: number): Usage => ({
+    costUsd,
+    ms,
+    inputTokens: 0,
+    outputTokens,
+    calls,
+  })
+
+  test('models with calls, in list order, with calls and seconds per call; output tokens in the title', () => {
+    renderNewGame({
+      mode: 'claude-vs-claude',
+      claude: {
+        month: {
+          byModel: { haiku: u(0.004, 1, 800, 40), fable: u(0.2345, 12, 46_800, 12_345), sonnet: u(0, 0, 0, 0) },
+          earlierUsd: 0,
+        },
+      },
+    })
+    const line = screen.getByTestId('claude-month')
+    expect(line).toHaveTextContent(/^This month: Fable \$0\.23 \(12 calls, 3\.9 s\/call\) · Haiku \$0\.00 \(1 call, 0\.8 s\/call\)$/)
+    const parts = [...line.querySelectorAll('[title]')].map((e) => e.getAttribute('title'))
+    const note = 'A call is one request to the model, retries included.'
+    expect(parts).toEqual([`Fable 5.1: 12,345 output tokens. ${note}`, `Haiku 4.5: 40 output tokens. ${note}`])
+  })
+
+  test('dollars from before per-model tracking show as Earlier', () => {
+    renderNewGame({
+      mode: 'claude-vs-claude',
+      claude: { month: { byModel: { opus: u(0.01, 2, 3000, 100) }, earlierUsd: 0.13 } },
+    })
+    expect(screen.getByTestId('claude-month')).toHaveTextContent(/^This month: Opus \$0\.01 \(2 calls, 1\.5 s\/call\) · Earlier: \$0\.13$/)
+  })
+
+  test('only Earlier when no model has calls', () => {
+    renderNewGame({ mode: 'claude-vs-claude', claude: { month: { byModel: {}, earlierUsd: 0.13 } } })
+    expect(screen.getByTestId('claude-month')).toHaveTextContent(/^This month: Earlier: \$0\.13$/)
+  })
+
+  test('an empty month renders no line', () => {
+    renderNewGame({ mode: 'claude-vs-claude', claude: { month: { byModel: {}, earlierUsd: 0 } } })
+    expect(screen.queryByTestId('claude-month')).toBeNull()
   })
 })

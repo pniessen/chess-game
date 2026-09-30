@@ -1,13 +1,20 @@
 import type Anthropic from '@anthropic-ai/sdk'
 import { Position } from '../src/game-core/position'
 import { STARTING_FEN } from '../src/game-core/types'
-import { CLAUDE_MODELS, costUsd, timeoutCostUsd, type ClaudeModelKey } from '../src/claude/models'
+import { CLAUDE_MODELS, costUsd, timeoutCostUsd, timeoutTokens, type ClaudeModelKey } from '../src/claude/models'
 import { numberedMoves } from '../src/review/moveNumber'
 import { classifyError, type FailureKind, type MessagesClient } from './claude'
 
+/**
+ * The call's tokens for the usage totals: the response's `usage` (output
+ * includes thinking); for a timeout the estimate its cost is charged from;
+ * zero for any other SDK error. Null when no call was made (a bad request).
+ */
+export type MoveTokens = { inputTokens: number; outputTokens: number } | null
+
 export type MoveOutcome =
-  | { ok: true; san: string; why: string; costUsd: number; ms: number }
-  | { ok: false; kind: 'bad-request' | 'illegal-reply' | FailureKind; costUsd: number; ms: number }
+  | { ok: true; san: string; why: string; costUsd: number; ms: number; tokens: MoveTokens }
+  | { ok: false; kind: 'bad-request' | 'illegal-reply' | FailureKind; costUsd: number; ms: number; tokens: MoveTokens }
 
 /** Distributes over the union, unlike Omit. */
 type WithoutMs<T> = T extends unknown ? Omit<T, 'ms'> : never
@@ -43,7 +50,7 @@ export async function requestMove(
 ): Promise<MoveOutcome> {
   const started = Date.now()
   const done = (o: WithoutMs<MoveOutcome>): MoveOutcome => ({ ...o, ms: Date.now() - started }) as MoveOutcome
-  const bad = () => done({ ok: false, kind: 'bad-request', costUsd: 0 })
+  const bad = () => done({ ok: false, kind: 'bad-request', costUsd: 0, tokens: null })
 
   const start = Position.fromFen(req.startFen ?? STARTING_FEN)
   if (!start.ok) return bad()
@@ -98,16 +105,21 @@ export async function requestMove(
     // Auth, rate-limit and other errors are rejected requests: no charge.
     const promptChars = system.length + user.length + JSON.stringify(format).length
     const cost = kind === 'timeout' ? timeoutCostUsd(req.model, promptChars, MAX_TOKENS) : 0
-    return done({ ok: false, kind, costUsd: cost })
+    // Estimated, not measured: a timeout never returned its usage, so it counts the tokens it is charged for.
+    const est = timeoutTokens(promptChars, MAX_TOKENS)
+    const tokens =
+      kind === 'timeout' ? { inputTokens: est.input_tokens, outputTokens: est.output_tokens } : { inputTokens: 0, outputTokens: 0 }
+    return done({ ok: false, kind, costUsd: cost, tokens })
   }
 
   // A reply that arrived costs money whether or not it is usable.
   const cost = costUsd(req.model, response.usage)
-  const illegal = () => done({ ok: false, kind: 'illegal-reply', costUsd: cost })
+  const tokens = { inputTokens: response.usage.input_tokens, outputTokens: response.usage.output_tokens }
+  const illegal = () => done({ ok: false, kind: 'illegal-reply', costUsd: cost, tokens })
   if (response.stop_reason === 'refusal' || response.stop_reason === 'max_tokens') return illegal()
 
   const text = response.content.map((b) => (b.type === 'text' ? b.text : '')).join('')
   const parsed = parseReply(text)
   if (!parsed || !legal.includes(parsed.move)) return illegal()
-  return done({ ok: true, san: parsed.move, why: cutWords(parsed.why, MAX_WHY_WORDS), costUsd: cost })
+  return done({ ok: true, san: parsed.move, why: cutWords(parsed.why, MAX_WHY_WORDS), costUsd: cost, tokens })
 }

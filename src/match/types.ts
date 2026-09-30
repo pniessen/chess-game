@@ -1,4 +1,4 @@
-import type { ClaudeModelKey } from '../claude/models'
+import { ZERO_USAGE, type ClaudeModelKey, type SideUsage } from '../claude/models'
 import type { ClockState, TimeControl } from '../clock/types'
 import type { Game } from '../game-core/game'
 import type { Color, GameStatus } from '../game-core/types'
@@ -66,6 +66,11 @@ export interface ClaudeSnapshot {
   spentUsd: number
   /** Stockfish moves played in Claude's place, per side, this game. */
   fallbacks: { w: number; b: number }
+  /**
+   * The server's last reported per-side usage for this game (cost, model
+   * time, tokens, calls), under the same rules as `spentUsd`.
+   */
+  usage: SideUsage
 }
 
 /** The `claude` snapshot of a game no Claude seat has touched. Shared and frozen: replace, never mutate. */
@@ -73,4 +78,5 @@ export const NO_CLAUDE: ClaudeSnapshot = Object.freeze({
   notes: Object.freeze({}),
   spentUsd: 0,
   fallbacks: Object.freeze({ w: 0, b: 0 }),
+  usage: Object.freeze({ w: ZERO_USAGE, b: ZERO_USAGE }),
 })
