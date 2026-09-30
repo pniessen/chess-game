@@ -160,3 +160,24 @@ export const RESERVE_PER_GAME_USD: Record<ClaudeModelKey, number> = {
   sonnet: 0.32,
   haiku: 0.14,
 }
+
+/**
+ * The head-to-head record of the two models on the board, over every saved
+ * Claude game between them (either colour order) that reached a result.
+ * `GET /api/game/record?white=<key>&black=<key>` answers it.
+ *
+ * - `whiteModelWins` / `blackModelWins`: wins of the model asked for as
+ *   `white` / as `black`, whichever colour it had in each game.
+ * - `whiteWins` / `blackWins`: wins by colour over the same games. For a
+ *   mirror match (one model on both sides) these are the meaningful pair, and
+ *   the model counts equal them.
+ * - `games` is wins plus draws; unfinished (`*`) and abandoned games are not in it.
+ */
+export interface HeadToHead {
+  games: number
+  whiteModelWins: number
+  blackModelWins: number
+  draws: number
+  whiteWins: number
+  blackWins: number
+}

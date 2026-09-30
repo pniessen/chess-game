@@ -67,7 +67,9 @@ export function fileStore(dir: string, opts: { log?: (line: string) => void } = 
       } catch (e) {
         if (!reported.has(file)) {
           reported.add(file)
-          log(`claude games ledger: ${file} is not valid JSON; games fail closed until you repair or remove that file`)
+          log(
+            `claude games ledger: ${file} is not valid JSON; games fail closed on it (a saved game is left out of head-to-head records) until you repair or remove that file`,
+          )
         }
         throw new Error(`corrupt JSON in ${file}`, { cause: e })
       }
