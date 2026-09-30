@@ -89,6 +89,7 @@ supersedes the owner-only sections), plan `docs/superpowers/plans/2026-09-29-cla
   before it show their dollars as "Earlier". The UI shows it in the cost line, on each Claude
   clock (model time) and in the New game panel's "This month" line (`claude-month`, counted in
   calls: a retry or a timeout is a call too).
+- **Head to head:** in a Claude game the Score card (`claude-record`) shows the two models' record from `GET /api/game/record?white=&black=`, computed on demand from every `games/saved/<id>` by its PGN `Result` (`*`, abandoned and unreadable records skipped; the 160-ply adjudication counts as a draw), refetched after each end lands.
 - **Constants** (model ids, list prices, per-game reserves, move timeout, the 160-ply
   adjudication cap, the 25-minute session idle limit) live in `src/claude/models.ts`.
 - **Task 10 (live measurement) is still pending:** it now runs locally with Peter's own key,
