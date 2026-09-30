@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import type { MatchConfig, MatchPhase } from '../../match/types'
-import { describeResult, resignableSide } from './matchText'
+import { describeResult, matchWinner, resignableSide } from './matchText'
 
 const inProgress = { kind: 'in-progress', inCheck: false } as const
 const human = { kind: 'human' } as const
@@ -99,5 +99,26 @@ describe('describeResult: Claude', () => {
         inProgress,
       ),
     ).toBe('Game lost — the local server restarted')
+  })
+})
+
+describe('matchWinner', () => {
+  const mate = { kind: 'checkmate', winner: 'w' } as const
+  const draw = { kind: 'draw', reason: 'stalemate' } as const
+  const finished = (winner: 'w' | 'b' | null, reason: string, status: object = draw): MatchPhase =>
+    ({ kind: 'finished', status, reason, winner }) as unknown as MatchPhase
+
+  test('the winner of a checkmate, a resignation or a flag', () => {
+    expect(matchWinner(finished('w', 'normal', mate))).toBe('w')
+    expect(matchWinner(finished('b', 'resign'))).toBe('b')
+    expect(matchWinner(finished('w', 'flag'))).toBe('w')
+  })
+
+  test('nobody for a draw, an adjudicated or unavailable Claude game, or a game still going', () => {
+    expect(matchWinner(finished(null, 'normal'))).toBeNull()
+    expect(matchWinner(finished(null, 'adjudicated'))).toBeNull()
+    expect(matchWinner(finished(null, 'claude-unavailable'))).toBeNull()
+    expect(matchWinner({ kind: 'awaiting-human', side: 'w' })).toBeNull()
+    expect(matchWinner({ kind: 'paused' })).toBeNull()
   })
 })

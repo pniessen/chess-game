@@ -117,6 +117,8 @@ test('Claude vs Claude plays a scripted fool\'s mate to the end card', async ({ 
 
   await expect(page.getByTestId('game-end-card')).toBeVisible({ timeout: 30_000 })
   await expect(page.getByTestId('game-end-headline')).toHaveText('Checkmate — Black wins')
+  await expect(page.locator('.clock', { has: page.getByTestId('clock-b') }).getByTestId('winner-star')).toBeVisible()
+  await expect(page.getByTestId('winner-star')).toHaveCount(1)
   await expect(page.getByTestId('claude-cost')).toContainText('$0.10')
   await expect(page.getByTestId('claude-cost-w')).toContainText('Opus 5.5 $0.04')
   await expect(page.getByTestId('claude-cost-b')).toContainText('Haiku 4.5 $0.06')

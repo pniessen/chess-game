@@ -38,6 +38,7 @@ function Side({
   flagged,
   testId,
   modelTime,
+  won,
 }: {
   label: string
   ms: number
@@ -46,6 +47,8 @@ function Side({
   testId: string
   /** A Claude side's total model time, shown in place of its (untimed) clock. */
   modelTime?: number
+  /** This side won the finished game: a ★ after its name. */
+  won?: boolean
 }) {
   const classes = [
     'clock',
@@ -58,7 +61,14 @@ function Side({
   ].filter(Boolean)
   return (
     <div className={classes.join(' ')}>
-      <span className="clock-label">{label}</span>
+      <span className="clock-label">
+        {label}
+        {won ? (
+          <span className="winner-star" data-testid="winner-star" role="img" aria-label="winner" title="Winner">
+            ★
+          </span>
+        ) : null}
+      </span>
       <span
         className="clock-time"
         data-testid={testId}
@@ -92,6 +102,7 @@ export function Clocks({
   names,
   modelTime,
   thinking,
+  winner,
 }: {
   clock: ClockState
   /** A fresh read of the live clock; omit for a static display. */
@@ -106,6 +117,8 @@ export function Clocks({
   modelTime?: Partial<Record<'w' | 'b', number>>
   /** The side whose Claude seat is thinking: a model-time side is marked running while it is. */
   thinking?: 'w' | 'b' | null
+  /** The finished game's winner, if it has one (checkmate, resignation, flag); null for a draw. */
+  winner?: 'w' | 'b' | null
 }) {
   // A polled reading, tagged with the snapshot clock it was taken under: a
   // new snapshot (a move, a pause) makes any older polled reading moot.
@@ -129,6 +142,7 @@ export function Clocks({
       running: model !== undefined ? thinking === side : shown.running === side,
       flagged: shown.flagged === side,
       testId: `clock-${side}`,
+      won: winner === side,
       ...(model !== undefined ? { modelTime: model } : {}),
     }
   }
