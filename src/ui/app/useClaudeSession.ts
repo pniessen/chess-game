@@ -24,6 +24,12 @@ export interface ClaudeSession {
   isOpen: () => boolean
   error: ClaudeStartError | null
   dismissError: () => void
+  /**
+   * How many end() calls have landed (answered or failed). The server writes
+   * a game's saved record while answering its end, so a view of the saved
+   * games (the head-to-head record) refetches when this moves.
+   */
+  endsSettled: number
 }
 
 /**
@@ -46,19 +52,17 @@ export function useClaudeSession(controller: MatchController, mover: ClaudeMover
    * busy: begin waits for this first.
    */
   const endingRef = useRef<Promise<void> | null>(null)
+  const [endsSettled, setEndsSettled] = useState(0)
 
   /** Send an end and remember it until it settles (a mover's end never throws). */
   const sendEnd = useCallback(
     (record: Parameters<ClaudeMover['end']>[0]): Promise<void> => {
       if (!mover) return Promise.resolve()
-      const p: Promise<void> = mover.end(record).then(
-        () => {
-          if (endingRef.current === p) endingRef.current = null
-        },
-        () => {
-          if (endingRef.current === p) endingRef.current = null
-        },
-      )
+      const landed = () => {
+        if (endingRef.current === p) endingRef.current = null
+        setEndsSettled((n) => n + 1)
+      }
+      const p: Promise<void> = mover.end(record).then(landed, landed)
       endingRef.current = p
       return p
     },
@@ -144,7 +148,7 @@ export function useClaudeSession(controller: MatchController, mover: ClaudeMover
   const dismissError = useCallback(() => setError(null), [])
 
   return useMemo(
-    () => ({ begin, replace, isOpen, error, dismissError }),
-    [begin, replace, isOpen, error, dismissError],
+    () => ({ begin, replace, isOpen, error, dismissError, endsSettled }),
+    [begin, replace, isOpen, error, dismissError, endsSettled],
   )
 }

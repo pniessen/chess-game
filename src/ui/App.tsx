@@ -29,10 +29,12 @@ import { useAppearance } from './app/useAppearance'
 import { useMoveSounds, useSoundPlayer } from './app/useSound'
 import { useCoachClient } from './app/useCoachClient'
 import { useClaudeBudget } from './app/useClaudeBudget'
+import { useClaudeRecord } from './app/useClaudeRecord'
+import { HeadToHeadCard } from './app/HeadToHeadCard'
 import { useClaudeSession } from './app/useClaudeSession'
 import { claudeErrorText } from './app/claudeText'
 import { ClaudeStatus, ClaudeWhy } from './app/ClaudePanel'
-import { claudeComments, claudeHeaders } from './app/claudeRecord'
+import { claudeComments, claudeHeaders, isClaudeGame } from './app/claudeRecord'
 import { shortModelLabel } from '../claude/models'
 import { CLAUDE_GAMES } from '../claude/enabled'
 import type { Seat } from '../match/types'
@@ -204,6 +206,12 @@ function AppInner({
   })
   const { choices, orientation } = lifecycle
   const claudeBudget = useClaudeBudget(CLAUDE_GAMES && choices.mode === 'claude-vs-claude')
+  // The two models on the board, for the head-to-head record on the Score card.
+  const claudePair =
+    CLAUDE_GAMES && isClaudeGame(snapshot.config)
+      ? { white: snapshot.config.white.model, black: snapshot.config.black.model }
+      : null
+  const claudeRecord = useClaudeRecord(claudePair, claudeSession.endsSettled)
 
   // Task 14: a valid share link takes precedence over the normal start —
   // but ONLY when there is nothing to conflict with. When a saved
@@ -420,7 +428,12 @@ function AppInner({
             />
           ) : null}
           <Captured moves={game.moves.slice(0, game.ply)} pieceSet={settings.pieceSetId} />
-          <Scoreboard score={records.score} />
+          {/* A Claude game never touches the human W–L–D: its card shows the two models' record instead. */}
+          {claudePair ? (
+            <HeadToHeadCard record={claudeRecord} white={claudePair.white} black={claudePair.black} />
+          ) : (
+            <Scoreboard score={records.score} />
+          )}
           {/* Task 2: moved out of .board-column, below the fold behind a
               610px board, into the left column where it fits above it. */}
           <Controls

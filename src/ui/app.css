@@ -2484,3 +2484,13 @@ body {
     transition: none !important;
   }
 }
+
+/* The Claude game's Score card: a longer line than W–L–D ("Sonnet 5.5 2 – 1
+   Haiku 4.5 · 0 draws"), so it wraps under its label in the 232px column. */
+.scoreboard.head-to-head {
+  flex-wrap: wrap;
+  gap: 2px 8px;
+}
+.scoreboard.head-to-head .scoreboard-value {
+  font-size: 0.95rem;
+}

@@ -134,6 +134,24 @@ describe('ending the session', () => {
     expect(mover.ends.at(-1)).toEqual({ pgn: expect.stringContaining('[Result "0-1"]'), fallbacks: { w: 0, b: 0 } })
   })
 
+  test('endsSettled moves only once a finished game\'s end has landed (the saved record is written by then)', async () => {
+    const mover = fakeMover()
+    const h = harness(mover)
+    await startClaudeGame(h)
+    const before = h.result.current.claude.endsSettled
+    let land!: () => void
+    vi.mocked(mover.end).mockImplementationOnce((record) => {
+      mover.ends.push(record)
+      return new Promise<void>((resolve) => (land = resolve))
+    })
+    act(() => h.controller.finishAs('resign', 'b'))
+    await settle()
+    expect(mover.ends.at(-1)!.pgn).toContain('[Result "0-1"]')
+    expect(h.result.current.claude.endsSettled).toBe(before)
+    await act(async () => land())
+    expect(h.result.current.claude.endsSettled).toBe(before + 1)
+  })
+
   test('pagehide ends an open session', async () => {
     const mover = fakeMover()
     const h = harness(mover)
