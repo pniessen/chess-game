@@ -1,5 +1,8 @@
 import { isBotSeat, type MatchConfig, type MatchPhase } from '../../match/types'
 
+/** The longest pause the Speed slider sets between computer moves. */
+const MAX_DELAY_MS = 2000
+
 export function Controls({
   phase,
   config,
@@ -83,11 +86,13 @@ export function Controls({
           type="range"
           data-testid="speed"
           min={0}
-          max={2000}
+          max={MAX_DELAY_MS}
           step={100}
-          value={speed}
+          // `speed` is a pause, but the slider reads fast to the right.
+          value={MAX_DELAY_MS - speed}
+          aria-valuetext={`${speed / 1000} s pause between moves`}
           disabled={speedDisabled}
-          onChange={(e) => onSpeedChange(Number(e.target.value))}
+          onChange={(e) => onSpeedChange(MAX_DELAY_MS - Number(e.target.value))}
         />
       </label>
       <div className="controls-row hint-row">

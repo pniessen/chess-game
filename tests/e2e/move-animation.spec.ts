@@ -171,7 +171,7 @@ test('resuming from a browsed position cuts — it never animates a flyer', asyn
   await page.getByTestId('mode').selectOption('zero-player')
   await page.getByTestId('level').selectOption('1')
   await page.getByTestId('new-game').click()
-  await page.getByTestId('speed').fill('0')
+  await page.getByTestId('speed').fill('2000')
 
   const plies = page.getByTestId('ply-count')
   await expect(plies).toHaveText(/^([4-9]|\d\d+)$/, { timeout: 45_000 })
@@ -184,7 +184,7 @@ test('resuming from a browsed position cuts — it never animates a flyer', asyn
   // RESUME itself, not whatever real move comes after it, so that move
   // must not be able to land (and legitimately animate) before this test
   // gets to look.
-  await page.getByTestId('speed').fill('2000')
+  await page.getByTestId('speed').fill('0')
 
   // Browse to the second-to-last move — one ply behind live, so display
   // and live genuinely diverge before Resume.
@@ -209,7 +209,7 @@ test('stepping from a browsed position cuts — it never animates a flyer', asyn
   await page.getByTestId('mode').selectOption('zero-player')
   await page.getByTestId('level').selectOption('1')
   await page.getByTestId('new-game').click()
-  await page.getByTestId('speed').fill('0')
+  await page.getByTestId('speed').fill('2000')
 
   const plies = page.getByTestId('ply-count')
   await expect(plies).toHaveText(/^([4-9]|\d\d+)$/, { timeout: 45_000 })
@@ -218,7 +218,7 @@ test('stepping from a browsed position cuts — it never animates a flyer', asyn
   await expect(page.getByTestId('pause')).toHaveText('Resume')
   const atPause = Number(await plies.textContent())
 
-  await page.getByTestId('speed').fill('2000')
+  await page.getByTestId('speed').fill('0')
 
   const browsed = page.getByTestId(`move-${atPause - 1}`)
   await browsed.click()

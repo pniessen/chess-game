@@ -15,7 +15,7 @@ test('zero-player: pause, browse an earlier move, resume — play continues', as
   await page.getByTestId('mode').selectOption('zero-player')
   await page.getByTestId('level').selectOption('1')
   await page.getByTestId('new-game').click()
-  await page.getByTestId('speed').fill('0')
+  await page.getByTestId('speed').fill('2000')
 
   const plies = page.getByTestId('ply-count')
   await expect(plies).toHaveText(/^([4-9]|\d\d+)$/, { timeout: 45_000 })

@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, test } from 'vitest'
 import { Controls } from './Controls'
 import type { MatchConfig, MatchPhase } from '../../match/types'
@@ -182,4 +182,39 @@ describe('Controls — every mode keeps every other control present too', () => 
       }
     })
   }
+})
+
+describe('Controls — the Speed slider runs slow-to-fast, left to right', () => {
+  test('no pause sits at the right end', () => {
+    renderControls({ phase: zeroPlayerPhase, config: zeroPlayerConfig, speed: 0 })
+    const slider = screen.getByTestId('speed') as HTMLInputElement
+    expect(slider.value).toBe(slider.max)
+  })
+
+  test('the longest pause sits at the left end', () => {
+    renderControls({ phase: zeroPlayerPhase, config: zeroPlayerConfig, speed: 2000 })
+    const slider = screen.getByTestId('speed') as HTMLInputElement
+    expect(slider.value).toBe(slider.min)
+  })
+
+  test('dragging right asks for a shorter pause, and the pause is announced', () => {
+    const changes: number[] = []
+    render(
+      <Controls
+        phase={zeroPlayerPhase}
+        config={zeroPlayerConfig}
+        canUndo
+        canRedo
+        canResign
+        speed={500}
+        hint={baseHint}
+        {...baseHandlers}
+        onSpeedChange={(ms) => changes.push(ms)}
+      />,
+    )
+    const slider = screen.getByTestId('speed')
+    expect(slider).toHaveAttribute('aria-valuetext', '0.5 s pause between moves')
+    fireEvent.change(slider, { target: { value: '1800' } })
+    expect(changes).toEqual([200])
+  })
 })
