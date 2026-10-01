@@ -8,12 +8,13 @@ describe('claude models', () => {
       opus: 'claude-opus-5-5',
       sonnet: 'claude-sonnet-5-5',
       haiku: 'claude-haiku-4-5-20251001',
+      jev: 'jev-latest',
     })
   })
 
-  test('isClaudeModelKey accepts only the four keys', () => {
-    for (const k of ['fable', 'opus', 'sonnet', 'haiku']) expect(isClaudeModelKey(k)).toBe(true)
-    for (const v of ['claude-opus-5-5', 'toString', '__proto__', '', 1, null, undefined, {}]) {
+  test('isClaudeModelKey accepts only the five keys', () => {
+    for (const k of ['fable', 'opus', 'sonnet', 'haiku', 'jev']) expect(isClaudeModelKey(k)).toBe(true)
+    for (const v of ['claude-opus-5-5', 'jev-latest', 'toString', '__proto__', '', 1, null, undefined, {}]) {
       expect(isClaudeModelKey(v)).toBe(false)
     }
   })
@@ -50,5 +51,25 @@ describe('shortModelLabel', () => {
     const { shortModelLabel } = await import('./models')
     expect(shortModelLabel('opus')).toBe('Opus 5.5')
     expect(shortModelLabel('haiku')).toBe('Haiku 4.5')
+    expect(shortModelLabel('jev')).toBe('Jev')
+  })
+})
+
+describe('Jev (TypeSafe)', () => {
+  test('is the one TypeSafe model; the Claude models are Anthropic', () => {
+    const providers = Object.fromEntries(Object.entries(CLAUDE_MODELS).map(([k, v]) => [k, v.provider]))
+    expect(providers).toEqual({ fable: 'anthropic', opus: 'anthropic', sonnet: 'anthropic', haiku: 'anthropic', jev: 'typesafe' })
+    expect(CLAUDE_MODELS.jev.label).toBe('TypeSafe Jev')
+  })
+
+  // docs.typesafe.ai/models.md (read 2026-09-30): $0.042 per million input tokens; output tokens are free.
+  test('costs $0.042 per million input tokens and nothing for output', () => {
+    expect(costUsd('jev', { input_tokens: 1_000_000, output_tokens: 0 })).toBeCloseTo(0.042)
+    expect(costUsd('jev', { input_tokens: 0, output_tokens: 1_000_000 })).toBe(0)
+  })
+
+  test('its reserve covers 80 moves of a 3,000-token prompt', () => {
+    expect(RESERVE_PER_GAME_USD.jev).toBeGreaterThanOrEqual(costUsd('jev', { input_tokens: 80 * 3000, output_tokens: 0 }))
+    expect(RESERVE_PER_GAME_USD.jev).toBeLessThanOrEqual(0.05)
   })
 })

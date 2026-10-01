@@ -1,11 +1,17 @@
 // The Claude-vs-Claude model allow-list. Dependency-free on purpose: the
 // browser sends only these keys, and both the server and the UI import this file.
+// Despite the name it also lists one non-Claude model, TypeSafe's Jev, which
+// takes a seat like any other: same ledger, usage, head-to-head and UI.
 
-export type ClaudeModelKey = 'fable' | 'opus' | 'sonnet' | 'haiku'
+export type ClaudeModelKey = 'fable' | 'opus' | 'sonnet' | 'haiku' | 'jev'
+
+/** Whose API answers a seat: Anthropic's Messages API, or TypeSafe's System One (server/jevMove.ts). */
+export type ModelProvider = 'anthropic' | 'typesafe'
 
 export interface ClaudeModel {
   id: string
   label: string
+  provider: ModelProvider
   /** USD per million input tokens. */
   priceIn: number
   /** USD per million output tokens. */
@@ -21,16 +27,21 @@ export interface ClaudeModel {
 // read 2026-09-29), first-party API, standard (non-fast, non-cached) rates.
 // Haiku 4.5's $1 / $5 is the skill's `claude-haiku-4-5` row; the dated id
 // `claude-haiku-4-5-20251001` is the same model.
+//
+// Jev's price is docs.typesafe.ai/models.md (read 2026-09-30): "$42 / $0.042"
+// per Btok / per Mtok, "Charged per input token. Output tokens are free."
+// `jev-latest` is an alias (jev-1.13.0 on that date), so its label carries no version.
 export const CLAUDE_MODELS: Record<ClaudeModelKey, ClaudeModel> = {
-  fable: { id: 'claude-fable-5-1', label: 'Claude Fable 5.1', priceIn: 10, priceOut: 50, effort: 'low' },
-  opus: { id: 'claude-opus-5-5', label: 'Claude Opus 5.5', priceIn: 4, priceOut: 20, effort: 'low' },
-  sonnet: { id: 'claude-sonnet-5-5', label: 'Claude Sonnet 5.5', priceIn: 2, priceOut: 10, effort: 'low' },
-  haiku: { id: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5', priceIn: 1, priceOut: 5 },
+  fable: { id: 'claude-fable-5-1', label: 'Claude Fable 5.1', provider: 'anthropic', priceIn: 10, priceOut: 50, effort: 'low' },
+  opus: { id: 'claude-opus-5-5', label: 'Claude Opus 5.5', provider: 'anthropic', priceIn: 4, priceOut: 20, effort: 'low' },
+  sonnet: { id: 'claude-sonnet-5-5', label: 'Claude Sonnet 5.5', provider: 'anthropic', priceIn: 2, priceOut: 10, effort: 'low' },
+  haiku: { id: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5', provider: 'anthropic', priceIn: 1, priceOut: 5 },
+  jev: { id: 'jev-latest', label: 'TypeSafe Jev', provider: 'typesafe', priceIn: 0.042, priceOut: 0 },
 }
 
-/** The label without its "Claude " prefix ("Opus 5.5"), for the clocks and the thinking line. */
+/** The label without its maker's prefix ("Opus 5.5", "Jev"), for the clocks and the thinking line. */
 export function shortModelLabel(key: ClaudeModelKey): string {
-  return CLAUDE_MODELS[key].label.replace(/^Claude /, '')
+  return CLAUDE_MODELS[key].label.replace(/^(Claude|TypeSafe) /, '')
 }
 
 export function isClaudeModelKey(v: unknown): v is ClaudeModelKey {
@@ -159,6 +170,10 @@ export const RESERVE_PER_GAME_USD: Record<ClaudeModelKey, number> = {
   opus: 0.63,
   sonnet: 0.32,
   haiku: 0.14,
+  // Jev's prompt carries the position and the legal moves, not the history, so
+  // it does not grow over a game: the 2026-09-30 spike's largest was 1,305
+  // input tokens. 80 moves x 3,000 tokens x $0.042/Mtok is $0.0101: two cents.
+  jev: 0.02,
 }
 
 /**
