@@ -377,3 +377,49 @@ describe('the server lock: end() must land before the next begin()', () => {
     expect(h.controller.snapshot().phase.kind).toBe('engine-thinking')
   })
 })
+
+// Red if the next game's fresh session is ended by the PREVIOUS game's finish.
+// Found 2026-09-30 in the owner's ledger: every finished Claude game was saved
+// twice, and one under the next game's pairing. begin() opened the new session,
+// then resetClaudeSpend() emitted while the board still held the finished game
+// (its spend was non-zero), and the finish watcher ended the new session with
+// the old PGN — before start() had replaced the game.
+describe('the next game after a finished, paid Claude game', () => {
+  async function finishedPaidGame() {
+    const mover = fakeMover()
+    const h = harness(mover)
+    await startClaudeGame(h)
+    await act(async () =>
+      mover.moves[0]!.resolve({ ok: true, san: 'Nf3', why: 'x', costUsd: 0.4, gameSpentUsd: 0.4, usage: { w: ZERO_USAGE, b: ZERO_USAGE } }),
+    )
+    act(() => h.controller.finishAs('resign', 'w'))
+    await settle()
+    expect(mover.ends).toHaveLength(1) // the finished game, once
+    mover.log.length = 0
+    return { mover, h }
+  }
+
+  test('a rematch begins once, starts, and its session is not ended by the old finish', async () => {
+    const { mover, h } = await finishedPaidGame()
+    act(() => h.result.current.lifecycle.handleRematch())
+    await settle()
+    await settle()
+    expect(mover.log).toEqual(['begin', 'move'])
+    expect(mover.ends).toHaveLength(1)
+    expect(h.result.current.claude.isOpen()).toBe(true)
+  })
+
+  test('a new game with other models is not ended either, and no record carries the old PGN', async () => {
+    const { mover, h } = await finishedPaidGame()
+    act(() => {
+      h.result.current.lifecycle.choices.setClaudeWhite('haiku')
+      h.result.current.lifecycle.choices.setClaudeBlack('fable')
+    })
+    act(() => h.result.current.lifecycle.handleNewGame())
+    await settle()
+    await settle()
+    expect(mover.log).toEqual(['begin', 'move'])
+    expect(mover.ends).toHaveLength(1)
+    expect(h.result.current.claude.isOpen()).toBe(true)
+  })
+})
