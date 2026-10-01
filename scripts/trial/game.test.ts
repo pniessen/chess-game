@@ -156,6 +156,18 @@ describe('playGame: retries, fallbacks and the cap, as in the app', () => {
     expect(g.totals.w.costUsd).toBeCloseTo(0.04)
   })
 
+  test('a failed call keeps what went wrong, and the log line says it', async () => {
+    const lines: string[] = []
+    const { move } = scripted([
+      { ...failed('upstream'), detail: 'HTTP 529 overloaded_error' } as MoveOutcome,
+      { ...failed('upstream'), detail: 'HTTP 529 overloaded_error' } as MoveOutcome,
+    ])
+    const { engine } = fakeEngine()
+    const g = await playGame(spec('opus', 'haiku'), deps({ move, maxPlies: 1, log: (l: string) => lines.push(l) }, engine).d)
+    expect(g.moves[0]!.calls.map((c) => c.detail)).toEqual(['HTTP 529 overloaded_error', 'HTTP 529 overloaded_error'])
+    expect(lines.find((l) => l.includes('(fallback)'))).toContain('upstream: HTTP 529 overloaded_error')
+  })
+
   test('five fallbacks by one side end the game with no winner (model-unavailable)', async () => {
     // White fails every time; Black plays its first legal move.
     let n = 0

@@ -98,6 +98,14 @@ describe('computeStats: results', () => {
     expect(by('haiku').speed.maxSec).toBe(13)
   })
 
+  test('time: mean seconds a move, its own thinking time a game, and how long its games took', () => {
+    // Haiku's own (non-fallback) move time: g1 1+3 s, g2 2+4+6+8 s, g3 1+3+...+13 s = 4, 20 and 49 s.
+    expect(by('haiku').speed.meanSec).toBeCloseTo(73 / 13)
+    expect(by('haiku').time.ownSecPerGame).toBeCloseTo(73 / 3)
+    // Every fixture game ran 600 s of wall time.
+    expect(by('haiku').time.gameMinutes).toBe(10)
+  })
+
   test('openings by colour, by name from the repo\'s data', () => {
     expect(by('haiku').openings.white.map((o) => o.count).reduce((a, b) => a + b)).toBe(2)
     expect(by('haiku').openings.white.some((o) => /Queen's Gambit Accepted/.test(o.name))).toBe(true)

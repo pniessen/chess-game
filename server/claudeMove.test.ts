@@ -137,6 +137,20 @@ describe('requestMove', () => {
     }
   })
 
+  test('a failure says what went wrong: HTTP status and error type, never the message', async () => {
+    const overloaded = new Anthropic.InternalServerError(529, { type: 'error', error: { type: 'overloaded_error', message: 'secret-ish text' } }, 'Overloaded', new Headers())
+    const { client } = fakeClient(async () => {
+      throw overloaded
+    })
+    const r = await requestMove({ client }, { model: 'sonnet', history: [] })
+    expect(r).toMatchObject({ ok: false, kind: 'upstream', detail: 'HTTP 529 overloaded_error' })
+    expect(JSON.stringify(r)).not.toContain('secret-ish')
+    const { client: c2 } = fakeClient(async () => {
+      throw new Anthropic.APIConnectionError({ message: 'reset' })
+    })
+    expect(await requestMove({ client: c2 }, { model: 'sonnet', history: [] })).toMatchObject({ detail: 'connection error' })
+  })
+
   test('illegal or finished history is bad-request and never calls the client', async () => {
     const cases = [
       { history: ['e5'] },

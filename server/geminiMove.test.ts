@@ -205,6 +205,12 @@ describe('requestGeminiMove', () => {
     expect(out).toMatchObject({ ok: false, kind: 'rate-limited', costUsd: 0 })
   })
 
+  test('a refusal says its HTTP status and Google status name', async () => {
+    const { fetchImpl } = fakeFetch(() => Response.json({ error: { code: 503, status: 'UNAVAILABLE', message: 'nope' } }, { status: 503 }))
+    const out = await requestGeminiMove({ vertex: client(fetchImpl) }, { model: 'gemini-flash', history: [] })
+    expect(out).toMatchObject({ ok: false, kind: 'upstream', detail: 'HTTP 503 UNAVAILABLE' })
+  })
+
   test('no Application Default Credentials is auth, free, and no request is sent (so no call is counted)', async () => {
     const { sent, fetchImpl } = fakeFetch(() => geminiReply(moveJson('e4')))
     const out = await requestGeminiMove({ vertex: client(fetchImpl, { fail: true }) }, { model: 'gemini-flash', history: [] })

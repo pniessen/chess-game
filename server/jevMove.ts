@@ -137,7 +137,7 @@ export async function requestJevMove(
     return done({ ok: false, kind: 'upstream', costUsd: 0, tokens: { inputTokens: 0, outputTokens: 0 } })
   }
   // A refusal is not billed; nothing from its body is kept (it may echo the request).
-  if (!res.ok) return done({ ok: false, kind: kindOfStatus(res.status), costUsd: 0, tokens: { inputTokens: 0, outputTokens: 0 } })
+  if (!res.ok) return done({ ok: false, kind: kindOfStatus(res.status), costUsd: 0, tokens: { inputTokens: 0, outputTokens: 0 }, detail: `HTTP ${res.status}` })
 
   let payload: unknown = null
   try {

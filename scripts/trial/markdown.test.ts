@@ -36,6 +36,16 @@ describe('report.md', () => {
     expect(md).toContain('Of the move spend, $0.0023 went on games not in this report (stopped by the cap, crashed or replayed).')
   })
 
+  test('times each game and each side, and each model a move and a game', () => {
+    // haiku-jev-1: plies 1..4 timed 1, 2, 3, 4 s; White (plies 1, 3) 4 s, Black 6 s; 600 s of wall time.
+    expect(md).toContain('| Game | White | Black | Result | How it ended | Plies | Duration | White time | Black time | Cost |')
+    expect(md).toMatch(/\| haiku-jev-1 \| Haiku 4\.5 \| Jev \| 0-1 \| checkmate \| 4 \| 10:00 \| 0:04 \| 0:06 \|/)
+    expect(md).toMatch(/Seconds per move: mean [\d.]+ s, median/)
+    expect(md).toMatch(/Time per game: its own moves took [\d.]+ s of thinking a game on average; its games lasted [\d.]+ min/)
+    expect(md).toContain('Avg s/move')
+    expect(md).toContain('Avg game min')
+  })
+
   test('explains its terms for a non-expert', () => {
     expect(md).toContain('## How to read this')
     expect(md).toMatch(/100 centipawns is about one pawn/)

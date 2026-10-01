@@ -3,7 +3,7 @@ import { Position } from '../src/game-core/position'
 import { STARTING_FEN } from '../src/game-core/types'
 import { CLAUDE_MODELS, costUsd, timeoutCostUsd, timeoutTokens, type ClaudeModelKey } from '../src/claude/models'
 import { numberedMoves } from '../src/review/moveNumber'
-import { classifyError, type FailureKind, type MessagesClient } from './claude'
+import { classifyError, errorDetail, type FailureKind, type MessagesClient } from './claude'
 
 /**
  * The call's tokens for the usage totals: the response's `usage` (output
@@ -14,7 +14,15 @@ export type MoveTokens = { inputTokens: number; outputTokens: number } | null
 
 export type MoveOutcome =
   | { ok: true; san: string; why: string; costUsd: number; ms: number; tokens: MoveTokens }
-  | { ok: false; kind: 'bad-request' | 'illegal-reply' | FailureKind; costUsd: number; ms: number; tokens: MoveTokens }
+  | {
+      ok: false
+      kind: 'bad-request' | 'illegal-reply' | FailureKind
+      costUsd: number
+      ms: number
+      tokens: MoveTokens
+      /** What went wrong, for logs only: an HTTP status and error type, never a provider's message text. */
+      detail?: string
+    }
 
 /** Distributes over the union, unlike Omit. */
 type WithoutMs<T> = T extends unknown ? Omit<T, 'ms'> : never
@@ -123,7 +131,7 @@ export async function requestMove(
     const est = timeoutTokens(promptChars, MAX_TOKENS)
     const tokens =
       kind === 'timeout' ? { inputTokens: est.input_tokens, outputTokens: est.output_tokens } : { inputTokens: 0, outputTokens: 0 }
-    return done({ ok: false, kind, costUsd: cost, tokens })
+    return done({ ok: false, kind, costUsd: cost, tokens, detail: errorDetail(err) })
   }
 
   // A reply that arrived costs money whether or not it is usable.
