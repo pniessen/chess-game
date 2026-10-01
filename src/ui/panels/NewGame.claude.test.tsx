@@ -86,12 +86,12 @@ describe('NewGame: Claude vs Claude', () => {
     expect(onWhite).toHaveBeenCalledWith('jev')
   })
 
-  test('Gemini 3.1 Pro and 3.8 Flash are the last two options in both selects', () => {
+  test('Gemini 3.1 Pro and 3.6 Flash are the last two options in both selects', () => {
     const { onBlack } = renderNewGame({ mode: 'claude-vs-claude' })
     for (const id of ['claude-white', 'claude-black']) {
       const options = [...screen.getByTestId(id).querySelectorAll('option')].slice(-2)
       expect(options.map((o) => o.value)).toEqual(['gemini-pro', 'gemini-flash'])
-      expect(options.map((o) => o.textContent)).toEqual(['Gemini 3.1 Pro', 'Gemini 3.8 Flash'])
+      expect(options.map((o) => o.textContent)).toEqual(['Gemini 3.1 Pro', 'Gemini 3.6 Flash'])
       for (const o of options) expect(o).not.toBeDisabled()
     }
     fireEvent.change(screen.getByTestId('claude-black'), { target: { value: 'gemini-flash' } })
@@ -103,12 +103,12 @@ describe('NewGame: Claude vs Claude', () => {
     renderNewGame({ mode: 'claude-vs-claude', claude: { models } })
     const flash = screen.getByTestId('claude-white').querySelector('option[value="gemini-flash"]') as HTMLOptionElement
     expect(flash).toBeDisabled()
-    expect(flash).toHaveTextContent('Gemini 3.8 Flash (no Google ADC)')
+    expect(flash).toHaveTextContent('Gemini 3.6 Flash (no Google ADC)')
     expect(screen.getByTestId('new-game')).not.toBeDisabled()
 
     renderNewGame({ mode: 'claude-vs-claude', claude: { white: 'gemini-flash', black: 'gemini-pro', models } })
     expect(screen.getByTestId('claude-seat-hint')).toHaveTextContent(
-      'Gemini 3.8 Flash needs Google ADC on the local server; Gemini 3.1 Pro needs Google ADC on the local server (see README).',
+      'Gemini 3.6 Flash needs Google ADC on the local server; Gemini 3.1 Pro needs Google ADC on the local server (see README).',
     )
     expect(screen.getAllByTestId('new-game')[1]).toBeDisabled()
   })

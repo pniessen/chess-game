@@ -94,13 +94,16 @@ supersedes the owner-only sections), plan `docs/superpowers/plans/2026-09-29-cla
   over the legal moves, $0.042/M input tokens (output free), note "Jev's pick (p 0.27)". Its key
   is `TYPESAFE_API_KEY` from the server's environment, else `~/.config/typesafe/env`; without it
   the budget's `models` omits `jev`, the UI disables it and start answers 503 `no-jev-key`.
-- **Gemini 3.1 Pro / 3.8 Flash (Vertex AI)** are seats `gemini-pro` / `gemini-flash`
+- **Gemini 3.1 Pro / 3.6 Flash (Vertex AI)** are seats `gemini-pro` / `gemini-flash`
   (`server/geminiMove.ts`): the Claude prompt plus a `responseSchema` move enum, thinking level
-  LOW, location `global`, ADC via `google-auth-library` (project `GOOGLE_CLOUD_PROJECT`, default
-  `poised-runner-159919`). Their rows in `models.ts` sit behind `LOCAL_MODELS` so a public bundle
-  never says "gemini". Without working ADC the budget omits them and start answers 503
-  `no-gemini-auth`. 3.8 Flash was erratic (3 of 8 answers took 23 to 29 s) and timed out on 4 of 12 calls in the
-  2026-10-01 smoke game; see the spec addendum before tuning.
+  LOW for Pro and MINIMAL for Flash (the lowest each accepts), location `global`, ADC via
+  `google-auth-library` (project `GOOGLE_CLOUD_PROJECT`, default `poised-runner-159919`). Their
+  rows in `models.ts` sit behind `LOCAL_MODELS` so a public bundle never says "gemini". Without
+  working ADC the budget omits them and start answers 503 `no-gemini-auth`. The Flash seat was
+  3.8 Flash until 2026-10-01; it timed out on 4/4 measured moves (8/12 earlier), 3.7 Flash took
+  8.5 to 23 s, 3.6 Flash 1 to 2.5 s every time, and the `us` multi-region endpoint timed out on
+  12/12 (a trivial prompt took 119 s), so the seat is 3.6 Flash on `global` and the `us`
+  endpoint stays off. See the spec's 2026-10-01 addenda before changing it.
 - **Constants** (model ids, list prices, per-game reserves, move timeout, the 160-ply
   adjudication cap, the 25-minute session idle limit) live in `src/claude/models.ts`.
 - **Task 10 (live measurement) is still pending:** it now runs locally with Peter's own key,

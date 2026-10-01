@@ -6,8 +6,9 @@
  * ledger, the usage totals and the browser treat them alike.
  *
  * Contract (read 2026-10-01): docs.cloud.google.com/gemini-enterprise-agent-platform
- * /models/guides/gemini-3-8-flash and /models/thinking. Both models are served
- * from the `global` location (3.1 Pro Preview only there).
+ * /models/guides/gemini-3-6-flash and /models/thinking. Both models are served
+ * from the `global` location (3.1 Pro Preview only there). The `us` multi-region
+ * endpoint is not used: on 2026-10-01 it timed out on 12 of 12 Flash moves.
  *
  * Auth is Application Default Credentials through google-auth-library, which
  * reads and refreshes them itself: this code never opens the credentials file,
@@ -32,17 +33,19 @@ export const vertexEndpoint = (project: string, modelId: string): string =>
 
 /**
  * The thinking level each model is asked for: the lowest it accepts, as the
- * Claude seats get the lowest effort. Both list LOW, MEDIUM and HIGH, and both
- * reject MINIMAL; thinking cannot be switched off on 3.1 Pro.
+ * Claude seats get the lowest effort. 3.1 Pro lists LOW, MEDIUM and HIGH (it
+ * rejects MINIMAL; thinking cannot be switched off on it); 3.6 Flash lists
+ * MINIMAL, LOW, MEDIUM and HIGH. MINIMAL "still requires thought signatures",
+ * which only matters for multi-turn requests: each move is one turn.
  */
-export const GEMINI_THINKING_LEVEL = { 'gemini-pro': 'LOW', 'gemini-flash': 'LOW' } as const
+export const GEMINI_THINKING_LEVEL = { 'gemini-pro': 'LOW', 'gemini-flash': 'MINIMAL' } as const
 
 export type GeminiModelKey = keyof typeof GEMINI_THINKING_LEVEL
 
-// Thinking tokens count toward maxOutputTokens; the reply itself is tiny. At thinking level LOW
-// the live calls of 2026-10-01 used at most 206 output tokens, thinking included, so 2,000 is ten
-// times that. It is also what a timed-out call is charged for, and 3.8 Flash timed out on 4 of 12
-// calls in the smoke game: the Claude seats' 8,000 would charge each of those $0.06, not $0.015.
+// Thinking tokens count toward maxOutputTokens; the reply itself is tiny. The live calls of
+// 2026-10-01 used at most 206 output tokens, thinking included (3.6 Flash at MINIMAL at most 43),
+// so 2,000 is ten times that. It is also what a timed-out call is charged for: the Claude seats'
+// 8,000 would charge each one $0.06 on Flash, not $0.015.
 const MAX_TOKENS = 2000
 
 /** After ADC fails, how long `available` answers false before asking again. */

@@ -227,6 +227,40 @@ owner-token field and no `/api/game/*` functions.
   - Game total on the ledger $0.272 (real Vertex spend about $0.03 plus whatever Google billed for
     the abandoned calls). The cap is now 2,000, which would have charged those timeouts $0.06.
 
+## Addendum, 2026-10-01 (later): the Flash seat is Gemini 3.6 Flash
+
+This supersedes the 3.8 Flash parts of the addendum above (kept as history).
+
+- **Why:** 3.8 Flash from `global` was too slow to play. Measured 2026-10-01 through
+  `requestGeminiMove` with a 60 s timeout, 4 chess moves per model:
+  - `gemini-3.8-flash`: 4 of 4 timed out (earlier, 8 of 12).
+  - `gemini-3.7-flash`: 8.5 to 23 s a move.
+  - `gemini-3.6-flash`: 1.3 to 1.5 s a move, every time.
+  - The `us` multi-region endpoint was worse: 12 of 12 timeouts, and a trivial prompt took 119 s.
+    It stays off; both seats use `global`.
+  - Dropping the response schema made no difference.
+- **What:** the `gemini-flash` row is id `gemini-3.6-flash`, label "Gemini 3.6 Flash". The seat
+  key stays `gemini-flash`, so saved games and the head-to-head stay comparable (their labels now
+  read 3.6 Flash, though games before 2026-10-01 were played by 3.8 Flash).
+- **Status:** GA (the 3.6 Flash model page lists its launch stage as GA; 3.1 Pro stays Preview).
+  Served from Global and multi-region.
+- **Thinking:** 3.6 Flash accepts MINIMAL, LOW, MEDIUM and HIGH (default MEDIUM), so it is asked
+  for MINIMAL, the lowest. MINIMAL "still requires thought signatures", which only matters when a
+  request carries earlier model turns; each move is a single turn, and the live calls succeeded.
+  Pro stays at LOW. Source: docs.cloud.google.com/gemini-enterprise-agent-platform/models/guides
+  /gemini-3-6-flash and /models/thinking (read 2026-10-01).
+- **Price** (cloud.google.com/vertex-ai/generative-ai/pricing, read 2026-10-01, Standard tier,
+  global, <= 200K input tokens): $1.50 / M input and $7.50 / M output (response and reasoning)
+  standard, from 2027-01-01. Introductory pricing applies until 2026-12-31: $0.75 / $3.75. The
+  ledger uses the standard price, as before, so it over-counts Flash 2x until then. Non-global
+  is 10% dearer. The same as 3.8 Flash's, so `priceIn` / `priceOut` are unchanged.
+- **Reserve:** 12 live moves at MINIMAL (start, ply 6, ply 20, ply 40, three times): all legal,
+  none timed out, 1.0 to 2.4 s (median 1.2 s), 282 to 582 input and 25 to 43 output tokens,
+  $0.00060 to $0.00114 a move. The dearest opening move was $0.000708, so the Phase 0 rule gives
+  80 x 0.000708 x 1.75 x 1.25 = $0.124; with room for two worst-case timeouts (about $0.016
+  each) Flash holds **$0.16** a side, down from $0.60. For comparison LOW gave the same moves at
+  1.1 to 6.1 s and up to 75 output tokens.
+
 ## Phase 0 results (measured 2026-09-29, local server, Peter's own key)
 
 Three moves per model from the start position (both seats the same model), then one full

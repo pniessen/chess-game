@@ -48,16 +48,18 @@ export function localModelsIncluded(env: { MODE?: string; VITE_CLAUDE_GAMES?: st
 const LOCAL_MODELS: boolean =
   import.meta.env === undefined || import.meta.env.MODE === 'development' || import.meta.env.VITE_CLAUDE_GAMES === 'on'
 
-// Gemini's prices are cloud.google.com/vertex-ai/generative-ai/pricing (read
-// 2026-10-01), global endpoint, prompts of at most 200K tokens. "Text output
-// (response and reasoning)": thinking tokens are billed as output, and the
-// usage's thoughtsTokenCount is counted in with the output (server/geminiMove.ts).
-// 3.1 Pro Preview: $2 in / $12 out. 3.8 Flash: $1.50 / $7.50 standard, which
-// applies from 2027-01-01; until then Google charges an introductory $0.75 /
-// $3.75, so this ledger over-counts Flash 2x for now rather than ever under-count.
+// Gemini's prices are cloud.google.com/vertex-ai/generative-ai/pricing (read 2026-10-01), Standard
+// tier, global endpoint, prompts of at most 200K tokens. "Text output (response and reasoning)":
+// thinking tokens are billed as output, and the usage's thoughtsTokenCount is counted in with the
+// output (server/geminiMove.ts).
+// 3.1 Pro Preview: $2 in / $12 out. 3.6 Flash (GA): $1.50 / $7.50 standard, which applies from
+// 2027-01-01; until then Google charges an introductory $0.75 / $3.75, so this ledger over-counts
+// Flash 2x for now rather than ever under-count. The seat was 3.8 Flash until 2026-10-01, when it
+// timed out on most calls from `global` (3.6 Flash answers in 1 to 2.5 s); the key stays
+// `gemini-flash` so saved games and the head-to-head stay comparable.
 const LOCAL_ONLY_MODELS = {
   'gemini-pro': { id: 'gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro', priceIn: 2, priceOut: 12 },
-  'gemini-flash': { id: 'gemini-3.8-flash', label: 'Gemini 3.8 Flash', priceIn: 1.5, priceOut: 7.5 },
+  'gemini-flash': { id: 'gemini-3.6-flash', label: 'Gemini 3.6 Flash', priceIn: 1.5, priceOut: 7.5 },
 } satisfies Partial<Record<ClaudeModelKey, ClaudeModel>>
 
 // In a public build the Gemini keys are absent, so isClaudeModelKey refuses them there.
@@ -206,13 +208,13 @@ export const RESERVE_PER_GAME_USD = {
   // input tokens. 80 moves x 3,000 tokens x $0.042/Mtok is $0.0101: two cents.
   jev: 0.02,
   // Gemini, local builds only (see LOCAL_MODELS). Same rule as the Claude rows (80 x the
-  // dearest opening move x 1.75 x 1.25), from opening moves measured 2026-10-01 through
-  // Vertex AI at thinking level LOW: Pro $0.00174 / $0.00284 (282 in, 98 / 190 out, a third
-  // call was rate-limited), Flash $0.00058 / $0.00073 / $0.00135 (21 / 41 / 123 out).
-  // That rule gives Flash $0.24, but Flash also timed out on 4 of its 12 calls in the 16-ply
-  // smoke game (each charged its 2,000-token cap, $0.015): at that rate 80 moves add about
-  // 40 x $0.015 = $0.60, so Flash holds $0.60. Retune both from saved games.
-  ...(LOCAL_MODELS ? { 'gemini-pro': 0.5, 'gemini-flash': 0.6 } : {}),
+  // dearest opening move x 1.75 x 1.25), from opening moves measured through Vertex AI.
+  // Pro (2026-10-01, thinking LOW): $0.00174 / $0.00284 (282 in, 98 / 190 out) -> $0.50.
+  // 3.6 Flash (2026-10-01, thinking MINIMAL, 12 calls, none timed out, 1.0 to 2.4 s): dearest
+  // opening move $0.000708 (282 in, 38 out) -> $0.124; a ply-40 move was $0.00114, so the
+  // history's growth is inside the 1.75. Plus room for two worst-case timeout charges
+  // (about $0.016 each at the 2,000-token cap): $0.16.
+  ...(LOCAL_MODELS ? { 'gemini-pro': 0.5, 'gemini-flash': 0.16 } : {}),
 } as Record<ClaudeModelKey, number>
 
 /**
