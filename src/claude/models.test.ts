@@ -10,13 +10,13 @@ describe('claude models', () => {
       haiku: 'claude-haiku-4-5-20251001',
       jev: 'jev-latest',
       'gemini-pro': 'gemini-3.1-pro-preview',
-      'gemini-flash': 'gemini-3.8-flash',
+      'gemini-flash': 'gemini-3.6-flash',
     })
   })
 
   test('isClaudeModelKey accepts only the seven keys', () => {
     for (const k of ['fable', 'opus', 'sonnet', 'haiku', 'jev', 'gemini-pro', 'gemini-flash']) expect(isClaudeModelKey(k)).toBe(true)
-    for (const v of ['claude-opus-5-5', 'jev-latest', 'gemini-3.8-flash', 'gemini', 'toString', '__proto__', '', 1, null, undefined, {}]) {
+    for (const v of ['claude-opus-5-5', 'jev-latest', 'gemini-3.6-flash', 'gemini', 'toString', '__proto__', '', 1, null, undefined, {}]) {
       expect(isClaudeModelKey(v)).toBe(false)
     }
   })
@@ -55,7 +55,7 @@ describe('shortModelLabel', () => {
     expect(shortModelLabel('haiku')).toBe('Haiku 4.5')
     expect(shortModelLabel('jev')).toBe('Jev')
     expect(shortModelLabel('gemini-pro')).toBe('Gemini 3.1 Pro')
-    expect(shortModelLabel('gemini-flash')).toBe('Gemini 3.8 Flash')
+    expect(shortModelLabel('gemini-flash')).toBe('Gemini 3.6 Flash')
   })
 })
 
@@ -81,11 +81,11 @@ describe('Jev (TypeSafe)', () => {
 describe('Gemini (Vertex AI)', () => {
   test('two seats, labelled by Google\'s own names', () => {
     expect(CLAUDE_MODELS['gemini-pro'].label).toBe('Gemini 3.1 Pro')
-    expect(CLAUDE_MODELS['gemini-flash'].label).toBe('Gemini 3.8 Flash')
+    expect(CLAUDE_MODELS['gemini-flash'].label).toBe('Gemini 3.6 Flash')
   })
 
   // cloud.google.com/vertex-ai/generative-ai/pricing (read 2026-10-01), global endpoint, <= 200K input:
-  // 3.1 Pro Preview $2 in / $12 out; 3.8 Flash $1.50 / $7.50 standard (introductory $0.75 / $3.75
+  // 3.1 Pro Preview $2 in / $12 out; 3.6 Flash $1.50 / $7.50 standard (introductory $0.75 / $3.75
   // through 2026-12-31: the ledger charges the standard price, so it never under-counts).
   // "Text output (response and reasoning)": thinking tokens are billed as output.
   test('list prices per million tokens', () => {
@@ -93,6 +93,17 @@ describe('Gemini (Vertex AI)', () => {
     expect(costUsd('gemini-pro', { input_tokens: 0, output_tokens: 1_000_000 })).toBeCloseTo(12)
     expect(costUsd('gemini-flash', { input_tokens: 1_000_000, output_tokens: 0 })).toBeCloseTo(1.5)
     expect(costUsd('gemini-flash', { input_tokens: 0, output_tokens: 1_000_000 })).toBeCloseTo(7.5)
+  })
+
+  // 3.6 Flash at MINIMAL, measured 2026-10-01: the dearest opening move was 282 in / 38 out
+  // ($0.000708). The Phase 0 rule (80 x that x 1.75 x 1.25) is $0.124, plus room for two
+  // worst-case timeout charges (about $0.016 each): $0.16. Far below 3.8 Flash's $0.60.
+  test('3.6 Flash reserves the Phase 0 rule plus two timeouts', () => {
+    const opening = costUsd('gemini-flash', { input_tokens: 282, output_tokens: 38 })
+    const rule = 80 * opening * 1.75 * 1.25
+    const oneTimeout = timeoutCostUsd('gemini-flash', 1500, 2000)
+    expect(RESERVE_PER_GAME_USD['gemini-flash']).toBeGreaterThanOrEqual(rule + 2 * oneTimeout - 0.005)
+    expect(RESERVE_PER_GAME_USD['gemini-flash']).toBeLessThanOrEqual(0.2)
   })
 
   test('the gate that keeps them out of public builds is the CLAUDE_GAMES rule, plus the server', async () => {

@@ -328,7 +328,7 @@ test('a server without TYPESAFE_API_KEY: Jev is disabled in both seats, a Claude
   await expect.poll(() => calls.start).toBe(1)
 })
 
-test('Gemini 3.8 Flash and Gemini 3.1 Pro hold the seats: a scripted game through Vertex AI, stubbed', async ({ page }) => {
+test('Gemini 3.6 Flash and Gemini 3.1 Pro hold the seats: a scripted game through Vertex AI, stubbed', async ({ page }) => {
   // Priced like the real thing: a few hundred prompt tokens and some thinking billed as output.
   const GEMINI_SCRIPT = [
     { san: 'f3', why: 'Prepares g4 for a kingside expansion.', costUsd: 0.0012 },
@@ -379,7 +379,7 @@ test('Gemini 3.8 Flash and Gemini 3.1 Pro hold the seats: a scripted game throug
   await page.goto('/')
 
   await page.getByTestId('mode').selectOption('claude-vs-claude')
-  await expect(page.getByTestId('claude-white').locator('option[value="gemini-flash"]')).toHaveText('Gemini 3.8 Flash')
+  await expect(page.getByTestId('claude-white').locator('option[value="gemini-flash"]')).toHaveText('Gemini 3.6 Flash')
   await expect(page.getByTestId('claude-black').locator('option[value="gemini-pro"]')).toHaveText('Gemini 3.1 Pro')
   await page.getByTestId('claude-white').selectOption('gemini-flash')
   await page.getByTestId('claude-black').selectOption('gemini-pro')
@@ -387,12 +387,12 @@ test('Gemini 3.8 Flash and Gemini 3.1 Pro hold the seats: a scripted game throug
   await expect(page.getByTestId('claude-seat-hint')).toHaveCount(0)
   await page.getByTestId('new-game').click()
 
-  await expect(page.getByTestId('claude-record')).toHaveText('Gemini 3.8 Flash 1 – 0 Gemini 3.1 Pro · 2 draws')
-  await expect(page.getByTestId('claude-thinking')).toContainText('Gemini 3.8 Flash is thinking')
+  await expect(page.getByTestId('claude-record')).toHaveText('Gemini 3.6 Flash 1 – 0 Gemini 3.1 Pro · 2 draws')
+  await expect(page.getByTestId('claude-thinking')).toContainText('Gemini 3.6 Flash is thinking')
   await expect(page.getByTestId('claude-why')).toHaveText('Prepares g4 for a kingside expansion.')
   await expect(page.getByTestId('game-end-card')).toBeVisible({ timeout: 30_000 })
   await expect(page.getByTestId('game-end-headline')).toHaveText('Checkmate — Black wins')
-  await expect(page.getByTestId('claude-cost-w')).toHaveText('· Gemini 3.8 Flash $0.00')
+  await expect(page.getByTestId('claude-cost-w')).toHaveText('· Gemini 3.6 Flash $0.00')
   await expect(page.getByTestId('claude-cost-b')).toHaveText('· Gemini 3.1 Pro $0.01')
 
   expect(startBodies).toEqual([{ white: 'gemini-flash', black: 'gemini-pro' }])
@@ -411,7 +411,7 @@ test('a server without Google ADC: Gemini is disabled in both seats and a Gemini
   await page.goto('/')
   await page.getByTestId('mode').selectOption('claude-vs-claude')
   for (const seat of ['claude-white', 'claude-black']) {
-    for (const [key, label] of [['gemini-pro', 'Gemini 3.1 Pro'], ['gemini-flash', 'Gemini 3.8 Flash']]) {
+    for (const [key, label] of [['gemini-pro', 'Gemini 3.1 Pro'], ['gemini-flash', 'Gemini 3.6 Flash']]) {
       const option = page.getByTestId(seat).locator(`option[value="${key}"]`)
       await expect(option).toHaveJSProperty('disabled', true)
       await expect(option).toHaveText(`${label} (no Google ADC)`)

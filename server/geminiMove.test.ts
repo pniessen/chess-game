@@ -51,7 +51,7 @@ const geminiReply = (text: string, opts: { finishReason?: string; usageMetadata?
       },
     ],
     usageMetadata: opts.usageMetadata ?? usage,
-    modelVersion: 'gemini-3.8-flash',
+    modelVersion: 'gemini-3.6-flash',
   })
 
 const moveJson = (move: string, why = 'Controls the centre.') => JSON.stringify({ move, why })
@@ -62,20 +62,20 @@ const client = (fetchImpl: typeof fetch, opts: { fail?: boolean; timeoutMs?: num
 describe('vertexEndpoint', () => {
   // Both models are served from the global location (3.1 Pro Preview only there).
   test('the global generateContent URL of a publisher model', () => {
-    expect(vertexEndpoint('poised-runner-159919', 'gemini-3.8-flash')).toBe(
-      'https://aiplatform.googleapis.com/v1/projects/poised-runner-159919/locations/global/publishers/google/models/gemini-3.8-flash:generateContent',
+    expect(vertexEndpoint('poised-runner-159919', 'gemini-3.6-flash')).toBe(
+      'https://aiplatform.googleapis.com/v1/projects/poised-runner-159919/locations/global/publishers/google/models/gemini-3.6-flash:generateContent',
     )
   })
 })
 
 describe('requestGeminiMove', () => {
-  test('posts the Claude prompt with a JSON schema whose move enum is the legal list, at thinking level LOW', async () => {
+  test('posts the Claude prompt with a JSON schema whose move enum is the legal list, at thinking level MINIMAL for Flash', async () => {
     const { sent, fetchImpl } = fakeFetch(() => geminiReply(moveJson('e4')))
     await requestGeminiMove({ vertex: client(fetchImpl) }, { model: 'gemini-flash', history: ['e4', 'e5', 'Nf3', 'Nc6'] })
 
     expect(sent).toHaveLength(1)
     const { url, init, body } = sent[0]!
-    expect(url).toBe(vertexEndpoint(PROJECT, 'gemini-3.8-flash'))
+    expect(url).toBe(vertexEndpoint(PROJECT, 'gemini-3.6-flash'))
     expect(init.method).toBe('POST')
     const headers = new Headers(init.headers)
     expect(headers.get('authorization')).toBe(`Bearer ${TOKEN}`)
@@ -102,15 +102,15 @@ describe('requestGeminiMove', () => {
     expect(g.responseSchema.properties.move.type).toBe('STRING')
     expect(g.responseSchema.properties.move.enum).toContain('Bb5')
     expect(g.responseSchema.properties.move.enum).toHaveLength(27)
-    expect(g.thinkingConfig).toEqual({ thinkingLevel: 'LOW' })
+    expect(g.thinkingConfig).toEqual({ thinkingLevel: 'MINIMAL' })
     expect(g.maxOutputTokens).toBe(2000)
     // Gemini 3 ignores sampling parameters and rejects some others: none are sent.
     expect(g.temperature).toBeUndefined()
     expect(g.candidateCount).toBeUndefined()
   })
 
-  test('both models use the lowest thinking level they accept, LOW (MINIMAL is refused by both)', () => {
-    expect(GEMINI_THINKING_LEVEL).toEqual({ 'gemini-pro': 'LOW', 'gemini-flash': 'LOW' })
+  test('each model uses the lowest thinking level it accepts: LOW for 3.1 Pro (no MINIMAL), MINIMAL for 3.6 Flash', () => {
+    expect(GEMINI_THINKING_LEVEL).toEqual({ 'gemini-pro': 'LOW', 'gemini-flash': 'MINIMAL' })
   })
 
   test('3.1 Pro is asked by its own id', async () => {

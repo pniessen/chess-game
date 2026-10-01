@@ -33,6 +33,6 @@ const NEEDS: Record<ModelProvider, string> = {
 /** What the local server needs to seat this model: an environment variable, or Google ADC for Gemini. */
 export const keyNameFor = (key: ClaudeModelKey): string => NEEDS[PROVIDERS[key]]
 
-/** The seat picker's name: the model's label, with its maker when the label does not say ("TypeSafe Jev", but "Gemini 3.8 Flash"). */
+/** The seat picker's name: the model's label, with its maker when the label does not say ("TypeSafe Jev", but "Gemini 3.6 Flash"). */
 export const seatLabel = (key: ClaudeModelKey): string =>
   PROVIDERS[key] === 'typesafe' ? `TypeSafe ${CLAUDE_MODELS[key].label}` : CLAUDE_MODELS[key].label

@@ -721,7 +721,7 @@ describe('Gemini in a seat', () => {
     expect(m.json.san).toBe('e4')
     const m2 = await call('move', { client: null, vertex, body: { gameId: s.json.gameId, token: s.json.token, history: ['e4'] } })
     expect(m2.json.san).toBe('e5')
-    expect(sent.map((x) => x.modelId)).toEqual(['gemini-3.8-flash', 'gemini-3.1-pro-preview'])
+    expect(sent.map((x) => x.modelId)).toEqual(['gemini-3.6-flash', 'gemini-3.1-pro-preview'])
   })
 
   test('a Gemini move with no Vertex client, or one Google refuses for auth, is 503 no-gemini-auth', async () => {

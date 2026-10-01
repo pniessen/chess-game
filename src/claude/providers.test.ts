@@ -27,6 +27,6 @@ describe('providers', () => {
   test('the seat label adds the maker where the model label lacks it', () => {
     expect(seatLabel('jev')).toBe('TypeSafe Jev')
     expect(seatLabel('opus')).toBe('Claude Opus 5.5')
-    expect(seatLabel('gemini-flash')).toBe('Gemini 3.8 Flash')
+    expect(seatLabel('gemini-flash')).toBe('Gemini 3.6 Flash')
   })
 })
