@@ -10,6 +10,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileStore } from './fileStore'
 import type { JevClient } from './jevMove'
+import type { VertexClient } from './geminiMove'
 
 const NOW = Date.UTC(2026, 8, 29, 12, 0, 0)
 const SECRET = Buffer.from('fake-process-secret')
@@ -49,6 +50,8 @@ interface Opts {
   client?: MessagesClient | null
   /** TypeSafe's client; absent (as before Jev) unless a test passes one. */
   jev?: JevClient | null
+  /** Vertex AI's client for Gemini seats; absent unless a test passes one. */
+  vertex?: VertexClient | null
   secret?: Buffer
   boot?: string
   store?: Parameters<typeof handleGame>[2]['store']
@@ -72,6 +75,7 @@ async function call(endpoint: 'start' | 'move' | 'end' | 'budget' | 'record', o:
     boot: o.boot ?? BOOT,
     client: o.client === undefined ? fakeClient() : o.client,
     ...(o.jev !== undefined ? { jev: o.jev } : {}),
+    ...(o.vertex !== undefined ? { vertex: o.vertex } : {}),
     now: () => NOW,
   })
   const text = await res.text()
@@ -621,6 +625,135 @@ describe('Jev in a seat', () => {
     })
     const r = await call('record', { query: 'white=haiku&black=jev' })
     expect(r.res.status).toBe(200)
+    expect(r.json).toMatchObject({ games: 1, whiteModelWins: 1, blackModelWins: 0 })
+  })
+})
+
+describe('Gemini in a seat', () => {
+  /**
+   * A Vertex AI stand-in: answers `san` (default e4/e5 by side) as Gemini's JSON, with thinking
+   * tokens in the usage; records each model id and body. `available` is ADC's answer.
+   */
+  function fakeVertex(opts: { san?: string; available?: boolean; status?: number; error?: unknown } = {}) {
+    const sent: { modelId: string; body: any }[] = []
+    const vertex: VertexClient = {
+      available: async () => opts.available ?? true,
+      generateContent: async (modelId, body: any) => {
+        sent.push({ modelId, body })
+        if (opts.status) return Response.json({ error: opts.error ?? { code: opts.status } }, { status: opts.status })
+        const white = body.systemInstruction.parts[0].text.includes('as White')
+        const move = opts.san ?? (white ? 'e4' : 'e5')
+        return Response.json({
+          candidates: [{ content: { role: 'model', parts: [{ text: JSON.stringify({ move, why: 'Centre.' }) }] }, finishReason: 'STOP' }],
+          usageMetadata: { promptTokenCount: 300, candidatesTokenCount: 25, thoughtsTokenCount: 75 },
+        })
+      },
+    }
+    return { vertex, sent }
+  }
+
+  test('a Gemini seat asks Vertex AI, not Anthropic; thinking is charged as output, to the side and to the model', async () => {
+    const { vertex, sent } = fakeVertex()
+    const s = await call('start', { vertex, body: { white: 'gemini-pro', black: 'haiku' } })
+    expect(s.res.status).toBe(200)
+    const g = s.json
+    const m = await call('move', { vertex, body: { gameId: g.gameId, token: g.token, history: [] } })
+    expect(m.res.status).toBe(200)
+    expect(m.json).toMatchObject({ san: 'e4', why: 'Centre.' })
+    expect(calls).toBe(0)
+    expect(sent.map((x) => x.modelId)).toEqual(['gemini-3.1-pro-preview'])
+    expect(m.json.costUsd).toBeCloseTo((300 * 2 + 100 * 12) / 1e6, 9)
+    expect(m.json.usage.w).toMatchObject({ inputTokens: 300, outputTokens: 100, calls: 1 })
+
+    // Black is Haiku: Anthropic answers, Vertex is not asked.
+    reply = () => message(JSON.stringify({ move: 'e5', why: 'Mirror.' }))
+    const m2 = await call('move', { vertex, body: { gameId: g.gameId, token: g.token, history: ['e4'] } })
+    expect(m2.res.status).toBe(200)
+    expect(calls).toBe(1)
+    expect(sent).toHaveLength(1)
+
+    const b = await call('budget', { vertex })
+    expect(b.json.byModel['gemini-pro']).toMatchObject({ inputTokens: 300, outputTokens: 100, calls: 1 })
+  })
+
+  test('budget lists the Gemini models only when ADC works', async () => {
+    const all = ['fable', 'opus', 'sonnet', 'haiku', 'gemini-pro', 'gemini-flash']
+    expect((await call('budget', { vertex: fakeVertex().vertex })).json.models).toEqual(all)
+    expect((await call('budget', { vertex: fakeVertex({ available: false }).vertex })).json.models).toEqual([
+      'fable',
+      'opus',
+      'sonnet',
+      'haiku',
+    ])
+    const onlyGemini = await call('budget', { client: null, vertex: fakeVertex().vertex })
+    expect(onlyGemini.res.status).toBe(200)
+    expect(onlyGemini.json.models).toEqual(['gemini-pro', 'gemini-flash'])
+    // No provider at all, ADC included: the readiness probe says no key, as before.
+    const none = await call('budget', { client: null, vertex: fakeVertex({ available: false }).vertex })
+    expect(none.res.status).toBe(503)
+    expect(none.json.error.kind).toBe('no-key')
+  })
+
+  test('without ADC a Gemini seat cannot start (503 no-gemini-auth), nothing is reserved; Claude games still can', async () => {
+    const before = (await call('budget')).json.budgetLeftUsd
+    for (const vertex of [undefined, fakeVertex({ available: false }).vertex]) {
+      for (const sides of [{ white: 'gemini-flash', black: 'haiku' }, { white: 'haiku', black: 'gemini-pro' }]) {
+        const r = await call('start', { ...(vertex ? { vertex } : {}), body: sides })
+        expect(r.res.status).toBe(503)
+        expect(r.json.error).toEqual({
+          kind: 'no-gemini-auth',
+          message: 'Gemini is not configured (no Google Application Default Credentials).',
+        })
+      }
+    }
+    expect((await call('budget')).json.budgetLeftUsd).toBe(before)
+    await startGame({ white: 'haiku', black: 'sonnet' })
+  })
+
+  test('with only ADC, Gemini vs Gemini plays and a Claude seat is 503 no-key', async () => {
+    const { vertex, sent } = fakeVertex()
+    const claudeSeat = await call('start', { client: null, vertex, body: { white: 'gemini-flash', black: 'opus' } })
+    expect(claudeSeat.res.status).toBe(503)
+    expect(claudeSeat.json.error.kind).toBe('no-key')
+    const s = await call('start', { client: null, vertex, body: { white: 'gemini-flash', black: 'gemini-pro' } })
+    expect(s.res.status).toBe(200)
+    const m = await call('move', { client: null, vertex, body: { gameId: s.json.gameId, token: s.json.token, history: [] } })
+    expect(m.json.san).toBe('e4')
+    const m2 = await call('move', { client: null, vertex, body: { gameId: s.json.gameId, token: s.json.token, history: ['e4'] } })
+    expect(m2.json.san).toBe('e5')
+    expect(sent.map((x) => x.modelId)).toEqual(['gemini-3.8-flash', 'gemini-3.1-pro-preview'])
+  })
+
+  test('a Gemini move with no Vertex client, or one Google refuses for auth, is 503 no-gemini-auth', async () => {
+    const { vertex } = fakeVertex()
+    const s = await call('start', { vertex, body: { white: 'gemini-flash', black: 'gemini-flash' } })
+    const r = await call('move', { vertex: null, body: { gameId: s.json.gameId, token: s.json.token, history: [] } })
+    expect(r.res.status).toBe(503)
+    expect(r.json.error.kind).toBe('no-gemini-auth')
+    const refused = fakeVertex({ status: 403 }).vertex
+    const r2 = await call('move', { vertex: refused, body: { gameId: s.json.gameId, token: s.json.token, history: [] } })
+    expect(r2.res.status).toBe(503)
+    expect(r2.json.error.kind).toBe('no-gemini-auth')
+  })
+
+  test('a rate-limited Gemini is a retryable 502 with its own message, free', async () => {
+    const { vertex } = fakeVertex()
+    const s = await call('start', { vertex, body: { white: 'gemini-flash', black: 'gemini-flash' } })
+    const limited = fakeVertex({ status: 429, error: { code: 429, status: 'RESOURCE_EXHAUSTED', message: 'Quota' } }).vertex
+    const r = await call('move', { vertex: limited, body: { gameId: s.json.gameId, token: s.json.token, history: [] } })
+    expect(r.res.status).toBe(502)
+    expect(r.json.error).toEqual({ kind: 'rate-limited', message: 'Gemini is rate-limiting requests.' })
+    expect(r.text).not.toContain('Quota')
+  })
+
+  test('the head-to-head counts Gemini games like any other', async () => {
+    const { vertex } = fakeVertex()
+    const s = await call('start', { vertex, body: { white: 'gemini-flash', black: 'gemini-pro' } })
+    await call('end', {
+      vertex,
+      body: { gameId: s.json.gameId, token: s.json.token, pgn: '[Result "0-1"]\n\n1. f3 e5 2. g4 Qh4# 0-1', fallbacks: { w: 0, b: 0 } },
+    })
+    const r = await call('record', { query: 'white=gemini-pro&black=gemini-flash' })
     expect(r.json).toMatchObject({ games: 1, whiteModelWins: 1, blackModelWins: 0 })
   })
 })
