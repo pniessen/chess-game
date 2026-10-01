@@ -87,6 +87,34 @@ describe('requestJevMove', () => {
     expect(sent[0]!.body.questions.move.instructions).toContain('Black')
   })
 
+  test('sends the game so far as numbered moves, and the instructions point at it', async () => {
+    const { sent, fetchImpl } = fakeFetch((body) => jevReply(keyOf(body, 'Bb5')))
+    await requestJevMove(
+      { jev: createJevClient({ apiKey: KEY, fetch: fetchImpl }) },
+      { model: 'jev', history: ['e4', 'e5', 'Nf3', 'Nc6'] },
+    )
+    expect(sent[0]!.body.state.moves_so_far).toBe('1. e4 e5 2. Nf3 Nc6')
+    expect(sent[0]!.body.state.start_fen).toBeUndefined()
+    expect(sent[0]!.body.questions.move.instructions).toContain('`moves_so_far`')
+  })
+
+  test('the first move of a game says there are no moves yet', async () => {
+    const { sent, fetchImpl } = fakeFetch((body) => jevReply(keyOf(body, 'e4')))
+    await requestJevMove({ jev: createJevClient({ apiKey: KEY, fetch: fetchImpl }) }, { model: 'jev', history: [] })
+    expect(sent[0]!.body.state.moves_so_far).toBe('(none yet)')
+  })
+
+  test('from a set-up position the moves are numbered from it, and the start is sent', async () => {
+    const startFen = 'r3k3/8/8/8/3N4/8/8/4K3 b q - 0 7'
+    const { sent, fetchImpl } = fakeFetch((body) => jevReply(keyOf(body, 'Ke7')))
+    await requestJevMove(
+      { jev: createJevClient({ apiKey: KEY, fetch: fetchImpl }) },
+      { model: 'jev', startFen, history: ['Kd7', 'Nb5'] },
+    )
+    expect(sent[0]!.body.state.moves_so_far).toBe('7... Kd7 8. Nb5')
+    expect(sent[0]!.body.state.start_fen).toBe(startFen)
+  })
+
   test('a choice that is not one of the criteria is an illegal reply, still charged', async () => {
     const { fetchImpl } = fakeFetch(() => jevReply('m999'))
     const out = await requestJevMove({ jev: createJevClient({ apiKey: KEY, fetch: fetchImpl }) }, { model: 'jev', history: [] })

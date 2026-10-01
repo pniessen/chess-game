@@ -54,6 +54,24 @@ export function describeMove(m: Pick<Move, 'san' | 'piece' | 'from' | 'to'> & { 
   return parts.join(', ')
 }
 
+/** The game so far as numbered SAN ("1. e4 e5 2. Nf3"), counted from the start position's move number. */
+export function movesSoFar(startFen: string, history: string[]): string {
+  if (history.length === 0) return '(none yet)'
+  const fields = startFen.split(' ')
+  let moveNo = Number(fields[5]) || 1
+  let white = fields[1] !== 'b'
+  const parts: string[] = []
+  history.forEach((san, i) => {
+    if (white) parts.push(`${moveNo}. ${san}`)
+    else {
+      parts.push(i === 0 ? `${moveNo}... ${san}` : san)
+      moveNo++
+    }
+    white = !white
+  })
+  return parts.join(' ')
+}
+
 type Failure = Extract<MoveOutcome, { ok: false }>['kind']
 
 /** An HTTP refusal, by status (docs: 401 bad key, 422 validation, 429 rate limit, 529 overloaded). */
@@ -96,11 +114,17 @@ export async function requestJevMove(
   })
   const body = {
     model: CLAUDE_MODELS.jev.id,
-    state: { fen: chess.fen(), side_to_move: side, board: chess.ascii() },
+    state: {
+      fen: chess.fen(),
+      side_to_move: side,
+      board: chess.ascii(),
+      moves_so_far: movesSoFar(startFen, req.history),
+      ...(req.startFen !== undefined && req.startFen !== STARTING_FEN ? { start_fen: req.startFen } : {}),
+    },
     questions: {
       move: {
         type: 'choice',
-        instructions: `You are playing chess as ${side}. Choose the strongest legal move in this position: win material, deliver checkmate, and avoid losing pieces.`,
+        instructions: `You are playing chess as ${side}. Choose the strongest legal move in this position: win material, deliver checkmate, and avoid losing pieces. The game so far is in \`moves_so_far\`; a position that repeats three times is a draw.`,
         criteria,
       },
     },
