@@ -101,17 +101,17 @@ describe('requestJevMove', () => {
   test('the first move of a game says there are no moves yet', async () => {
     const { sent, fetchImpl } = fakeFetch((body) => jevReply(keyOf(body, 'e4')))
     await requestJevMove({ jev: createJevClient({ apiKey: KEY, fetch: fetchImpl }) }, { model: 'jev', history: [] })
-    expect(sent[0]!.body.state.moves_so_far).toBe('(none yet)')
+    expect(sent[0]!.body.state.moves_so_far).toBe('(none)')
   })
 
-  test('from a set-up position the moves are numbered from it, and the start is sent', async () => {
+  test('from a set-up position the moves are numbered as in the Claude prompt, and the start is sent', async () => {
     const startFen = 'r3k3/8/8/8/3N4/8/8/4K3 b q - 0 7'
     const { sent, fetchImpl } = fakeFetch((body) => jevReply(keyOf(body, 'Ke7')))
     await requestJevMove(
       { jev: createJevClient({ apiKey: KEY, fetch: fetchImpl }) },
       { model: 'jev', startFen, history: ['Kd7', 'Nb5'] },
     )
-    expect(sent[0]!.body.state.moves_so_far).toBe('7... Kd7 8. Nb5')
+    expect(sent[0]!.body.state.moves_so_far).toBe('1... Kd7 2. Nb5')
     expect(sent[0]!.body.state.start_fen).toBe(startFen)
   })
 
