@@ -10,20 +10,17 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { parseArgs } from 'node:util'
 import Anthropic from '@anthropic-ai/sdk'
-import type { ClaudeModelKey } from '../../src/claude/models'
+import { costUsd, estimateInputTokens, type ClaudeModelKey } from '../../src/claude/models'
 import { OpeningBook } from '../../src/openings/book'
 import { parseOpeningsData } from '../../src/openings/data'
 import { ANALYSIS_DEPTH, analyzeAll } from './analyze'
-import { readLedger } from './budget'
-import { commentaryPrompt, excerptsFor, styleFacts, writeCommentary } from './commentary'
+import { canCall, readLedger } from './budget'
+import { COMMENTARY_MAX_TOKENS, COMMENTARY_MODEL, commentaryCached, commentaryPrompt, excerptsFor, styleFacts, writeCommentary } from './commentary'
 import { buildMarkdown } from './markdown'
 import { computeStats } from './stats'
 import { createEngine, type TrialEngine } from './stockfish'
 import { ensureDirs, loadGames, readJson, trialDir, trialsRoot, writeJsonAtomic } from './store'
 import type { TrialConfig } from './types'
-
-/** Commentary is skipped if the trial ledger is within this of its cap. */
-const COMMENTARY_HEADROOM_USD = 0.5
 
 async function main() {
   const { values } = parseArgs({
@@ -59,13 +56,20 @@ async function main() {
     log('commentary: skipped (--no-commentary)')
   } else if (!apiKey) {
     log('commentary: skipped (no ANTHROPIC_API_KEY)')
-  } else if ((await readLedger(dir)).spentUsd + COMMENTARY_HEADROOM_USD > config.capUsd) {
-    log(`commentary: skipped (the trial ledger is within $${COMMENTARY_HEADROOM_USD} of its $${config.capUsd} cap)`)
   } else {
     const client = new Anthropic({ apiKey, timeout: 180_000, maxRetries: 2 })
     for (const m of stats.perModel) {
       if (m.record.games + m.record.unfinished === 0) continue
       const prompt = commentaryPrompt(styleFacts(m, stats.field), excerptsFor(m, games, analyses))
+      // The trial cap covers the commentary too: each call's worst case must still fit under it.
+      const worst = costUsd(COMMENTARY_MODEL, {
+        input_tokens: estimateInputTokens(prompt.system.length + prompt.user.length),
+        output_tokens: COMMENTARY_MAX_TOKENS,
+      })
+      if (!(await commentaryCached(dir, m, prompt)) && !canCall((await readLedger(dir)).spentUsd, worst, config.capUsd)) {
+        log(`commentary: ${m.model} skipped (its worst case $${worst.toFixed(3)} does not fit under the $${config.capUsd} trial cap)`)
+        continue
+      }
       try {
         const c = await writeCommentary(client, dir, m, prompt)
         commentary.set(m.model, c.bullets)

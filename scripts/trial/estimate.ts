@@ -4,7 +4,8 @@
  * models' reserves. An estimate, not a promise: real games vary in length,
  * and timeouts or retries add calls.
  */
-import { CLAUDE_MODELS, RESERVE_PER_GAME_USD, type ClaudeModelKey } from '../../src/claude/models'
+import { CLAUDE_MODELS, type ClaudeModelKey } from '../../src/claude/models'
+import { reserveFor } from './budget'
 import { nextAction, type GameSpec } from './schedule'
 
 export interface PerMove {
@@ -103,7 +104,7 @@ export function estimateTrial(schedule: readonly GameSpec[], opts: { maxPlies: n
       source: PER_MOVE[model].source,
     }
   })
-  const holds = schedule.map((g) => RESERVE_PER_GAME_USD[g.white] + RESERVE_PER_GAME_USD[g.black])
+  const holds = schedule.map((g) => reserveFor(g.white, g.black, opts.maxPlies))
   return {
     games: schedule.length,
     reservesUsd: holds.reduce((a, b) => a + b, 0),

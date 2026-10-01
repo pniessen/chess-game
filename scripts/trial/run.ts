@@ -29,6 +29,9 @@ import { trialDir, trialsRoot } from './store'
 
 const ALL = Object.keys(CLAUDE_MODELS) as ClaudeModelKey[]
 
+/** Taken before any Stockfish engine loads (its script nulls the global fetch while it loads). */
+const REAL_FETCH = globalThis.fetch.bind(globalThis)
+
 function parse() {
   const { values } = parseArgs({
     options: {
@@ -73,7 +76,7 @@ function dryRun(o: ReturnType<typeof parse>): void {
   console.log('\nPer-move numbers used (median s/move, opening move $; reserve per side per game):')
   for (const m of o.models) {
     const p = PER_MOVE[m]
-    console.log(`  ${m.padEnd(13)} ${p.sec.toFixed(2).padStart(5)} s  $${p.openingUsd.toFixed(5)}  reserve $${RESERVE_PER_GAME_USD[m].toFixed(2)}  (${p.source})`)
+    console.log(`  ${m.padEnd(13)} ${p.sec.toFixed(2).padStart(5)} s  $${p.openingUsd.toFixed(5)}  reserve $${(RESERVE_PER_GAME_USD[m] * Math.max(1, o.maxPlies / 160)).toFixed(2)}  (${p.source})`)
   }
   console.log('\nEstimate:')
   for (const s of e.scenarios) console.log(`  ${s.label.padEnd(34)} cost ~$${s.costUsd.toFixed(2)}, wall ~${hours(s.wallSeconds)} at concurrency ${o.concurrency}`)
@@ -100,7 +103,8 @@ async function main() {
     }
   }
 
-  const clients = moveClientsFor(process.env)
+  // Every provider client gets the real fetch explicitly, whatever the global holds later.
+  const clients = moveClientsFor(process.env, { fetch: REAL_FETCH })
   // Refuse up front if a seat cannot be played (no key, or no working ADC), before anything is spent.
   const missing: string[] = []
   for (const m of o.models) {
@@ -120,12 +124,16 @@ async function main() {
     log('Ctrl-C: no new games; the running ones finish (Ctrl-C again to exit now)')
   })
 
+  // All engines are loaded before the first game calls anything.
+  const engines = new EnginePool()
+  await engines.warm(o.concurrency)
+
   const before = (await readLedger(dir)).spentUsd
   const summary = await runTrial(
     { trialId: o.trialId, dir, models: o.models, gamesPerPair: o.gamesPerPair, capUsd: o.capUsd, maxPlies: o.maxPlies, concurrency: o.concurrency, replayUnfinished: o.replayUnfinished },
     {
       move: (req) => dispatchMove(clients, req),
-      engines: new EnginePool(),
+      engines,
       sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
       log,
       stop,

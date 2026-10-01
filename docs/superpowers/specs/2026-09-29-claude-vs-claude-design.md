@@ -295,9 +295,12 @@ its own ledger, games capped at 160 plies and then adjudicated by Stockfish.
   / behind, repetition). One Claude Opus 5.5 call per model writes 3-5 style bullets from those
   numbers and short excerpts only (cached by prompt; charged to the trial ledger as commentary).
 - **Pilot (2026-10-01, `pilot-2026-10-01`):** haiku, jev, gemini-flash, 1 game a pairing, 20
-  plies, $1 cap. 3 games, all adjudicated at ply 20 (Flash 2-0, Jev 1-1, Haiku 0-2); $0.034 on
-  moves and $0.052 on commentary. Flash: median 1.3 s, one 429 backed off; average CPL Flash 10,
-  Haiku 151, Jev 262. The report's figures were checked by hand against the game files and ledger.
+  plies, $1 cap, run after the review fixes (the first run's directory was removed). 3 games: Flash
+  mated Jev on ply 20, Flash beat Haiku and Haiku beat Jev on adjudication (+9.2, +7.0); Flash
+  2-0, Haiku 1-1, Jev 0-2. $0.034 on moves, $0.050 on commentary. Median s/move Flash 1.1 (one
+  11.4 s), Haiku 2.0, Jev 0.18; no fallbacks or timeouts (the first run had one 429, backed off).
+  Average CPL Flash 26, Haiku 108, Jev 282. The report's figures were checked by hand against the
+  game files and the ledger.
 
 ## Phase 0 results (measured 2026-09-29, local server, Peter's own key)
 

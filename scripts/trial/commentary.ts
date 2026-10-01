@@ -19,6 +19,7 @@ import { readJson, writeJsonAtomic } from './store'
 import type { GameRecord } from './types'
 
 export const COMMENTARY_MODEL = 'opus' as const
+export const COMMENTARY_MAX_TOKENS = 4000
 
 const r2 = (x: number | null) => (x === null ? null : Math.round(x * 100) / 100)
 const pct = (x: number | null) => (x === null ? null : Math.round(x * 1000) / 10)
@@ -152,6 +153,17 @@ export interface Commentary {
   cached: boolean
 }
 
+const promptHash = (prompt: { system: string; user: string }) =>
+  createHash('sha256').update(prompt.system).update('\n').update(prompt.user).digest('hex')
+
+const cacheFile = (dir: string, m: ModelStats) => join(dir, 'commentary', `${m.model}.json`)
+
+/** Whether this exact prompt's bullets are already cached (so asking again costs nothing). */
+export async function commentaryCached(dir: string, m: ModelStats, prompt: { system: string; user: string }): Promise<boolean> {
+  const cached = await readJson<{ hash: string; bullets: string[] }>(cacheFile(dir, m))
+  return cached?.hash === promptHash(prompt) && Array.isArray(cached.bullets)
+}
+
 /** One model's bullets: from the cache when the prompt is unchanged, else one Opus call charged to the trial ledger. */
 export async function writeCommentary(
   client: MessagesClient,
@@ -159,15 +171,15 @@ export async function writeCommentary(
   m: ModelStats,
   prompt: { system: string; user: string },
 ): Promise<Commentary> {
-  const hash = createHash('sha256').update(prompt.system).update('\n').update(prompt.user).digest('hex')
-  const file = join(dir, 'commentary', `${m.model}.json`)
+  const hash = promptHash(prompt)
+  const file = cacheFile(dir, m)
   const cached = await readJson<{ hash: string; bullets: string[]; costUsd: number }>(file)
   if (cached?.hash === hash && Array.isArray(cached.bullets)) return { bullets: cached.bullets, costUsd: cached.costUsd, cached: true }
 
   const started = Date.now()
   const res = await client.messages.create({
     model: CLAUDE_MODELS[COMMENTARY_MODEL].id,
-    max_tokens: 4000,
+    max_tokens: COMMENTARY_MAX_TOKENS,
     output_config: { effort: 'medium', format: FORMAT },
     system: prompt.system,
     messages: [{ role: 'user', content: prompt.user }],

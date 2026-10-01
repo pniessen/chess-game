@@ -19,6 +19,11 @@ describe('the cap guard', () => {
     expect(canStart(10, holds, 29.26, 40)).toBe(false)
   })
 
+  test('reserves are sized for 160 plies: a longer cap holds proportionally more, a shorter one the full reserve', () => {
+    expect(reserveFor('opus', 'haiku', 320)).toBeCloseTo(2 * reserveFor('opus', 'haiku'))
+    expect(reserveFor('opus', 'haiku', 20)).toBeCloseTo(reserveFor('opus', 'haiku'))
+  })
+
   test('a game that has spent past its reserve holds nothing more', () => {
     expect(committedUsd(5, [{ reserveUsd: 0.5, spentUsd: 0.8 }])).toBe(5)
   })

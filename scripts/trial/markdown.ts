@@ -136,7 +136,7 @@ export function buildMarkdown(input: ReportInput): string {
     ['#', 'Model', 'Score', 'Points', 'W-D-L', 'Avg CPL', 'Blunders a game', 'Median s/move', 'Cost a game', 'Fallbacks'],
     stats.leaderboard.map((l) => {
       const m = stats.perModel.find((p) => p.model === l.model)!
-      const finishedGames = m.record.games + m.record.unfinished
+      const allGames = m.record.games + m.record.unfinished
       return [
         l.rank,
         m.label,
@@ -144,7 +144,7 @@ export function buildMarkdown(input: ReportInput): string {
         `${points(l.points)}/${l.games}`,
         wdl(m.record),
         num(l.avgCpl, 0),
-        finishedGames ? num(m.accuracy.blunders / finishedGames) : 'n/a',
+        allGames ? num(m.accuracy.blunders / allGames) : 'n/a',
         num(m.speed.medianSec),
         usd(m.cost.perGameUsd),
         m.reliability.fallbacks,
@@ -178,6 +178,12 @@ export function buildMarkdown(input: ReportInput): string {
     `${stats.games} of ${(models.length * (models.length - 1) * config.gamesPerPair) / 2} scheduled games played (${stats.finishedGames} with a result) between ${models.length} models, ` +
       `${config.gamesPerPair} per pairing, colours alternating. Games stop at ${config.maxPlies} plies. ` +
       `Spent ${usd(ledger.spentUsd)} of the ${usd(config.capUsd)} cap: ${usd(ledger.moveUsd)} on moves, ${usd(ledger.commentaryUsd)} on this report's commentary. ` +
+      (() => {
+        // The ledger also holds calls of games not in this report: stopped by the cap, crashed, or replayed.
+        const inGames = games.reduce((sum, g) => sum + g.totals.w.costUsd + g.totals.b.costUsd, 0)
+        const other = ledger.moveUsd - inGames
+        return other > 0.00005 ? `Of the move spend, ${usd(other)} went on games not in this report (stopped by the cap, crashed or replayed). ` : ''
+      })() +
       `Generated ${input.generatedAt}.`,
     '',
     '## How to read this',
@@ -185,7 +191,7 @@ export function buildMarkdown(input: ReportInput): string {
     '- **Score** is wins plus half the draws, over games with a result. A game abandoned because a model could not go on has no result and is not scored.',
     `- **CPL** (centipawn loss) is how much worse a move was than Stockfish's best move, judged by Stockfish at depth ${input.depth}. 100 centipawns is about one pawn. ` +
       `A **blunder** loses ${BLUNDER} or more, a **mistake** ${MISTAKE}–${BLUNDER - 1}, an **inaccuracy** ${INACCURACY}–${MISTAKE - 1}; a single move's loss is capped at 1000. ` +
-      'Strong human players average roughly 20–40 CPL; a beginner, well over 100.',
+      'A forced mate scores 10,000, so a move that lets a forced mate slip to a merely winning position counts as a large loss (up to that cap) even though it still wins.',
     `- **Opening** is the first ${OPENING_PLIES} plies; after that a move is in the **endgame** once the pieces other than pawns and kings add up to ${ENDGAME_MATERIAL} points or less (knight or bishop 3, rook 5, queen 9), and in the **middlegame** before that.`,
     `- **Adjudicated**: at the ${config.maxPlies}-ply cap Stockfish (depth 18) judges the final position; a lead of ${ADJUDICATION_CP} centipawns or a forced mate wins, anything less is a draw.`,
     '- **Fallback**: when a model fails twice on one move (timeout, unusable reply), Stockfish at full strength plays that move for it, as in the app. It counts against the model (5 in one game and the game is abandoned) and is left out of its accuracy and speed.',

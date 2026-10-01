@@ -32,10 +32,14 @@ describe('report.md', () => {
     expect(md).toContain('- Jev won its only decisive game by checkmate (1 mate given).')
     expect(md).toContain('adjudicated at the ply cap (0.12)')
     expect(md).toContain('Spent $0.012 of the $1.00 cap: $0.0023 on moves, $0.010 on this report\'s commentary.')
+    // The fixture games carry no cost, so all $0.0023 of move spend is outside them.
+    expect(md).toContain('Of the move spend, $0.0023 went on games not in this report (stopped by the cap, crashed or replayed).')
   })
 
   test('explains its terms for a non-expert', () => {
     expect(md).toContain('## How to read this')
     expect(md).toMatch(/100 centipawns is about one pawn/)
+    expect(md).toMatch(/lets a forced mate slip/)
+    expect(md).not.toMatch(/Strong human players/)
   })
 })

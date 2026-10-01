@@ -145,6 +145,35 @@ describe('runTrial', () => {
     await rm(root, { recursive: true })
   })
 
+  test('the hard cap holds across concurrent games: calls in flight count against it until charged', async () => {
+    // Two disjoint games at once ((haiku, gemini-flash) and (jev, gemini-pro), $0.82 held), every
+    // call charged its full worst case, and a barrier that lets calls through only in pairs, one
+    // from each game, so both games always check the cap against the same spend. Without counting
+    // the calls in flight, some cap in this range lets both through when only one fits.
+    const { worstCaseCallUsd } = await import('../../server/moveDispatch')
+    for (let cap = 0.83; cap <= 1.0; cap += 0.01) {
+      const { root, opts } = await setup({ models: ['haiku', 'jev', 'gemini-pro', 'gemini-flash'], gamesPerPair: 1, capUsd: cap, maxPlies: 160 })
+      let waiting: Array<() => void> = []
+      const move = async (req: MoveRequest) => {
+        await new Promise<void>((resolve) => {
+          waiting.push(resolve)
+          if (waiting.length === 2) {
+            for (const r of waiting) r()
+            waiting = []
+          } else setTimeout(resolve, 20) // the other game has ended or stopped
+        })
+        const pos = new Position()
+        for (const s of req.history) pos.trySan(s)
+        const cost = worstCaseCallUsd(req.model)
+        return { outcome: { ok: true as const, san: pos.legalSans()[0]!, why: '', costUsd: cost, ms: 2, tokens: { inputTokens: 1, outputTokens: 1 } } }
+      }
+      const s = await runTrial(opts, { ...deps(fakeMoves()), move })
+      expect(s.state).toBe('cap-reached')
+      expect((await readLedger(opts.dir)).spentUsd).toBeLessThanOrEqual(cap + 1e-9)
+      await rm(root, { recursive: true })
+    }
+  }, 60_000)
+
   test('a different field under the same id is refused, not mixed in', async () => {
     const { root, opts } = await setup()
     await runTrial(opts, deps(fakeMoves()))
@@ -182,7 +211,7 @@ describe('runTrial', () => {
 
   test('the hard cap mid-game: the game is set aside (not saved as finished) and the trial stops', async () => {
     // Haiku's worst-case call is $0.044: once $0.116 is spent its next call does not fit under $0.16.
-    const { root, opts } = await setup({ models: ['haiku', 'jev'], gamesPerPair: 1, capUsd: 0.16, maxPlies: 200 })
+    const { root, opts } = await setup({ models: ['haiku', 'jev'], gamesPerPair: 1, capUsd: 0.16, maxPlies: 160 })
     const f = fakeMoves(0.02)
     const s = await runTrial(opts, deps(f))
     expect(s.state).toBe('cap-reached')

@@ -13,11 +13,12 @@ describe('UCI parsing', () => {
 })
 
 describe('Stockfish in Node (the real engine, no network)', () => {
-  test('two independent instances; fetch survives loading them', async () => {
+  test('two independent instances loaded at once; fetch survives, and no process handlers are left behind', async () => {
     const before = globalThis.fetch
-    const a = await createEngine()
-    const b = await createEngine()
+    const handlers = process.listeners('unhandledRejection').length + process.listeners('uncaughtException').length
+    const [a, b] = await Promise.all([createEngine(), createEngine()])
     expect(globalThis.fetch).toBe(before)
+    expect(process.listeners('unhandledRejection').length + process.listeners('uncaughtException').length).toBe(handlers)
     // Back-rank mate in one for White.
     const mateIn1 = '6k1/5ppp/8/8/8/8/5PPP/3R2K1 w - - 0 1'
     const [ea, eb] = await Promise.all([a.evaluate(mateIn1, 10), b.evaluate(mateIn1, 10)])

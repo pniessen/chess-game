@@ -71,20 +71,23 @@ export function gcpProjectFor(env: NodeJS.ProcessEnv): string {
  * from `ANTHROPIC_API_KEY`, TypeSafe from `typesafeKeyFor`, Vertex AI over ADC
  * (it seats Gemini only while ADC works). The local server and the trial
  * runner (scripts/trial) both build theirs here. `opts.vertex` replaces the
- * Vertex AI client (tests pass null or a fake). No key is logged or returned.
+ * Vertex AI client (tests pass null or a fake). `opts.fetch` pins the fetch
+ * every client uses (the trial passes the real one, which a Stockfish load
+ * would otherwise null for a moment). No key is logged or returned.
  */
 export function moveClientsFor(
   env: NodeJS.ProcessEnv,
-  opts: { vertex?: VertexClient | null; timeoutMs?: number } = {},
+  opts: { vertex?: VertexClient | null; timeoutMs?: number; fetch?: typeof fetch } = {},
 ): Required<MoveClients> & { gcpProject: string } {
   const apiKey = env['ANTHROPIC_API_KEY']?.trim() || null
   const typesafeKey = typesafeKeyFor(env, typesafeEnvFileFor(env))
   const gcpProject = gcpProjectFor(env)
   const timeoutMs = opts.timeoutMs ?? MOVE_TIMEOUT_MS
+  const f = opts.fetch ? { fetch: opts.fetch } : {}
   return {
-    client: apiKey ? new Anthropic({ apiKey, timeout: timeoutMs, maxRetries: 0 }) : null,
-    jev: typesafeKey ? createJevClient({ apiKey: typesafeKey, timeoutMs }) : null,
-    vertex: opts.vertex !== undefined ? opts.vertex : createVertexClient({ project: gcpProject, timeoutMs }),
+    client: apiKey ? new Anthropic({ apiKey, timeout: timeoutMs, maxRetries: 0, ...f }) : null,
+    jev: typesafeKey ? createJevClient({ apiKey: typesafeKey, timeoutMs, ...f }) : null,
+    vertex: opts.vertex !== undefined ? opts.vertex : createVertexClient({ project: gcpProject, timeoutMs, ...f }),
     gcpProject,
   }
 }

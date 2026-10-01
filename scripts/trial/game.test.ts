@@ -66,7 +66,7 @@ function deps(over: Partial<PlayDeps> & Pick<PlayDeps, 'move'>, engine = fakeEng
     charge: async (_m, _g, call) => {
       charged.push(call)
     },
-    mayCall: () => true,
+    mayCall: () => () => {},
     sleep: async (ms) => {
       slept.push(ms)
     },
@@ -196,7 +196,7 @@ describe('playGame: retries, fallbacks and the cap, as in the app', () => {
   test('the hard cap stops the game before a call that might not fit', async () => {
     const { move, reqs } = scripted()
     let calls = 0
-    const g = await playGame(spec(), deps({ move, mayCall: () => calls++ < 3 }).d)
+    const g = await playGame(spec(), deps({ move, mayCall: () => (calls++ < 3 ? () => {} : null) }).d)
     expect(reqs).toHaveLength(3)
     expect(g).toMatchObject({ result: '*', termination: 'cap', plies: 3 })
   })

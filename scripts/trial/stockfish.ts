@@ -4,8 +4,10 @@
  * build, loaded the way the jev-chess spike did, with two fixes:
  *
  * - The engine script nulls the global `fetch` when it loads (so Emscripten
- *   reads the .wasm from disk). Every provider client here uses `fetch`, so it
- *   is captured before each load and put back right after.
+ *   reads the .wasm from disk). Every provider client here uses `fetch`, so
+ *   the real one is captured when this module loads, loads run one at a time,
+ *   and each puts it back. The trial also warms its engines before any game
+ *   starts, and hands the provider clients fetch explicitly.
  * - The package's `initEngine` can load only one engine per process (its
  *   `require` of the engine script is cached and the script replaces its own
  *   export), so each instance re-requires the script fresh.
@@ -51,8 +53,26 @@ export function parseBest(line: string | undefined): string | null {
   return best && best !== '(none)' ? best : null
 }
 
-async function loadRaw(): Promise<RawEngine> {
-  const savedFetch = globalThis.fetch
+/** The real fetch, taken when this module loads, before any engine script can null it. */
+const REAL_FETCH = globalThis.fetch
+
+/** Loads run one at a time: the engine script nulls `fetch` while it loads, and two overlapping loads would keep it null. */
+let loading: Promise<unknown> = Promise.resolve()
+
+/** How long one command may go unanswered before the engine is given up on. */
+export const ENGINE_TIMEOUT_MS = 120_000
+
+function loadRaw(): Promise<RawEngine> {
+  const run = loading.then(loadRawNow, loadRawNow)
+  loading = run.catch(() => undefined)
+  return run
+}
+
+async function loadRawNow(): Promise<RawEngine> {
+  const before = {
+    uncaughtException: new Set(process.listeners('uncaughtException')),
+    unhandledRejection: new Set(process.listeners('unhandledRejection')),
+  }
   try {
     delete require.cache[ENGINE_JS]
     const factory = require(ENGINE_JS) as () => (m: object) => Promise<unknown>
@@ -65,29 +85,58 @@ async function loadRaw(): Promise<RawEngine> {
     while (engine._isReady && !engine._isReady()) await new Promise((r) => setTimeout(r, 10))
     return engine
   } finally {
-    globalThis.fetch = savedFetch
+    globalThis.fetch = REAL_FETCH
+    // The script registers process-wide handlers that rethrow any uncaught error or unhandled
+    // rejection (Emscripten's exit handling). They would turn one stray rejection anywhere into a
+    // crash of the whole trial, and pile up a pair per engine: take them off again.
+    for (const event of ['uncaughtException', 'unhandledRejection'] as const) {
+      for (const l of process.listeners(event)) if (!before[event].has(l)) process.removeListener(event, l as (...args: unknown[]) => void)
+    }
   }
 }
 
 export async function createEngine(): Promise<TrialEngine> {
   const raw = await loadRaw()
   let lines: string[] = []
-  let waiter: { done: (l: string) => boolean; resolve: (out: string[]) => void } | null = null
+  let broken: Error | null = null
+  let waiter: { done: (l: string) => boolean; resolve: (out: string[]) => void; reject: (e: Error) => void; timer: NodeJS.Timeout } | null =
+    null
+  const fail = (e: Error) => {
+    broken ??= e
+    const w = waiter
+    waiter = null
+    if (w) {
+      clearTimeout(w.timer)
+      w.reject(e)
+    }
+  }
   raw.listener = (line) => {
     lines.push(line)
     if (waiter?.done(line)) {
       const w = waiter
       waiter = null
+      clearTimeout(w.timer)
       const out = lines
       lines = []
       w.resolve(out)
     }
   }
-  const send = (cmd: string) => setImmediate(() => raw.ccall('command', null, ['string'], [cmd], { async: /^go\b/.test(cmd) }))
+  const send = (cmd: string) =>
+    setImmediate(() => {
+      try {
+        raw.ccall('command', null, ['string'], [cmd], { async: /^go\b/.test(cmd) })
+      } catch (err) {
+        fail(err instanceof Error ? err : new Error(String(err)))
+      }
+    })
+  // A command that never answers (a WASM abort, a lost bestmove) rejects after ENGINE_TIMEOUT_MS,
+  // and the instance is not used again.
   const until = (done: (l: string) => boolean, cmds: string[]) =>
-    new Promise<string[]>((resolve) => {
+    new Promise<string[]>((resolve, reject) => {
+      if (broken) return reject(broken)
       lines = []
-      waiter = { done, resolve }
+      const timer = setTimeout(() => fail(new Error(`Stockfish did not answer within ${ENGINE_TIMEOUT_MS / 1000}s`)), ENGINE_TIMEOUT_MS)
+      waiter = { done, resolve, reject, timer }
       for (const c of cmds) send(c)
     })
 
@@ -117,7 +166,9 @@ export async function createEngine(): Promise<TrialEngine> {
   return {
     async evaluate(fen, depth) {
       const r = await search(fen, `go depth ${depth}`)
-      return { score: r.score ?? { cp: 0 }, best: r.best }
+      // No score would quietly read as level (a draw at adjudication): fail the game instead.
+      if (!r.score) throw new Error('Stockfish gave no score')
+      return { score: r.score, best: r.best }
     },
     async fallbackMove(fen) {
       return (await search(fen, `go depth ${fallback.depth} movetime ${fallback.moveTimeMs}`)).best
@@ -126,12 +177,19 @@ export async function createEngine(): Promise<TrialEngine> {
 }
 
 /**
- * Engines for concurrent games, made on first use and reused: one instance
- * per game in play at once, never shared between two of them.
+ * Engines for concurrent games, made on first use (or by `warm`) and reused:
+ * one instance per game in play at once, never shared between two of them.
+ * The runner does not release the engine of a game that crashed, so a broken
+ * instance is never reused.
  */
 export class EnginePool {
   private free: TrialEngine[] = []
   constructor(private readonly make: () => Promise<TrialEngine> = createEngine) {}
+
+  /** Make `n` engines up front, so no engine script loads (and nulls fetch) while games are calling APIs. */
+  async warm(n: number): Promise<void> {
+    for (let i = this.free.length; i < n; i++) this.free.push(await this.make())
+  }
 
   async acquire(): Promise<TrialEngine> {
     return this.free.pop() ?? (await this.make())

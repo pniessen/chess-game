@@ -35,8 +35,11 @@ export interface PlayDeps {
   engine(): Promise<TrialEngine>
   /** Record one charged call (the trial ledger and its running spend). */
   charge(model: ClaudeModelKey, gameId: string, call: CallRecord): Promise<void>
-  /** The hard cap: may `model` make one more call? */
-  mayCall(model: ClaudeModelKey): boolean
+  /**
+   * The hard cap: may `model` make one more call? If so, its worst case is held against the cap
+   * until the returned release is called (right after the call is charged); null if it does not fit.
+   */
+  mayCall(model: ClaudeModelKey): (() => void) | null
   sleep(ms: number): Promise<void>
   /** One line per move and per game end. */
   log(line: string): void
@@ -126,12 +129,21 @@ export async function playGame(spec: GameSpec, deps: PlayDeps): Promise<GameReco
     let backoffs = 0
 
     for (;;) {
-      if (!deps.mayCall(model)) {
+      // The cap holds this call's worst case until it is charged, so concurrent calls cannot overrun it.
+      const release = deps.mayCall(model)
+      if (!release) {
         stop('cap')
         break
       }
-      const routed = await deps.move({ model, ...(startFen !== STARTING_FEN ? { startFen } : {}), history })
+      let routed: Awaited<ReturnType<PlayDeps['move']>>
+      try {
+        routed = await deps.move({ model, ...(startFen !== STARTING_FEN ? { startFen } : {}), history })
+      } catch (err) {
+        release()
+        throw err
+      }
       if ('missing' in routed) {
+        release()
         stop('model-unavailable', side, routed.missing)
         break
       }
@@ -144,9 +156,12 @@ export async function playGame(spec: GameSpec, deps: PlayDeps): Promise<GameReco
         outputTokens: o.tokens?.outputTokens ?? 0,
       }
       // A call was made whenever tokens are reported (a bad request makes none), as the server counts it.
-      if (o.tokens) {
+      // charge() adds to the spend before its first await, so releasing after it leaves no gap.
+      const charged = o.tokens ? deps.charge(model, spec.id, call) : null
+      release()
+      if (charged) {
         calls.push(call)
-        await deps.charge(model, spec.id, call)
+        await charged
         t.calls++
         t.costUsd += call.costUsd
         t.ms += call.ms

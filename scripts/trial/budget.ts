@@ -5,15 +5,19 @@
  */
 import { appendFile, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { RESERVE_PER_GAME_USD, type ClaudeModelKey } from '../../src/claude/models'
+import { CLAUDE_MAX_PLIES, RESERVE_PER_GAME_USD, type ClaudeModelKey } from '../../src/claude/models'
 import type { LedgerEntry } from './types'
 
 /** Float slack, so a game that exactly fits is not refused by rounding. */
 const EPS = 1e-9
 
-/** What a game holds back when it starts: both seats' per-game reserves (sized to reach 160 plies). */
-export const reserveFor = (white: ClaudeModelKey, black: ClaudeModelKey): number =>
-  RESERVE_PER_GAME_USD[white] + RESERVE_PER_GAME_USD[black]
+/**
+ * What a game holds back when it starts: both seats' per-game reserves, which
+ * are sized to reach CLAUDE_MAX_PLIES (160), scaled up for a longer ply cap.
+ * A shorter cap keeps the full reserve (the conservative side).
+ */
+export const reserveFor = (white: ClaudeModelKey, black: ClaudeModelKey, maxPlies: number = CLAUDE_MAX_PLIES): number =>
+  (RESERVE_PER_GAME_USD[white] + RESERVE_PER_GAME_USD[black]) * Math.max(1, maxPlies / CLAUDE_MAX_PLIES)
 
 export interface Hold {
   reserveUsd: number

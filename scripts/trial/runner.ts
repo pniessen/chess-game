@@ -102,6 +102,9 @@ export async function runTrial(opts: RunOptions, deps: RunDeps): Promise<RunSumm
   const pending = schedule.filter((s) => !isDone(saved.get(s.id)))
   const skipped = schedule.length - pending.length
   let spent = (await readLedger(opts.dir)).spentUsd
+  /** Worst cases of the calls in flight now, across all games: the hard cap counts them as spent. */
+  let inFlight = 0
+  const reserve = (s: GameSpec) => reserveFor(s.white, s.black, opts.maxPlies)
   const running = new Map<string, Running>()
   const busy = new Set<ClaudeModelKey>()
   let played = 0
@@ -142,8 +145,9 @@ export async function runTrial(opts: RunOptions, deps: RunDeps): Promise<RunSumm
     pending.splice(pending.indexOf(spec), 1)
     busy.add(spec.white)
     busy.add(spec.black)
-    const hold: Hold = { reserveUsd: reserveFor(spec.white, spec.black), spentUsd: 0 }
+    const hold: Hold = { reserveUsd: reserve(spec), spentUsd: 0 }
     let engine: TrialEngine | null = null
+    let crashed = false
     const r: Running = { spec, hold, plies: 0, done: Promise.resolve() }
     running.set(spec.id, r)
     deps.onGameStart?.(spec)
@@ -169,7 +173,16 @@ export async function runTrial(opts: RunOptions, deps: RunDeps): Promise<RunSumm
               ms: call.ms,
             })
           },
-          mayCall: (model) => canCall(spent, worstCaseCallUsd(model), opts.capUsd),
+          mayCall: (model) => {
+            const worst = worstCaseCallUsd(model)
+            if (!canCall(spent + inFlight, worst, opts.capUsd)) return null
+            inFlight += worst
+            let held = true
+            return () => {
+              if (held) inFlight -= worst
+              held = false
+            }
+          },
           sleep: deps.sleep,
           log: deps.log,
           spentUsd: () => spent,
@@ -187,12 +200,14 @@ export async function runTrial(opts: RunOptions, deps: RunDeps): Promise<RunSumm
           played++
         }
       } catch (err) {
+        crashed = true
         errors++
         const message = err instanceof Error ? err.message : String(err)
         deps.log(`[${spec.id}] crashed: ${message}; it stays pending for the next run`)
         await writeJsonAtomic(join(opts.dir, 'errors', `${spec.id}-${Date.now()}.json`), { gameId: spec.id, message }).catch(() => {})
       } finally {
-        if (engine) deps.engines.release(engine)
+        // A crashed game's engine may be the broken part: it is dropped, not reused.
+        if (engine && !crashed) deps.engines.release(engine)
         running.delete(spec.id)
         busy.delete(spec.white)
         busy.delete(spec.black)
@@ -207,7 +222,7 @@ export async function runTrial(opts: RunOptions, deps: RunDeps): Promise<RunSumm
     const stopping = capReached || deps.stop?.stopped
     if (!stopping && running.size < opts.concurrency) {
       // Games that crashed this run are not retried until the next run.
-      const a = nextAction(pending, busy, running.size, (s) => canStart(spent, holds(), reserveFor(s.white, s.black), opts.capUsd))
+      const a = nextAction(pending, busy, running.size, (s) => canStart(spent, holds(), reserve(s), opts.capUsd))
       if (a.kind === 'start') {
         launch(a.spec)
         continue
@@ -235,7 +250,7 @@ export async function runTrial(opts: RunOptions, deps: RunDeps): Promise<RunSumm
   deps.log(
     `trial ${opts.trialId} ${state}: ${played} played now, ${skipped} before, ${summary.pending} pending` +
       `${errors ? `, ${errors} crashed` : ''}; spent $${spent.toFixed(4)} of $${opts.capUsd}` +
-      `${blocked ? `; next game ${blocked.id} needs $${reserveFor(blocked.white, blocked.black).toFixed(2)} held and does not fit` : ''}`,
+      `${blocked ? `; next game ${blocked.id} needs $${reserve(blocked).toFixed(2)} held and does not fit` : ''}`,
   )
   return summary
 }
