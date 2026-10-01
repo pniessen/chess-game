@@ -50,10 +50,13 @@ export function typesafeKeyFor(env: NodeJS.ProcessEnv, file: string): string | n
   } catch {
     return null
   }
-  const m = /^[ \t]*(?:export[ \t]+)?TYPESAFE_API_KEY[ \t]*=[ \t]*(.*?)[ \t]*$/m.exec(text)
-  const raw = m?.[1] ?? ''
-  const unquoted = /^(['"])(.*)\1$/.exec(raw)?.[2] ?? raw
-  return unquoted.trim() || null
+  // Like a shell: the last assignment wins; a quoted value is taken whole, an unquoted one ends
+  // at whitespace (so at a ` # comment`). No `$VAR` expansion.
+  const lines = [...text.matchAll(/^[ \t]*(?:export[ \t]+)?TYPESAFE_API_KEY[ \t]*=(.*)$/gm)]
+  const raw = (lines.at(-1)?.[1] ?? '').trim()
+  const quoted = /^(['"])(.*?)\1/.exec(raw)
+  const value = quoted ? quoted[2]! : (raw.split(/\s/)[0] ?? '')
+  return value.trim() || null
 }
 
 export function startServer(env: NodeJS.ProcessEnv = process.env): Promise<Server> {

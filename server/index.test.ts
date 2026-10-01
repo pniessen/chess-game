@@ -65,6 +65,17 @@ describe('the TypeSafe key for Jev', () => {
     expect(typesafeKeyFor({ TYPESAFE_API_KEY: '  ' }, file())).toBe(key)
   })
 
+  test('like a shell: the last assignment wins, and an unquoted value ends at a comment', async () => {
+    await writeFile(file(), 'export TYPESAFE_API_KEY=first\nexport TYPESAFE_API_KEY=second\n')
+    expect(typesafeKeyFor({}, file())).toBe('second')
+    await writeFile(file(), 'export TYPESAFE_API_KEY=abc # rotated in September\n')
+    expect(typesafeKeyFor({}, file())).toBe('abc')
+    await writeFile(file(), "export TYPESAFE_API_KEY='a#b' # note\n")
+    expect(typesafeKeyFor({}, file())).toBe('a#b')
+    await writeFile(file(), 'export TYPESAFE_API_KEY=crlf\r\n')
+    expect(typesafeKeyFor({}, file())).toBe('crlf')
+  })
+
   test('no file, no such line or an empty value is no key', async () => {
     expect(typesafeKeyFor({}, file('missing'))).toBeNull()
     await writeFile(file(), 'OTHER=1\n# TYPESAFE_API_KEY=commented\n')

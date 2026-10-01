@@ -140,6 +140,25 @@ describe('requestJevMove', () => {
     expect(out.costUsd).toBeCloseTo(costUsd('jev', { input_tokens: out.tokens!.inputTokens, output_tokens: 0 }))
   })
 
+  test('a timeout while the body is still arriving is a timeout too, charged its estimated input', async () => {
+    // Headers arrive at once; the body never finishes before the signal fires.
+    const fetchImpl = (async (_url: string | URL | Request, init?: RequestInit) => {
+      const body = new ReadableStream({
+        start(controller) {
+          init?.signal?.addEventListener('abort', () => controller.error(init.signal!.reason))
+        },
+      })
+      return new Response(body, { status: 200, headers: { 'content-type': 'application/json' } })
+    }) as typeof fetch
+    const out = await requestJevMove(
+      { jev: createJevClient({ apiKey: KEY, fetch: fetchImpl, timeoutMs: 20 }) },
+      { model: 'jev', history: [] },
+    )
+    expect(out).toMatchObject({ ok: false, kind: 'timeout' })
+    expect(out.tokens!.inputTokens).toBeGreaterThan(0)
+    expect(out.costUsd).toBeGreaterThan(0)
+  })
+
   test('an illegal history or a finished game is a bad request: no call', async () => {
     const { sent, fetchImpl } = fakeFetch(() => jevReply('m0'))
     const jev = createJevClient({ apiKey: KEY, fetch: fetchImpl })

@@ -106,21 +106,26 @@ export async function requestJevMove(
     },
   }
 
+  // Only a timeout may still be billed (the request reached TypeSafe and was abandoned here):
+  // charge its input, estimated from the body; output tokens are free. The timeout signal also
+  // covers reading the body, so it can fire on either await below.
+  const isTimeout = (err: unknown) => err instanceof Error && err.name === 'TimeoutError'
+  const timedOut = () => {
+    const inputTokens = estimateInputTokens(JSON.stringify(body).length)
+    return done({
+      ok: false,
+      kind: 'timeout',
+      costUsd: costUsd('jev', { input_tokens: inputTokens, output_tokens: 0 }),
+      tokens: { inputTokens, outputTokens: 0 },
+    })
+  }
+
   let res: Response
   try {
     res = await deps.jev.systemone(body)
   } catch (err) {
-    // Only a timeout may still be billed (the request reached TypeSafe and was abandoned here):
-    // charge its input, estimated from the body; output tokens are free. A network failure is free.
-    if (err instanceof Error && err.name === 'TimeoutError') {
-      const inputTokens = estimateInputTokens(JSON.stringify(body).length)
-      return done({
-        ok: false,
-        kind: 'timeout',
-        costUsd: costUsd('jev', { input_tokens: inputTokens, output_tokens: 0 }),
-        tokens: { inputTokens, outputTokens: 0 },
-      })
-    }
+    if (isTimeout(err)) return timedOut()
+    // A network failure is free.
     return done({ ok: false, kind: 'upstream', costUsd: 0, tokens: { inputTokens: 0, outputTokens: 0 } })
   }
   // A refusal is not billed; nothing from its body is kept (it may echo the request).
@@ -129,7 +134,8 @@ export async function requestJevMove(
   let payload: unknown = null
   try {
     payload = await res.json()
-  } catch {
+  } catch (err) {
+    if (isTimeout(err)) return timedOut()
     // Not JSON: an unusable reply.
   }
   const usage = isRecord(payload) && isRecord(payload['usage']) ? payload['usage'] : {}
