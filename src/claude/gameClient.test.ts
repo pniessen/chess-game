@@ -46,6 +46,8 @@ describe('begin', () => {
     [403, 'forbidden', 'forbidden'],
     [400, 'bad-request', 'unavailable'],
     [500, 'upstream', 'unavailable'],
+    [503, 'no-key', 'unavailable'],
+    [503, 'no-jev-key', 'no-jev-key'],
   ] as const)('maps %i %s to %s', async (status, kind, want) => {
     const { client } = setup(err(status, kind))
     expect(await client.begin('opus', 'opus')).toEqual({ ok: false, kind: want })
@@ -194,6 +196,26 @@ describe('fetchBudget', () => {
       byModel: { fable: W_USAGE, haiku: B_USAGE },
       earlierUsd: 0.13,
     })
+  })
+
+  it('reads the models the server can seat, dropping unknown keys; absent when an older server sends none', async () => {
+    const body = { budgetLeftUsd: 7, models: ['haiku', 'jev', 'gpt', 3] }
+    expect(await fetchBudget(opts(async () => reply(200, body)))).toEqual({
+      budgetLeftUsd: 7,
+      byModel: {},
+      earlierUsd: 0,
+      models: ['haiku', 'jev'],
+    })
+    expect(await fetchBudget(opts(async () => reply(200, { budgetLeftUsd: 7, models: 'jev' })))).toEqual({
+      budgetLeftUsd: 7,
+      byModel: {},
+      earlierUsd: 0,
+    })
+  })
+
+  it('reads Jev usage like any model', async () => {
+    const body = { budgetLeftUsd: 7, byModel: { jev: B_USAGE } }
+    expect((await fetchBudget(opts(async () => reply(200, body))))?.byModel).toEqual({ jev: B_USAGE })
   })
 
   it('is null on a refusal, a bad body or a network error', async () => {
