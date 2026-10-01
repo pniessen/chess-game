@@ -3,8 +3,8 @@ import { claudeErrorText } from './claudeText'
 
 describe('claudeErrorText', () => {
   test('each refusal has its own reason', () => {
-    const texts = (['busy', 'budget', 'forbidden', 'unavailable'] as const).map(claudeErrorText)
-    expect(new Set(texts).size).toBe(4)
+    const texts = (['busy', 'budget', 'forbidden', 'unavailable', 'no-jev-key'] as const).map(claudeErrorText)
+    expect(new Set(texts).size).toBe(5)
     expect(claudeErrorText('busy')).toMatch(/already running/)
     expect(claudeErrorText('budget')).toMatch(/budget/)
   })
@@ -17,5 +17,11 @@ describe('claudeErrorText', () => {
     }
     expect(claudeErrorText('forbidden')).toMatch(/local server/)
     expect(claudeErrorText('unavailable')).toMatch(/npm run server/)
+  })
+
+  test('no-jev-key names the missing key and that nothing started', () => {
+    expect(claudeErrorText('no-jev-key')).toMatch(/Jev/)
+    expect(claudeErrorText('no-jev-key')).toMatch(/TYPESAFE_API_KEY/)
+    expect(claudeErrorText('no-jev-key')).toMatch(/Nothing was started/)
   })
 })

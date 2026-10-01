@@ -549,6 +549,7 @@ function AppInner({
                     onBlackChange: choices.setClaudeBlack,
                     budgetLeftUsd: claudeBudget ? claudeBudget.budgetLeftUsd : claudeBudget,
                     ...(claudeBudget ? { month: claudeBudget } : {}),
+                    ...(claudeBudget?.models ? { models: claudeBudget.models } : {}),
                   }
                 : undefined
             }

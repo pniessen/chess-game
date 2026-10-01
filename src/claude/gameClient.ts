@@ -1,5 +1,6 @@
 import {
   CLAUDE_SESSION_IDLE_MS,
+  isClaudeModelKey,
   parseSideUsage,
   parseUsageByModel,
   type ClaudeModelKey,
@@ -10,7 +11,8 @@ import {
 
 export type BeginResult =
   | { ok: true; budgetLeftUsd: number }
-  | { ok: false; kind: 'busy' | 'budget' | 'forbidden' | 'unavailable' }
+  /** 'no-jev-key': a seat is Jev and the local server has no TYPESAFE_API_KEY. */
+  | { ok: false; kind: 'busy' | 'budget' | 'forbidden' | 'unavailable' | 'no-jev-key' }
 
 export type ClaudeMoveResult =
   | {
@@ -109,7 +111,7 @@ export class GameClient implements ClaudeMover {
       return { ok: true, budgetLeftUsd: typeof left === 'number' ? left : 0 }
     }
     const kind = errorKindOf(payload)
-    if (kind === 'busy' || kind === 'budget' || kind === 'forbidden') return { ok: false, kind }
+    if (kind === 'busy' || kind === 'budget' || kind === 'forbidden' || kind === 'no-jev-key') return { ok: false, kind }
     return { ok: false, kind: 'unavailable' }
   }
 
@@ -204,6 +206,12 @@ export interface ClaudeBudget {
   byModel: UsageByModel
   /** Dollars spent this month before usage was tracked per model; 0 when none. */
   earlierUsd: number
+  /**
+   * The models the server holds a key for, in list order (Jev needs
+   * TYPESAFE_API_KEY, the Claude models ANTHROPIC_API_KEY). Absent from an
+   * older server that does not say, which seats every model.
+   */
+  models?: ClaudeModelKey[]
 }
 
 /**
@@ -219,10 +227,12 @@ export async function fetchBudget(opts: { fetch?: typeof fetch } = {}): Promise<
     const payload = await readJson(res)
     if (!isRecord(payload) || typeof payload['budgetLeftUsd'] !== 'number') return null
     const earlier = payload['earlierUsd']
+    const models = payload['models']
     return {
       budgetLeftUsd: payload['budgetLeftUsd'],
       byModel: parseUsageByModel(payload['byModel']),
       earlierUsd: typeof earlier === 'number' && Number.isFinite(earlier) && earlier > 0 ? earlier : 0,
+      ...(Array.isArray(models) ? { models: models.filter(isClaudeModelKey) } : {}),
     }
   } catch {
     return null

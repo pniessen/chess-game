@@ -90,6 +90,10 @@ supersedes the owner-only sections), plan `docs/superpowers/plans/2026-09-29-cla
   clock (model time) and in the New game panel's "This month" line (`claude-month`, counted in
   calls: a retry or a timeout is a call too).
 - **Head to head:** in a Claude game the Score card (`claude-record`) shows the two models' record from `GET /api/game/record?white=&black=`, computed on demand from every `games/saved/<id>` by its PGN `Result` (`*`, abandoned and unreadable records skipped; the 160-ply adjudication counts as a draw), refetched after each end lands.
+- **Jev (TypeSafe)** is a fifth seat (`jev`, `server/jevMove.ts`): one System One `choice`
+  over the legal moves, $0.042/M input tokens (output free), note "Jev's pick (p 0.27)". Its key
+  is `TYPESAFE_API_KEY` from the server's environment, else `~/.config/typesafe/env`; without it
+  the budget's `models` omits `jev`, the UI disables it and start answers 503 `no-jev-key`.
 - **Constants** (model ids, list prices, per-game reserves, move timeout, the 160-ply
   adjudication cap, the 25-minute session idle limit) live in `src/claude/models.ts`.
 - **Task 10 (live measurement) is still pending:** it now runs locally with Peter's own key,

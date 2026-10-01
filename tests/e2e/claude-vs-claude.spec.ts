@@ -229,3 +229,101 @@ test('at 1440x800 the month line fits without page scroll', async ({ page }) => 
     'Fable 5.1: 12,345 output tokens. A call is one request to the model, retries included.',
   )
 })
+
+/** The models a server with both keys can seat, as /api/game/budget lists them. */
+const ALL_MODELS = ['fable', 'opus', 'sonnet', 'haiku', 'jev']
+
+test('Jev holds the White seat: its moves carry its probability, not a made-up reason', async ({ page }) => {
+  // Jev is charged for input tokens only, at $0.042 per million: a fraction of a cent a move.
+  const JEV_SCRIPT = [
+    { san: 'f3', why: "Jev's pick (p 0.27)", costUsd: 0.00005 },
+    { san: 'e5', why: 'Claims the centre and frees the queen.', costUsd: 0.004 },
+    { san: 'g4', why: "Jev's pick (p 0.31)", costUsd: 0.00005 },
+    { san: 'Qh4#', why: 'The white king has no escape.', costUsd: 0.004 },
+  ]
+  let n = 0
+  const calls = await stubGame(page, (route) => {
+    const step = JEV_SCRIPT[n]!
+    n++
+    const played = JEV_SCRIPT.slice(0, n)
+    const side = (parity: number) => {
+      const steps = played.filter((_, i) => i % 2 === parity)
+      return {
+        costUsd: steps.reduce((s, x) => s + x.costUsd, 0),
+        ms: steps.length * 170,
+        inputTokens: steps.length * 1200,
+        outputTokens: steps.length * 250,
+        calls: steps.length,
+      }
+    }
+    return route.fulfill({
+      json: {
+        san: step.san,
+        why: step.why,
+        costUsd: step.costUsd,
+        gameSpentUsd: played.reduce((s, x) => s + x.costUsd, 0),
+        usage: { w: side(0), b: side(1) },
+      },
+    })
+  })
+  // Newer routes win: this budget lists the seatable models and Jev's month so far.
+  await page.route('**/api/game/budget', (r) =>
+    r.fulfill({
+      json: {
+        budgetLeftUsd: 12.5,
+        monthlyUsd: 20,
+        byModel: { jev: { costUsd: 0.0003, ms: 1700, inputTokens: 7000, outputTokens: 1500, calls: 10 } },
+        earlierUsd: 0,
+        models: ALL_MODELS,
+      },
+    }),
+  )
+  const startBodies: unknown[] = []
+  page.on('request', (req) => {
+    if (req.url().endsWith('/api/game/start')) startBodies.push(req.postDataJSON())
+  })
+  await page.goto('/')
+
+  await page.getByTestId('mode').selectOption('claude-vs-claude')
+  await expect(page.getByTestId('claude-white').locator('option[value="jev"]')).toHaveText('TypeSafe Jev')
+  await page.getByTestId('claude-white').selectOption('jev')
+  await page.getByTestId('claude-black').selectOption('haiku')
+  await expect(page.getByTestId('claude-month')).toHaveText('This month: Jev $0.00 (10 calls, 0.2 s/call)')
+  await expect(page.getByTestId('claude-seat-hint')).toHaveCount(0)
+  await page.getByTestId('new-game').click()
+
+  await expect(page.getByTestId('claude-record')).toHaveText('Jev 1 – 0 Haiku 4.5 · 2 draws')
+  await expect(page.getByTestId('claude-thinking')).toContainText('Jev is thinking')
+  // After Jev's first move the line under the board is its probability, nothing invented.
+  await expect(page.getByTestId('claude-why')).toHaveText("Jev's pick (p 0.27)")
+  await expect(page.getByTestId('game-end-card')).toBeVisible({ timeout: 30_000 })
+  await expect(page.getByTestId('game-end-headline')).toHaveText('Checkmate — Black wins')
+  await expect(page.getByTestId('claude-cost-w')).toHaveText('· Jev $0.00')
+  await expect(page.getByTestId('claude-cost-b')).toHaveText('· Haiku 4.5 $0.01')
+
+  expect(startBodies).toEqual([{ white: 'jev', black: 'haiku' }])
+  expect(calls.move).toEqual([[], ['f3'], ['f3', 'e5'], ['f3', 'e5', 'g4']])
+  await expect.poll(() => calls.end).toBe(1)
+  expect(calls.record[0]).toEqual({ url: '/api/game/record?white=jev&black=haiku', afterEnd: false })
+})
+
+test('a server without TYPESAFE_API_KEY: Jev is disabled in both seats, a Claude game still starts', async ({ page }) => {
+  const calls = await stubGame(page, (route) =>
+    route.fulfill({ status: 402, json: { error: { kind: 'budget', message: 'x' } } }),
+  )
+  await page.route('**/api/game/budget', (r) =>
+    r.fulfill({ json: { budgetLeftUsd: 12.5, monthlyUsd: 20, byModel: {}, earlierUsd: 0, models: ALL_MODELS.slice(0, 4) } }),
+  )
+  await page.goto('/')
+  await page.getByTestId('mode').selectOption('claude-vs-claude')
+  for (const seat of ['claude-white', 'claude-black']) {
+    const jev = page.getByTestId(seat).locator('option[value="jev"]')
+    await expect(jev).toHaveJSProperty('disabled', true)
+    await expect(jev).toHaveText('TypeSafe Jev (no TYPESAFE_API_KEY)')
+  }
+  await page.getByTestId('claude-white').selectOption('opus')
+  await page.getByTestId('claude-black').selectOption('haiku')
+  await expect(page.getByTestId('new-game')).toBeEnabled()
+  await page.getByTestId('new-game').click()
+  await expect.poll(() => calls.start).toBe(1)
+})

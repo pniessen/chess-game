@@ -9,6 +9,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileStore } from './fileStore'
+import type { JevClient } from './jevMove'
 
 const NOW = Date.UTC(2026, 8, 29, 12, 0, 0)
 const SECRET = Buffer.from('fake-process-secret')
@@ -46,6 +47,8 @@ interface Opts {
   body?: unknown
   raw?: string
   client?: MessagesClient | null
+  /** TypeSafe's client; absent (as before Jev) unless a test passes one. */
+  jev?: JevClient | null
   secret?: Buffer
   boot?: string
   store?: Parameters<typeof handleGame>[2]['store']
@@ -68,6 +71,7 @@ async function call(endpoint: 'start' | 'move' | 'end' | 'budget' | 'record', o:
     secret: o.secret ?? SECRET,
     boot: o.boot ?? BOOT,
     client: o.client === undefined ? fakeClient() : o.client,
+    ...(o.jev !== undefined ? { jev: o.jev } : {}),
     now: () => NOW,
   })
   const text = await res.text()
@@ -510,5 +514,113 @@ describe('record: the head-to-head of two models', () => {
     expect(r.res.status).toBe(500)
     expect(r.json.error.kind).toBe('upstream')
     expect(r.text).not.toContain('disk gone')
+  })
+})
+
+describe('Jev in a seat', () => {
+  /** A System One stand-in: picks the criterion for `san` (default e4/e5 by side); records each body. */
+  function fakeJev(san?: string, usage = { input_tokens: 1500, output_tokens: 300 }) {
+    const bodies: any[] = []
+    const jev: JevClient = {
+      systemone: async (body: any) => {
+        bodies.push(body)
+        const want = san ?? (body.state.side_to_move === 'White' ? 'e4' : 'e5')
+        const key = Object.entries(body.questions.move.criteria as Record<string, string>).find(([, d]) =>
+          d.startsWith(`${want}:`),
+        )![0]
+        return Response.json({ answers: { move: { type: 'choice', choice: key, probabilities: { [key]: 0.31 }, confidence: 0.5 } }, usage })
+      },
+    }
+    return { jev, bodies }
+  }
+
+  test('a Jev seat asks System One, not Anthropic; its usage is charged to the side and to jev for the month', async () => {
+    const { jev, bodies } = fakeJev()
+    const s = await call('start', { jev, body: { white: 'jev', black: 'haiku' } })
+    expect(s.res.status).toBe(200)
+    const g = s.json
+    const m = await call('move', { jev, body: { gameId: g.gameId, token: g.token, history: [] } })
+    expect(m.res.status).toBe(200)
+    expect(m.json).toMatchObject({ san: 'e4', why: "Jev's pick (p 0.31)" })
+    expect(calls).toBe(0)
+    expect(bodies).toHaveLength(1)
+    expect(m.json.costUsd).toBeCloseTo((1500 * 0.042) / 1e6, 9)
+    expect(m.json.usage.w).toMatchObject({ inputTokens: 1500, outputTokens: 300, calls: 1 })
+
+    // Black is Haiku: Anthropic answers, System One is not asked.
+    reply = () => message(JSON.stringify({ move: 'e5', why: 'Mirror.' }))
+    const m2 = await call('move', { jev, body: { gameId: g.gameId, token: g.token, history: ['e4'] } })
+    expect(m2.res.status).toBe(200)
+    expect(calls).toBe(1)
+    expect(bodies).toHaveLength(1)
+
+    const b = await call('budget', { jev })
+    expect(b.json.byModel.jev).toMatchObject({ inputTokens: 1500, outputTokens: 300, calls: 1 })
+    expect(b.json.byModel.haiku.calls).toBe(1)
+  })
+
+  test('budget lists the models this server can seat', async () => {
+    const { jev } = fakeJev()
+    expect((await call('budget', { jev })).json.models).toEqual(['fable', 'opus', 'sonnet', 'haiku', 'jev'])
+    expect((await call('budget', {})).json.models).toEqual(['fable', 'opus', 'sonnet', 'haiku'])
+    const onlyJev = await call('budget', { client: null, jev })
+    expect(onlyJev.res.status).toBe(200)
+    expect(onlyJev.json.models).toEqual(['jev'])
+  })
+
+  test('without a TypeSafe key a Jev seat cannot start (503 no-jev-key), nothing is reserved; Claude games still can', async () => {
+    const before = (await call('budget')).json.budgetLeftUsd
+    for (const sides of [{ white: 'jev', black: 'haiku' }, { white: 'haiku', black: 'jev' }]) {
+      const r = await call('start', { body: sides })
+      expect(r.res.status).toBe(503)
+      expect(r.json.error).toEqual({ kind: 'no-jev-key', message: 'Jev is not configured (no TYPESAFE_API_KEY).' })
+    }
+    expect((await call('budget')).json.budgetLeftUsd).toBe(before)
+    await startGame({ white: 'haiku', black: 'sonnet' })
+  })
+
+  test('with only a TypeSafe key, Jev vs Jev starts and a Claude seat is 503 no-key', async () => {
+    const { jev } = fakeJev()
+    const claudeSeat = await call('start', { client: null, jev, body: { white: 'jev', black: 'opus' } })
+    expect(claudeSeat.res.status).toBe(503)
+    expect(claudeSeat.json.error.kind).toBe('no-key')
+    const s = await call('start', { client: null, jev, body: { white: 'jev', black: 'jev' } })
+    expect(s.res.status).toBe(200)
+    const m = await call('move', { client: null, jev, body: { gameId: s.json.gameId, token: s.json.token, history: [] } })
+    expect(m.res.status).toBe(200)
+    expect(m.json.san).toBe('e4')
+  })
+
+  test('a Jev move with no TypeSafe client is 503 no-jev-key; a rejected key is too', async () => {
+    const { jev } = fakeJev()
+    const s = await call('start', { jev, body: { white: 'jev', black: 'jev' } })
+    const r = await call('move', { jev: null, body: { gameId: s.json.gameId, token: s.json.token, history: [] } })
+    expect(r.res.status).toBe(503)
+    expect(r.json.error.kind).toBe('no-jev-key')
+    const rejecting: JevClient = { systemone: async () => Response.json({ error: 'x' }, { status: 401 }) }
+    const r2 = await call('move', { jev: rejecting, body: { gameId: s.json.gameId, token: s.json.token, history: [] } })
+    expect(r2.res.status).toBe(503)
+    expect(r2.json.error.kind).toBe('no-jev-key')
+  })
+
+  test('a rate-limited Jev is a retryable 502 with its own message', async () => {
+    const { jev } = fakeJev()
+    const s = await call('start', { jev, body: { white: 'jev', black: 'jev' } })
+    const limited: JevClient = { systemone: async () => new Response('', { status: 529 }) }
+    const r = await call('move', { jev: limited, body: { gameId: s.json.gameId, token: s.json.token, history: [] } })
+    expect(r.res.status).toBe(502)
+    expect(r.json.error).toEqual({ kind: 'rate-limited', message: 'Jev is rate-limiting requests.' })
+  })
+
+  test('the head-to-head counts Jev games like any other', async () => {
+    const { jev } = fakeJev()
+    const s = await call('start', { jev, body: { white: 'jev', black: 'haiku' } })
+    await call('end', {
+      jev,
+      body: { gameId: s.json.gameId, token: s.json.token, pgn: '[Result "0-1"]\n\n1. f3 e5 2. g4 Qh4# 0-1', fallbacks: { w: 0, b: 0 } },
+    })
+    const r = await call('record', { query: 'white=haiku&black=jev' })
+    expect(r.res.status).toBe(200)
+    expect(r.json).toMatchObject({ games: 1, whiteModelWins: 1, blackModelWins: 0 })
   })
 })

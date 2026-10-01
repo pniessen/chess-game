@@ -12,5 +12,7 @@ export function claudeErrorText(kind: ClaudeStartError): string {
       return 'The local server refused this page — open the app on localhost. Nothing was started.'
     case 'unavailable':
       return 'Claude is unavailable — start the local server (npm run server) with ANTHROPIC_API_KEY in .env. Nothing was started.'
+    case 'no-jev-key':
+      return 'Jev is unavailable — the local server has no TYPESAFE_API_KEY (see README). Nothing was started.'
   }
 }
