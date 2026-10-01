@@ -160,6 +160,73 @@ owner-token field and no `/api/game/*` functions.
   / max 397 ms per `/api/game/move`, no failures, 21,445 input / 4,291 output tokens over 20 calls
   (about 1,070 input a move), $0.0009 for the game.
 
+## Addendum, 2026-10-01: Gemini 3.1 Pro and Gemini 3.8 Flash take seats (Vertex AI)
+
+- **What:** `gemini-pro` (id `gemini-3.1-pro-preview`, "Gemini 3.1 Pro") and `gemini-flash`
+  (id `gemini-3.8-flash`, "Gemini 3.8 Flash") are in `CLAUDE_MODELS`, seated, charged, saved,
+  counted in the head-to-head and shown in the usage lines like any other model (the month line
+  names them "Gemini Pro" / "Gemini Flash"). Provider `vertex` in `src/claude/providers.ts`.
+- **Public builds carry none of it.** `models.ts` ships in every bundle, so the two rows (and their
+  reserves) sit behind `LOCAL_MODELS`, the CLAUDE_GAMES rule written as direct `import.meta.env`
+  reads (plus `import.meta.env === undefined`, which is the server under tsx). Vite folds it to
+  `false` in a public build and the rows are dropped: built without the flag (and with
+  `NETLIFY=true npm run build`), `dist` has 0 hits for `gemini`, `aiplatform`, `vertex` and
+  `googleapis`; the bundle is byte-identical to main's. The Netlify functions import neither
+  `server/geminiMove.ts` nor `google-auth-library`.
+- **The call** (`server/geminiMove.ts`): `POST https://aiplatform.googleapis.com/v1/projects/<project>
+  /locations/global/publishers/google/models/<id>:generateContent`, the Claude prompt (`movePrompt`,
+  now shared from `server/claudeMove.ts`: FEN, numbered history, legal SAN list) as
+  `systemInstruction` + one user turn, `responseMimeType: application/json` with a
+  `responseSchema` whose `move` enum is the legal list, `why` cut to 20 words. The reply is checked
+  against the legal list again; thought parts are skipped; any `finishReason` but `STOP` is an
+  illegal reply (charged). No temperature or candidate count (Gemini 3 ignores or rejects them).
+- **Thinking:** `thinkingConfig.thinkingLevel: 'LOW'` for both, the lowest each accepts (both list
+  LOW / MEDIUM / HIGH and reject MINIMAL; defaults are HIGH for 3.1 Pro and MEDIUM for 3.8 Flash;
+  thinking cannot be switched off on 3.1 Pro). Source: docs.cloud.google.com/gemini-enterprise-agent-platform/models/thinking
+  and /models/guides/gemini-3-8-flash (read 2026-10-01). `maxOutputTokens` 2,000 (live calls used
+  at most 206, thinking included).
+- **Location:** `global` for both: 3.1 Pro Preview is served only there; 3.8 Flash is served from
+  global and multi-region. Global is also the cheaper price row.
+- **Auth:** Application Default Credentials through `google-auth-library` (a new dependency,
+  ^11.1.0), whose `getRequestHeaders()` supplies the bearer and the `x-goog-user-project` header.
+  The code never opens the credentials file and never logs a token or header. Project:
+  `GOOGLE_CLOUD_PROJECT`, else `poised-runner-159919`. `available()` asks ADC once and remembers a
+  success (a 401/403 on a move forgets it); a failure is re-asked after 30 s.
+- **Without ADC:** `GET /api/game/budget` leaves both out of `models`, the pickers show
+  "Gemini 3.8 Flash (no Google ADC)" disabled and Start is blocked with a hint, `start` refuses a
+  Gemini seat with 503 `no-gemini-auth` before reserving, and a refused credential on a move reads
+  the same. Claude and Jev games are unaffected. The startup line says
+  "Gemini enabled (Vertex AI, project <p>, global)" or "Gemini disabled (no Google Application
+  Default Credentials)".
+- **Failures:** 401/403 auth (503 `no-gemini-auth`), 429 or `RESOURCE_EXHAUSTED` rate-limited,
+  other HTTP errors and network failures upstream; refusals are free ("You're charged only for
+  requests that return a 200 response code"). A timeout (the shared 45 s `MOVE_TIMEOUT_MS`) is
+  charged the estimated input plus the 2,000-token cap.
+- **Price** (cloud.google.com/vertex-ai/generative-ai/pricing, read 2026-10-01, global, <= 200K
+  input tokens; output is "Text output (response and reasoning)", so `thoughtsTokenCount` is
+  added to `candidatesTokenCount` and billed as output):
+  - Gemini 3.1 Pro Preview: $2.00 / M input, $12.00 / M output.
+  - Gemini 3.8 Flash: $1.50 / $7.50 standard, from 2027-01-01. Until 2026-12-31 Google charges an
+    introductory $0.75 / $3.75; the ledger uses the standard price, so it over-counts Flash 2x
+    until then rather than ever under-count. (Non-global locations are 10% dearer.)
+- **Reserves:** the Phase 0 rule (80 x dearest opening move x 1.75 x 1.25). Opening moves through
+  Vertex at LOW: Pro $0.00174 / $0.00284 (282 in, 98 / 190 out; a third call was rate-limited,
+  429), Flash $0.00058 / $0.00073 / $0.00135 (21 / 41 / 123 out). Pro $0.50. Flash would be $0.24,
+  but it timed out on 4 of 12 calls in the smoke game; at that rate 80 moves add about
+  40 x $0.015, so Flash holds $0.60.
+- **Live smoke (2026-10-01, Gemini 3.8 Flash White vs Gemini 3.1 Pro Black, 16 plies through the
+  relay, temp `CLAUDE_GAMES_DIR`, cap then 8,000):** 1. e4 c5 2. Nf3 d6 3. d4 cxd4 4. Nxd4 Nf6
+  5. Nc3 a6 6. Be3 e5 7. Nb3 Be6 8. f3 Be7, every move legal, no illegal reply.
+  - Pro: 8 calls, all first-try, 2.7 to 16.0 s a move (median 3.5 s), 3,076 input / 1,169
+    output tokens (thinking included, 109 to 206 a move), $0.0202.
+  - Flash: 12 calls for 8 moves. Its 8 answers took 2.6 to 28.6 s (median about 4 s, but 3 of
+    them 23 to 29 s with only 21 to 90 output tokens: the time is queueing, not thinking), and 4
+    calls hit the 45 s timeout (plies 7 and 13 each needed the third try). 4,448 input / 32,695
+    output tokens on the ledger, $0.2519, of which about $0.242 is the four timeouts' worst-case
+    charge; its 8 answered calls cost about $0.010.
+  - Game total on the ledger $0.272 (real Vertex spend about $0.03 plus whatever Google billed for
+    the abandoned calls). The cap is now 2,000, which would have charged those timeouts $0.06.
+
 ## Phase 0 results (measured 2026-09-29, local server, Peter's own key)
 
 Three moves per model from the start position (both seats the same model), then one full

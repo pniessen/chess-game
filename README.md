@@ -89,6 +89,14 @@ environment (a sourced shell or `.env`); when that is unset it reads the
 Without it the Jev option is disabled and Claude-only games are unaffected;
 with only a TypeSafe key, Jev vs Jev still plays.
 
+It can also seat Google's **Gemini 3.1 Pro** and **Gemini 3.8 Flash** through
+Vertex AI. The server signs in with Application Default Credentials
+(`gcloud auth application-default login`, with Vertex AI enabled on the
+project) and bills the project in `GOOGLE_CLOUD_PROJECT` (default
+`poised-runner-159919`), location `global`. No key goes in `.env`. Without
+working credentials the Gemini options are disabled and other games are
+unaffected; the server's startup line says which providers are enabled.
+
 ## Checks
 
 ```sh
