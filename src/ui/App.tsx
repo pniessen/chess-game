@@ -442,7 +442,7 @@ function AppInner({
             canUndo={game.moves.length > 0 && snapshot.phase.kind !== 'idle'}
             canRedo={input.canRedo}
             canResign={resignableSide(snapshot.config, snapshot.phase) !== null}
-            speed={snapshot.config.engineDelayMs ?? 500}
+            speed={snapshot.config.engineDelayMs ?? 0}
             hint={{
               label: hints.label,
               text: hints.text,

@@ -41,7 +41,7 @@ test('engine moves are never starved by the bar (zero-player at full speed)', as
   await page.getByTestId('mode').selectOption('zero-player')
   await page.getByTestId('level').selectOption('1')
   await page.getByTestId('new-game').click()
-  await page.getByTestId('speed').fill('0')
+  await page.getByTestId('speed').fill('2000')
   await expect(page.getByTestId('ply-count')).toHaveText(/[6-9]|\d\d/, { timeout: 45_000 })
 
   // Once the engine is idle, analysis gets its turn.

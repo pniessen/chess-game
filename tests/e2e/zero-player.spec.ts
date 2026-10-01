@@ -18,7 +18,7 @@ test('engine vs engine runs, pauses, and steps', async ({ page }) => {
   // The speed slider reflects the running match's own state and is disabled
   // until a game is actually in progress (phase 'idle'), so it can only be
   // set after New game starts the match, not before.
-  await page.getByTestId('speed').fill('0')
+  await page.getByTestId('speed').fill('2000')
 
   const plies = page.getByTestId('ply-count')
 
@@ -37,4 +37,18 @@ test('engine vs engine runs, pauses, and steps', async ({ page }) => {
   await expect(plies).toHaveText(String(Number(atPause) + 1), { timeout: 20_000 })
   await page.waitForTimeout(2_000)
   await expect(plies).toHaveText(String(Number(atPause) + 1))
+})
+
+test('the Speed slider reads fast to the right, and a game vs the computer starts at full speed', async ({ page }) => {
+  await page.goto('/')
+  await page.getByTestId('mode').selectOption('one-player')
+  await page.getByTestId('new-game').click()
+  // No pause in a game against the computer, so the thumb sits at the fast end.
+  await expect(page.getByTestId('speed')).toHaveValue('2000')
+  await expect(page.getByTestId('speed')).toHaveAttribute('aria-valuetext', '0 s pause between moves')
+
+  await page.getByTestId('mode').selectOption('zero-player')
+  await page.getByTestId('new-game').click()
+  // Engine vs engine starts with a half-second pause.
+  await expect(page.getByTestId('speed')).toHaveValue('1500')
 })
