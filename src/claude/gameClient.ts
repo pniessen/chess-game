@@ -11,8 +11,11 @@ import {
 
 export type BeginResult =
   | { ok: true; budgetLeftUsd: number }
-  /** 'no-jev-key': a seat is Jev and the local server has no TYPESAFE_API_KEY. */
-  | { ok: false; kind: 'busy' | 'budget' | 'forbidden' | 'unavailable' | 'no-jev-key' }
+  /**
+   * 'no-jev-key': a seat is Jev and the local server has no TYPESAFE_API_KEY.
+   * 'no-gemini-auth': a seat is Gemini and the local server has no working Google ADC.
+   */
+  | { ok: false; kind: 'busy' | 'budget' | 'forbidden' | 'unavailable' | 'no-jev-key' | 'no-gemini-auth' }
 
 export type ClaudeMoveResult =
   | {
@@ -111,7 +114,9 @@ export class GameClient implements ClaudeMover {
       return { ok: true, budgetLeftUsd: typeof left === 'number' ? left : 0 }
     }
     const kind = errorKindOf(payload)
-    if (kind === 'busy' || kind === 'budget' || kind === 'forbidden' || kind === 'no-jev-key') return { ok: false, kind }
+    if (kind === 'busy' || kind === 'budget' || kind === 'forbidden' || kind === 'no-jev-key' || kind === 'no-gemini-auth') {
+      return { ok: false, kind }
+    }
     return { ok: false, kind: 'unavailable' }
   }
 
@@ -208,7 +213,7 @@ export interface ClaudeBudget {
   earlierUsd: number
   /**
    * The models the server holds a key for, in list order (Jev needs
-   * TYPESAFE_API_KEY, the Claude models ANTHROPIC_API_KEY). Absent from an
+   * TYPESAFE_API_KEY, Gemini working Google ADC, the Claude models ANTHROPIC_API_KEY). Absent from an
    * older server that does not say, which seats every model.
    */
   models?: ClaudeModelKey[]

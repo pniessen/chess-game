@@ -50,8 +50,8 @@ function ModelOptions({ models }: { models: ClaudeModelKey[] | undefined }) {
   })
 }
 
-/** "Fable" from "Claude Fable 5.1": the month line is kept short. */
-const familyLabel = (k: ClaudeModelKey) => shortModelLabel(k).replace(/ [\d.]+$/, '')
+/** "Fable" from "Claude Fable 5.1", "Gemini Pro" from "Gemini 3.1 Pro": the month line is kept short. */
+const familyLabel = (k: ClaudeModelKey) => shortModelLabel(k).replace(/ \d[\d.]*(?= |$)/, '')
 
 /**
  * "This month: Fable $0.23 (12 calls, 3.9 s/call) · … · Earlier: $0.13", for
@@ -226,7 +226,7 @@ export function NewGame({
           ) : null}
           {claudeUnavailable ? (
             <p className="claude-note" role="status" data-testid="claude-unavailable-hint">
-              Claude games are unavailable. Start the local server (npm run server) with ANTHROPIC_API_KEY in .env (or TYPESAFE_API_KEY, for Jev).
+              Claude games are unavailable. Start the local server (npm run server) with ANTHROPIC_API_KEY in .env (or TYPESAFE_API_KEY, for Jev; Google ADC, for Gemini).
             </p>
           ) : null}
         </div>

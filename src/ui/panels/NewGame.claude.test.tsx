@@ -78,12 +78,48 @@ describe('NewGame: Claude vs Claude', () => {
     const { onWhite } = renderNewGame({ mode: 'claude-vs-claude' })
     for (const id of ['claude-white', 'claude-black']) {
       const options = [...screen.getByTestId(id).querySelectorAll('option')]
-      expect(options.at(-1)).toHaveValue('jev')
-      expect(options.at(-1)).toHaveTextContent('TypeSafe Jev')
-      expect(options.at(-1)).not.toBeDisabled()
+      expect(options[4]).toHaveValue('jev')
+      expect(options[4]).toHaveTextContent('TypeSafe Jev')
+      expect(options[4]).not.toBeDisabled()
     }
     fireEvent.change(screen.getByTestId('claude-white'), { target: { value: 'jev' } })
     expect(onWhite).toHaveBeenCalledWith('jev')
+  })
+
+  test('Gemini 3.1 Pro and 3.8 Flash are the last two options in both selects', () => {
+    const { onBlack } = renderNewGame({ mode: 'claude-vs-claude' })
+    for (const id of ['claude-white', 'claude-black']) {
+      const options = [...screen.getByTestId(id).querySelectorAll('option')].slice(-2)
+      expect(options.map((o) => o.value)).toEqual(['gemini-pro', 'gemini-flash'])
+      expect(options.map((o) => o.textContent)).toEqual(['Gemini 3.1 Pro', 'Gemini 3.8 Flash'])
+      for (const o of options) expect(o).not.toBeDisabled()
+    }
+    fireEvent.change(screen.getByTestId('claude-black'), { target: { value: 'gemini-flash' } })
+    expect(onBlack).toHaveBeenCalledWith('gemini-flash')
+  })
+
+  test('without ADC the Gemini options are disabled and say so; a Gemini seat disables Start', () => {
+    const models: ClaudeModelKey[] = ['fable', 'opus', 'sonnet', 'haiku', 'jev']
+    renderNewGame({ mode: 'claude-vs-claude', claude: { models } })
+    const flash = screen.getByTestId('claude-white').querySelector('option[value="gemini-flash"]') as HTMLOptionElement
+    expect(flash).toBeDisabled()
+    expect(flash).toHaveTextContent('Gemini 3.8 Flash (no Google ADC)')
+    expect(screen.getByTestId('new-game')).not.toBeDisabled()
+
+    renderNewGame({ mode: 'claude-vs-claude', claude: { white: 'gemini-flash', black: 'gemini-pro', models } })
+    expect(screen.getByTestId('claude-seat-hint')).toHaveTextContent(
+      'Gemini 3.8 Flash needs Google ADC on the local server; Gemini 3.1 Pro needs Google ADC on the local server (see README).',
+    )
+    expect(screen.getAllByTestId('new-game')[1]).toBeDisabled()
+  })
+
+  test('with only ADC, Gemini vs Gemini can start', () => {
+    renderNewGame({
+      mode: 'claude-vs-claude',
+      claude: { white: 'gemini-flash', black: 'gemini-pro', models: ['gemini-pro', 'gemini-flash'] },
+    })
+    expect(screen.queryByTestId('claude-seat-hint')).toBeNull()
+    expect(screen.getByTestId('new-game')).not.toBeDisabled()
   })
 
   test('a model the server cannot seat is disabled and says which key it needs', () => {
@@ -238,6 +274,16 @@ describe('NewGame: this month\'s usage per model', () => {
       claude: { month: { byModel: { opus: u(0.01, 2, 3000, 100) }, earlierUsd: 0.13 } },
     })
     expect(screen.getByTestId('claude-month')).toHaveTextContent(/^This month: Opus \$0\.01 \(2 calls, 1\.5 s\/call\) · Earlier: \$0\.13$/)
+  })
+
+  test('Gemini models are named by family in the month line, after the others', () => {
+    renderNewGame({
+      mode: 'claude-vs-claude',
+      claude: { month: { byModel: { 'gemini-flash': u(0.05, 10, 20_000, 900), 'gemini-pro': u(0.2, 10, 50_000, 3000), jev: u(0.001, 4, 800, 0) }, earlierUsd: 0 } },
+    })
+    expect(screen.getByTestId('claude-month')).toHaveTextContent(
+      /^This month: Jev \$0\.00 \(4 calls, 0\.2 s\/call\) · Gemini Pro \$0\.20 \(10 calls, 5\.0 s\/call\) · Gemini Flash \$0\.05 \(10 calls, 2\.0 s\/call\)$/,
+    )
   })
 
   test('only Earlier when no model has calls', () => {

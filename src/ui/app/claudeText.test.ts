@@ -3,8 +3,8 @@ import { claudeErrorText } from './claudeText'
 
 describe('claudeErrorText', () => {
   test('each refusal has its own reason', () => {
-    const texts = (['busy', 'budget', 'forbidden', 'unavailable', 'no-jev-key'] as const).map(claudeErrorText)
-    expect(new Set(texts).size).toBe(5)
+    const texts = (['busy', 'budget', 'forbidden', 'unavailable', 'no-jev-key', 'no-gemini-auth'] as const).map(claudeErrorText)
+    expect(new Set(texts).size).toBe(6)
     expect(claudeErrorText('busy')).toMatch(/already running/)
     expect(claudeErrorText('budget')).toMatch(/budget/)
   })
@@ -23,5 +23,11 @@ describe('claudeErrorText', () => {
     expect(claudeErrorText('no-jev-key')).toMatch(/Jev/)
     expect(claudeErrorText('no-jev-key')).toMatch(/TYPESAFE_API_KEY/)
     expect(claudeErrorText('no-jev-key')).toMatch(/Nothing was started/)
+  })
+
+  test('no-gemini-auth says how to set up ADC and that nothing started', () => {
+    expect(claudeErrorText('no-gemini-auth')).toMatch(/Gemini/)
+    expect(claudeErrorText('no-gemini-auth')).toMatch(/gcloud auth application-default login/)
+    expect(claudeErrorText('no-gemini-auth')).toMatch(/Nothing was started/)
   })
 })
