@@ -19,11 +19,8 @@ import {
 import type { ClockState } from '../clock/types'
 import type { ClaudeMover, ClaudeMoveResult } from '../claude/gameClient'
 import { CLAUDE_MAX_PLIES, type SideUsage } from '../claude/models'
+import { CLAUDE_FALLBACK_LEVEL, CLAUDE_FALLBACK_LIMIT } from './claudeFallback'
 
-/** Stockfish stands in for a failed Claude turn at full strength, so the stand-in is never the weak link. */
-const CLAUDE_FALLBACK_LEVEL: Level = 8
-/** This many Stockfish stand-ins for one side in one game, and that Claude is out. */
-const CLAUDE_FALLBACK_LIMIT = 5
 
 /**
  * The one Claude reply the controller may keep for later (Q8), and the

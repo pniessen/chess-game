@@ -46,7 +46,8 @@ export type GeminiModelKey = keyof typeof GEMINI_THINKING_LEVEL
 // 2026-10-01 used at most 206 output tokens, thinking included (3.6 Flash at MINIMAL at most 43),
 // so 2,000 is ten times that. It is also what a timed-out call is charged for: the Claude seats'
 // 8,000 would charge each one $0.06 on Flash, not $0.015.
-const MAX_TOKENS = 2000
+export const GEMINI_MOVE_MAX_TOKENS = 2000
+const MAX_TOKENS = GEMINI_MOVE_MAX_TOKENS
 
 /** After ADC fails, how long `available` answers false before asking again. */
 const RECHECK_MS = 30_000

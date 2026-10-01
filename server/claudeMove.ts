@@ -22,7 +22,8 @@ type WithoutMs<T> = T extends unknown ? Omit<T, 'ms'> : never
 export const MAX_WHY_WORDS = 20
 // Thinking tokens count toward max_tokens and cannot be switched off on the
 // 5.x models, so the cap leaves room for them; the reply itself is tiny.
-const MAX_TOKENS = 8000
+export const CLAUDE_MOVE_MAX_TOKENS = 8000
+const MAX_TOKENS = CLAUDE_MOVE_MAX_TOKENS
 
 export const cutWords = (s: string, n: number) => s.trim().split(/\s+/).filter(Boolean).slice(0, n).join(' ')
 
