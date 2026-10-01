@@ -10,6 +10,7 @@ import { createClaude } from './claude'
 import { randomBytes, randomUUID } from 'node:crypto'
 import { fileStore } from './fileStore'
 import { createJevClient } from './jevMove'
+import { DEFAULT_GCP_PROJECT, VERTEX_LOCATION, createVertexClient, type VertexClient } from './geminiMove'
 
 /**
  * The relay is unauthenticated and holds the Anthropic API key, so it must
@@ -59,12 +60,27 @@ export function typesafeKeyFor(env: NodeJS.ProcessEnv, file: string): string | n
   return value.trim() || null
 }
 
-export function startServer(env: NodeJS.ProcessEnv = process.env): Promise<Server> {
+/** The Google Cloud project Gemini seats bill to: `GOOGLE_CLOUD_PROJECT` if set, else the owner's default. */
+export function gcpProjectFor(env: NodeJS.ProcessEnv): string {
+  return env['GOOGLE_CLOUD_PROJECT']?.trim() || DEFAULT_GCP_PROJECT
+}
+
+/** How long the startup line waits on the ADC check before calling Gemini disabled (the budget asks again later). */
+const ADC_CHECK_MS = 10_000
+
+/**
+ * `opts.vertex` replaces the Vertex AI client (tests pass null or a fake, so
+ * they never use the owner's real Google credentials). By default one is built
+ * over Application Default Credentials; it seats Gemini only while they work.
+ */
+export function startServer(env: NodeJS.ProcessEnv = process.env, opts: { vertex?: VertexClient | null } = {}): Promise<Server> {
   const port = Number(env['PORT'] ?? 8787)
   const apiKey = env['ANTHROPIC_API_KEY']?.trim() || null
   const typesafeKey = typesafeKeyFor(env, typesafeEnvFileFor(env))
   const gamesDir = gamesDirFor(env)
   const distDir = fileURLToPath(new URL('../dist', import.meta.url))
+  const gcpProject = gcpProjectFor(env)
+  const vertex = opts.vertex !== undefined ? opts.vertex : createVertexClient({ project: gcpProject })
 
   const app = createApp({
     claude: apiKey ? createClaude({ apiKey }) : null,
@@ -76,6 +92,8 @@ export function startServer(env: NodeJS.ProcessEnv = process.env): Promise<Serve
       client: apiKey ? new Anthropic({ apiKey, timeout: MOVE_TIMEOUT_MS, maxRetries: 0 }) : null,
       // Jev seats (TypeSafe); without a key the budget leaves `jev` out of its models and start refuses it.
       jev: typesafeKey ? createJevClient({ apiKey: typesafeKey }) : null,
+      // Gemini seats (Vertex AI, ADC); without working ADC the budget leaves them out and start refuses them.
+      vertex,
       store: fileStore(gamesDir),
       secret: randomBytes(32),
       boot: randomUUID(),
@@ -84,11 +102,15 @@ export function startServer(env: NodeJS.ProcessEnv = process.env): Promise<Serve
   })
 
   return new Promise((resolve) => {
-    const server = app.listen(port, LISTEN_HOST, () => {
-      // Never log either key itself.
+    const server = app.listen(port, LISTEN_HOST, async () => {
+      const adc = vertex
+        ? await Promise.race([vertex.available(), new Promise<boolean>((r) => setTimeout(() => r(false), ADC_CHECK_MS).unref())])
+        : false
+      // Never log either key itself, nor anything from Google's credentials.
       console.log(
         `coach server on http://${LISTEN_HOST}:${port} — Claude ${apiKey ? 'enabled' : 'disabled (no ANTHROPIC_API_KEY)'}, ` +
-          `Jev ${typesafeKey ? 'enabled' : 'disabled (no TYPESAFE_API_KEY)'}`,
+          `Jev ${typesafeKey ? 'enabled' : 'disabled (no TYPESAFE_API_KEY)'}, ` +
+          `Gemini ${adc ? `enabled (Vertex AI, project ${gcpProject}, ${VERTEX_LOCATION})` : 'disabled (no Google Application Default Credentials)'}`,
       )
       resolve(server)
     })
