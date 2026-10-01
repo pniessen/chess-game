@@ -56,10 +56,10 @@ describe('shortModelLabel', () => {
 })
 
 describe('Jev (TypeSafe)', () => {
-  test('is the one TypeSafe model; the Claude models are Anthropic', () => {
-    const providers = Object.fromEntries(Object.entries(CLAUDE_MODELS).map(([k, v]) => [k, v.provider]))
-    expect(providers).toEqual({ fable: 'anthropic', opus: 'anthropic', sonnet: 'anthropic', haiku: 'anthropic', jev: 'typesafe' })
-    expect(CLAUDE_MODELS.jev.label).toBe('TypeSafe Jev')
+  // No maker in the label: this table is in every bundle, and public builds must not name TypeSafe.
+  test('is labelled plain "Jev"', () => {
+    expect(CLAUDE_MODELS.jev.label).toBe('Jev')
+    expect(JSON.stringify(CLAUDE_MODELS).toLowerCase()).not.toContain('typesafe')
   })
 
   // docs.typesafe.ai/models.md (read 2026-09-30): $0.042 per million input tokens; output tokens are free.

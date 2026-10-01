@@ -3,6 +3,7 @@ import { TIME_CONTROLS } from '../../clock/types'
 import type { Level } from '../../storage/storage'
 import { CLAUDE_MODELS, shortModelLabel, type ClaudeModelKey, type UsageByModel } from '../../claude/models'
 import { claudeEstimateUsd } from '../app/matchConfig'
+import { keyNameFor, seatLabel } from '../../claude/providers'
 import { CLAUDE_GAMES } from '../../claude/enabled'
 
 export type Mode = 'two-player' | 'one-player' | 'zero-player' | 'claude-vs-claude'
@@ -37,16 +38,13 @@ const usd = (n: number) => `$${n.toFixed(2)}`
 /** Calls, not moves: a retried or timed-out request is a call too. */
 const CALL_NOTE = 'A call is one request to the model, retries included.'
 
-/** The key a model's provider needs on the local server. */
-const keyFor = (k: ClaudeModelKey) => (CLAUDE_MODELS[k].provider === 'typesafe' ? 'TYPESAFE_API_KEY' : 'ANTHROPIC_API_KEY')
-
 /** One seat's options: a model the server cannot seat is disabled and names the key it lacks. */
 function ModelOptions({ models }: { models: ClaudeModelKey[] | undefined }) {
   return MODEL_KEYS.map((k) => {
     const off = models !== undefined && !models.includes(k)
     return (
       <option key={k} value={k} disabled={off}>
-        {off ? `${CLAUDE_MODELS[k].label} (no ${keyFor(k)})` : CLAUDE_MODELS[k].label}
+        {off ? `${seatLabel(k)} (no ${keyNameFor(k)})` : seatLabel(k)}
       </option>
     )
   })
@@ -118,8 +116,8 @@ export function NewGame({
   // A seated model the server holds no key for (e.g. Jev without TYPESAFE_API_KEY): Start would only be refused.
   const unseatable =
     isClaude && claude?.models !== undefined
-      ? [claude.white, claude.black].find((k) => !claude.models!.includes(k))
-      : undefined
+      ? [...new Set([claude.white, claude.black])].filter((k) => !claude.models!.includes(k))
+      : []
   return (
     <div className="new-game">
       <label>
@@ -220,9 +218,10 @@ export function NewGame({
                 : usd(claude.budgetLeftUsd)}
           </p>
           {claude.month && typeof claude.budgetLeftUsd === 'number' ? <MonthLine month={claude.month} /> : null}
-          {unseatable !== undefined && !claudeUnavailable ? (
+          {unseatable.length > 0 && !claudeUnavailable ? (
             <p className="claude-note" role="status" data-testid="claude-seat-hint">
-              {`${CLAUDE_MODELS[unseatable].label} needs ${keyFor(unseatable)} on the local server (see README).`}
+              {unseatable.map((k) => `${seatLabel(k)} needs ${keyNameFor(k)} on the local server`).join('; ')}
+              {' (see README).'}
             </p>
           ) : null}
           {claudeUnavailable ? (
@@ -233,7 +232,7 @@ export function NewGame({
         </div>
       ) : null}
       <div className="new-game-actions">
-        <button data-testid="new-game" disabled={claudeUnavailable || unseatable !== undefined} onClick={onStart}>
+        <button data-testid="new-game" disabled={claudeUnavailable || unseatable.length > 0} onClick={onStart}>
           New game
         </button>
         {onPuzzles ? (

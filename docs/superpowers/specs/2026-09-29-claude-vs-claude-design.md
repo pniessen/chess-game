@@ -130,9 +130,11 @@ owner-token field and no `/api/game/*` functions.
 
 ## Addendum, 2026-09-30: TypeSafe's Jev takes a seat
 
-- **What:** `jev` is a fifth key in `CLAUDE_MODELS` (`provider: 'typesafe'`, id `jev-latest`,
-  label "TypeSafe Jev"). It is seated, charged, saved, counted in the head-to-head and shown in
-  the usage lines exactly like a Claude model; the seat kind stays `claude`.
+- **What:** `jev` is a fifth key in `CLAUDE_MODELS` (id `jev-latest`, label "Jev"). It is
+  seated, charged, saved, counted in the head-to-head and shown in the usage lines exactly like a
+  Claude model; the seat kind stays `claude`. Whose API answers a seat, the key it needs and the
+  picker's "TypeSafe Jev" live in `src/claude/providers.ts`, imported only by the server and the
+  gated UI, so a public build has no "typesafe" in it at all (models.ts ships in every bundle).
 - **The call** (`server/jevMove.ts`): `POST https://api.typesafe.ai/v1/systemone`, bearer
   `TYPESAFE_API_KEY`, `state` = `{fen, side_to_move, board}`, one `choice` question whose criteria
   are the legal moves keyed `m0..mN` and described in words ("Bxf7+: bishop from c4 to f7,

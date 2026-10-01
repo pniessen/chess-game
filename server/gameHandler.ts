@@ -12,6 +12,7 @@
  */
 import { LIMITS } from '../src/coach/protocol'
 import { CLAUDE_MODELS, ZERO_USAGE, isClaudeModelKey, type ClaudeModelKey, type SideUsage } from '../src/claude/models'
+import { providerOf } from '../src/claude/providers'
 import { Position } from '../src/game-core/position'
 import { STARTING_FEN } from '../src/game-core/types'
 import type { MessagesClient } from './claude'
@@ -95,11 +96,11 @@ const moveStatus = (kind: string): number => MOVE_STATUS[kind] ?? 502
 const moveKind = (kind: string, model: ClaudeModelKey): string => (kind === 'auth' ? noKeyKind(model) : kind)
 
 /** The refusal for a seat whose provider has no key. */
-const noKeyKind = (model: ClaudeModelKey): string => (CLAUDE_MODELS[model].provider === 'typesafe' ? 'no-jev-key' : 'no-key')
+const noKeyKind = (model: ClaudeModelKey): string => (providerOf(model) === 'typesafe' ? 'no-jev-key' : 'no-key')
 
 /** Whether this server holds a key for the model's provider. */
 const canSeat = (model: ClaudeModelKey, deps: GameDeps): boolean =>
-  CLAUDE_MODELS[model].provider === 'typesafe' ? Boolean(deps.jev) : deps.client !== null
+  providerOf(model) === 'typesafe' ? Boolean(deps.jev) : deps.client !== null
 
 /** The models this server can seat, in list order: the browser disables the others. */
 const seatable = (deps: GameDeps): ClaudeModelKey[] =>
@@ -213,7 +214,7 @@ async function move(body: Record<string, unknown>, deps: GameDeps, now: number):
   })
   if (!auth.ok) return fail(moveStatus(auth.kind), auth.kind)
   const model = auth.model
-  const isJev = CLAUDE_MODELS[model].provider === 'typesafe'
+  const isJev = providerOf(model) === 'typesafe'
   const moveReq = { model, ...(startFen !== undefined ? { startFen } : {}), history }
   let outcome: Awaited<ReturnType<typeof requestMove>>
   if (isJev) {

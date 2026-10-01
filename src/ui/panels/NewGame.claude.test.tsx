@@ -2,7 +2,8 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, test, vi } from 'vitest'
 import type { ComponentProps } from 'react'
 import { NewGame, type Mode } from './NewGame'
-import { CLAUDE_MODELS, type Usage } from '../../claude/models'
+import { CLAUDE_MODELS, type ClaudeModelKey, type Usage } from '../../claude/models'
+import { seatLabel } from '../../claude/providers'
 
 const noop = () => {}
 
@@ -114,6 +115,17 @@ describe('NewGame: Claude vs Claude', () => {
     expect(screen.getByTestId('new-game')).toBeDisabled()
   })
 
+  test('both seats unseatable: the hint names each model once', () => {
+    renderNewGame({ mode: 'claude-vs-claude', claude: { white: 'jev', black: 'opus', models: ['haiku'] } })
+    expect(screen.getByTestId('claude-seat-hint')).toHaveTextContent(
+      'TypeSafe Jev needs TYPESAFE_API_KEY on the local server; Claude Opus 5.5 needs ANTHROPIC_API_KEY on the local server (see README).',
+    )
+    renderNewGame({ mode: 'claude-vs-claude', claude: { white: 'jev', black: 'jev', models: ['haiku'] } })
+    expect(screen.getAllByTestId('claude-seat-hint')[1]).toHaveTextContent(
+      /^TypeSafe Jev needs TYPESAFE_API_KEY on the local server \(see README\)\.$/,
+    )
+  })
+
   test('an older server that lists no models leaves every option enabled', () => {
     renderNewGame({ mode: 'claude-vs-claude', claude: { white: 'jev' } })
     const disabled = [...screen.getByTestId('claude-white').querySelectorAll('option')].filter((o) => o.disabled)
@@ -123,7 +135,7 @@ describe('NewGame: Claude vs Claude', () => {
 
   test('two selects list all five models by label and report changes', () => {
     const { onWhite, onBlack } = renderNewGame({ mode: 'claude-vs-claude' })
-    const labels = Object.values(CLAUDE_MODELS).map((m) => m.label)
+    const labels = (Object.keys(CLAUDE_MODELS) as ClaudeModelKey[]).map(seatLabel)
     for (const id of ['claude-white', 'claude-black']) {
       const texts = [...screen.getByTestId(id).querySelectorAll('option')].map((o) => o.textContent)
       expect(texts).toEqual(labels)
