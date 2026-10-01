@@ -154,6 +154,7 @@ export async function playGame(spec: GameSpec, deps: PlayDeps): Promise<GameReco
         costUsd: o.costUsd,
         inputTokens: o.tokens?.inputTokens ?? 0,
         outputTokens: o.tokens?.outputTokens ?? 0,
+        ...(!o.ok && o.detail ? { detail: o.detail } : {}),
       }
       // A call was made whenever tokens are reported (a bad request makes none), as the server counts it.
       // charge() adds to the spend before its first await, so releasing after it leaves no gap.
@@ -226,10 +227,13 @@ export async function playGame(spec: GameSpec, deps: PlayDeps): Promise<GameReco
     moves.push(rec)
     deps.onPly?.(moves)
     const n = Math.ceil(rec.ply / 2)
+    const why = played.fallback
+      ? ` (${calls.filter((c) => c.kind !== 'ok').map((c) => (c.detail ? `${c.kind}: ${c.detail}` : c.kind)).join('; ')})`
+      : ''
     deps.log(
       `[${spec.id}] ${n}${side === 'w' ? '.' : '...'} ${played.san}${played.fallback ? ' (fallback)' : ''} ` +
         `${shortModelLabel(model)} ${(rec.ms / 1000).toFixed(1)}s ${usd(rec.costUsd)}` +
-        `${calls.length > 1 ? ` ${calls.length} calls` : ''} · trial ${usd(deps.spentUsd())}`,
+        `${calls.length > 1 ? ` ${calls.length} calls` : ''}${why} · trial ${usd(deps.spentUsd())}`,
     )
 
     if (played.fallback && t.fallbacks >= CLAUDE_FALLBACK_LIMIT && game.status().kind === 'in-progress') {

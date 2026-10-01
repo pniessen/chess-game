@@ -185,7 +185,8 @@ export async function requestGeminiMove(
   const started = Date.now()
   const done = (o: WithoutMs<MoveOutcome>): MoveOutcome => ({ ...o, ms: Date.now() - started }) as MoveOutcome
   const bad = () => done({ ok: false, kind: 'bad-request', costUsd: 0, tokens: null })
-  const free = (kind: Failure) => done({ ok: false, kind, costUsd: 0, tokens: { inputTokens: 0, outputTokens: 0 } })
+  const free = (kind: Failure, detail?: string) =>
+    done({ ok: false, kind, costUsd: 0, tokens: { inputTokens: 0, outputTokens: 0 }, ...(detail ? { detail } : {}) })
 
   if (!Object.prototype.hasOwnProperty.call(GEMINI_THINKING_LEVEL, req.model)) return bad()
   const key = req.model as GeminiModelKey
@@ -243,7 +244,8 @@ export async function requestGeminiMove(
   // A refusal is not billed ("You're charged only for requests that return a 200"); only its status name is read.
   if (!res.ok) {
     const error = isRecord(payload) && isRecord(payload['error']) ? payload['error'] : {}
-    return free(kindOfRefusal(res.status, error['status']))
+    const name = typeof error['status'] === 'string' ? ` ${error['status']}` : ''
+    return free(kindOfRefusal(res.status, error['status']), `HTTP ${res.status}${name}`)
   }
 
   // Google bills every 200. One without readable usage is charged the worst case, like a timeout,

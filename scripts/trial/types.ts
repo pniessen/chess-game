@@ -32,6 +32,8 @@ export interface CallRecord {
   costUsd: number
   inputTokens: number
   outputTokens: number
+  /** A failure's HTTP status and error type (no message text), when the provider gave one. */
+  detail?: string
 }
 
 export interface MoveRecord {

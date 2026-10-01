@@ -145,6 +145,12 @@ describe('requestJevMove', () => {
     expect(out).toMatchObject({ ok: false, kind, costUsd: 0, tokens: { inputTokens: 0, outputTokens: 0 } })
   })
 
+  test('a refusal says its HTTP status', async () => {
+    const { fetchImpl } = fakeFetch(() => Response.json({ error: 'busy' }, { status: 503 }))
+    const out = await requestJevMove({ jev: createJevClient({ apiKey: KEY, fetch: fetchImpl }) }, { model: 'jev', history: [] })
+    expect(out).toMatchObject({ ok: false, kind: 'upstream', detail: 'HTTP 503' })
+  })
+
   test('a network failure is upstream, free', async () => {
     const fetchImpl = (async () => {
       throw new TypeError('fetch failed')

@@ -41,7 +41,9 @@ export interface ModelStats {
   asWhite: Record3
   asBlack: Record3
   vs: Partial<Record<ClaudeModelKey, Record3>>
-  speed: { medianSec: number | null; p90Sec: number | null; maxSec: number | null; moves: number }
+  speed: { meanSec: number | null; medianSec: number | null; p90Sec: number | null; maxSec: number | null; moves: number }
+  /** `ownSecPerGame`: its own (non-fallback) move time, summed per game and averaged; `gameMinutes`: its games' mean wall time. */
+  time: { ownSecPerGame: number | null; gameMinutes: number | null }
   cost: { totalUsd: number; perGameUsd: number | null; perMoveUsd: number | null; inputTokens: number; outputTokens: number; calls: number }
   reliability: { fallbacks: number; timeouts: number; rateLimited: number; illegalReplies: number; unavailableGames: number }
   avgGamePlies: number | null
@@ -213,6 +215,7 @@ export function computeStats(
     const reliability = { fallbacks: 0, timeouts: 0, rateLimited: 0, illegalReplies: 0, unavailableGames: 0 }
     const cost = { totalUsd: 0, inputTokens: 0, outputTokens: 0, calls: 0 }
     const msPerMove: number[] = []
+    const ownMsPerGame: number[] = []
     let ownMoves = 0
     const cpls: Array<{ cpl: number; best: boolean; phase: Phase; before: number }> = []
     const style = { captures: 0, checks: 0, pawns: 0, castled: 0, castleMoves: [] as number[], k: 0, q: 0, early: 0, started: 0, repeating: 0 }
@@ -255,11 +258,16 @@ export function computeStats(
       }
       ;(side === 'w' ? openingsW : openingsB).push(openingName(g, book))
 
+      let ownMs = 0
       for (const m of g.moves) {
         if (m.side !== side) continue
         ownMoves++
-        if (!m.fallback) msPerMove.push(m.ms)
+        if (!m.fallback) {
+          msPerMove.push(m.ms)
+          ownMs += m.ms
+        }
       }
+      ownMsPerGame.push(ownMs)
       const rp = replays.get(g.gameId)!
       let castledHere = false
       rp.plies.forEach((p, i) => {
@@ -299,10 +307,15 @@ export function computeStats(
       asBlack,
       vs,
       speed: {
+        meanSec: mean(msPerMove) === null ? null : mean(msPerMove)! / 1000,
         medianSec: median(msPerMove) === null ? null : median(msPerMove)! / 1000,
         p90Sec: percentile(msPerMove, 0.9) === null ? null : percentile(msPerMove, 0.9)! / 1000,
         maxSec: msPerMove.length ? Math.max(...msPerMove) / 1000 : null,
         moves: msPerMove.length,
+      },
+      time: {
+        ownSecPerGame: mean(ownMsPerGame) === null ? null : mean(ownMsPerGame)! / 1000,
+        gameMinutes: mean(mine.map((g) => g.wallMs)) === null ? null : mean(mine.map((g) => g.wallMs))! / 60_000,
       },
       cost: { ...cost, perGameUsd: ratio(cost.totalUsd, mine.length), perMoveUsd: ratio(cost.totalUsd, ownMoves) },
       reliability,

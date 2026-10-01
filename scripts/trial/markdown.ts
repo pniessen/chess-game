@@ -24,6 +24,8 @@ const usd = (n: number | null) => (n === null ? 'n/a' : n >= 1 ? `$${n.toFixed(2
 const num = (n: number | null, digits = 1) => (n === null ? 'n/a' : n.toFixed(digits))
 const pct = (n: number | null) => (n === null ? 'n/a' : `${(100 * n).toFixed(0)}%`)
 const sec = (n: number | null) => (n === null ? 'n/a' : `${n.toFixed(1)} s`)
+/** m:ss from milliseconds. */
+const clock = (ms: number) => `${Math.floor(ms / 60_000)}:${String(Math.floor((ms % 60_000) / 1000)).padStart(2, '0')}`
 const points = (p: number) => (Number.isInteger(p) ? String(p) : p.toFixed(1))
 const wdl = (r: Record3) => `${r.wins}-${r.draws}-${r.losses}`
 const row = (cells: readonly (string | number)[]) => `| ${cells.join(' | ')} |`
@@ -72,7 +74,8 @@ function modelSection(m: ModelStats, input: ReportInput): string {
     '',
     '**Speed and cost**',
     '',
-    `- Seconds per move: median ${sec(m.speed.medianSec)}, 90th percentile ${sec(m.speed.p90Sec)}, slowest ${sec(m.speed.maxSec)} (over ${m.speed.moves} moves; retries included, Stockfish fallbacks left out).`,
+    `- Seconds per move: mean ${sec(m.speed.meanSec)}, median ${sec(m.speed.medianSec)}, 90th percentile ${sec(m.speed.p90Sec)}, slowest ${sec(m.speed.maxSec)} (over ${m.speed.moves} moves; retries included, Stockfish fallbacks left out).`,
+    `- Time per game: its own moves took ${sec(m.time.ownSecPerGame)} of thinking a game on average; its games lasted ${num(m.time.gameMinutes)} min of wall time on average (both sides, retries and rate-limit waits included).`,
     `- Cost: ${usd(m.cost.totalUsd)} in all, ${usd(m.cost.perGameUsd)} a game, ${usd(m.cost.perMoveUsd)} a move; ` +
       `${m.cost.inputTokens.toLocaleString('en-US')} input and ${m.cost.outputTokens.toLocaleString('en-US')} output tokens over ${m.cost.calls} calls.`,
     `- Reliability: ${m.reliability.fallbacks} fallback move(s) (Stockfish moved for it after two failed tries), ` +
@@ -133,7 +136,7 @@ export function buildMarkdown(input: ReportInput): string {
     ]),
   )
   const leaderboard = table(
-    ['#', 'Model', 'Score', 'Points', 'W-D-L', 'Avg CPL', 'Blunders a game', 'Median s/move', 'Cost a game', 'Fallbacks'],
+    ['#', 'Model', 'Score', 'Points', 'W-D-L', 'Avg CPL', 'Blunders a game', 'Avg s/move', 'Median s/move', 'Avg game min', 'Cost a game', 'Fallbacks'],
     stats.leaderboard.map((l) => {
       const m = stats.perModel.find((p) => p.model === l.model)!
       const allGames = m.record.games + m.record.unfinished
@@ -145,7 +148,9 @@ export function buildMarkdown(input: ReportInput): string {
         wdl(m.record),
         num(l.avgCpl, 0),
         allGames ? num(m.accuracy.blunders / allGames) : 'n/a',
+        num(m.speed.meanSec),
         num(m.speed.medianSec),
+        num(m.time.gameMinutes),
         usd(m.cost.perGameUsd),
         m.reliability.fallbacks,
       ]
@@ -156,7 +161,7 @@ export function buildMarkdown(input: ReportInput): string {
     .map(([t, n]) => `${TERMINATION[t] ?? t} ${n}`)
     .join(', ')
   const list = table(
-    ['Game', 'White', 'Black', 'Result', 'How it ended', 'Plies', 'Cost'],
+    ['Game', 'White', 'Black', 'Result', 'How it ended', 'Plies', 'Duration', 'White time', 'Black time', 'Cost'],
     [...games]
       .sort((a, b) => a.gameId.localeCompare(b.gameId))
       .map((g) => [
@@ -168,6 +173,9 @@ export function buildMarkdown(input: ReportInput): string {
           (g.adjudication ? ` (${g.adjudication.mate !== null ? `mate in ${Math.abs(g.adjudication.mate)}` : `${((g.adjudication.evalCp ?? 0) / 100).toFixed(2)}`})` : '') +
           (g.unavailable ? ` (${g.unavailable.side === 'w' ? 'White' : 'Black'}: ${g.unavailable.reason})` : ''),
         g.plies,
+        clock(g.wallMs),
+        clock(g.moves.filter((m) => m.side === 'w').reduce((t, m) => t + m.ms, 0)),
+        clock(g.moves.filter((m) => m.side === 'b').reduce((t, m) => t + m.ms, 0)),
         usd(g.totals.w.costUsd + g.totals.b.costUsd),
       ]),
   )
@@ -194,6 +202,7 @@ export function buildMarkdown(input: ReportInput): string {
       'A forced mate scores 10,000, so a move that lets a forced mate slip to a merely winning position counts as a large loss (up to that cap) even though it still wins.',
     `- **Opening** is the first ${OPENING_PLIES} plies; after that a move is in the **endgame** once the pieces other than pawns and kings add up to ${ENDGAME_MATERIAL} points or less (knight or bishop 3, rook 5, queen 9), and in the **middlegame** before that.`,
     `- **Adjudicated**: at the ${config.maxPlies}-ply cap Stockfish (depth 18) judges the final position; a lead of ${ADJUDICATION_CP} centipawns or a forced mate wins, anything less is a draw.`,
+    '- **Time**: a model\'s seconds a move count its own answers, retries included and Stockfish fallbacks left out. A game\'s **Duration** is its wall-clock time from first move to last, including rate-limit waits; **White time** and **Black time** add up each side\'s moves. Several games run at once, so a busy provider can make a game slower than its moves alone explain.',
     '- **Fallback**: when a model fails twice on one move (timeout, unusable reply), Stockfish at full strength plays that move for it, as in the app. It counts against the model (5 in one game and the game is abandoned) and is left out of its accuracy and speed.',
     '- The style bullets were written by Claude Opus 5.5 from these numbers only and were told to claim nothing they do not support; the tables are the evidence.',
     '',

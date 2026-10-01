@@ -41,6 +41,18 @@ export function classifyError(err: unknown): FailureKind {
   return 'upstream'
 }
 
+/** "HTTP 529 overloaded_error", "connection error"...: what failed, with no message text (it may echo the request). */
+export function errorDetail(err: unknown): string {
+  if (err instanceof Anthropic.APIConnectionTimeoutError) return 'timeout'
+  if (err instanceof Anthropic.APIConnectionError) return 'connection error'
+  if (err instanceof Anthropic.APIError) {
+    const body = err.error as { error?: { type?: unknown } } | undefined
+    const type = typeof body?.error?.type === 'string' ? ` ${body.error.type}` : ''
+    return `HTTP ${err.status ?? '?'}${type}`
+  }
+  return err instanceof Error ? err.name : 'unknown error'
+}
+
 const failure = (kind: FailureKind): ClaudeResult => ({ ok: false, kind, message: MESSAGES[kind] })
 
 export function createClaude(opts: { apiKey?: string; baseURL?: string; client?: MessagesClient }): Claude {
