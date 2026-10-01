@@ -23,6 +23,11 @@ export interface NewGameClaude {
   budgetLeftUsd: number | null | undefined
   /** This month's usage per model and the dollars from before it was tracked; absent until read. */
   month?: { byModel: UsageByModel; earlierUsd: number }
+  /**
+   * The models the local server holds a key for; the others are disabled.
+   * Absent until read, or from an older server that does not say: all enabled.
+   */
+  models?: ClaudeModelKey[]
 }
 
 const MODEL_KEYS = Object.keys(CLAUDE_MODELS) as ClaudeModelKey[]
@@ -31,6 +36,21 @@ const usd = (n: number) => `$${n.toFixed(2)}`
 
 /** Calls, not moves: a retried or timed-out request is a call too. */
 const CALL_NOTE = 'A call is one request to the model, retries included.'
+
+/** The key a model's provider needs on the local server. */
+const keyFor = (k: ClaudeModelKey) => (CLAUDE_MODELS[k].provider === 'typesafe' ? 'TYPESAFE_API_KEY' : 'ANTHROPIC_API_KEY')
+
+/** One seat's options: a model the server cannot seat is disabled and names the key it lacks. */
+function ModelOptions({ models }: { models: ClaudeModelKey[] | undefined }) {
+  return MODEL_KEYS.map((k) => {
+    const off = models !== undefined && !models.includes(k)
+    return (
+      <option key={k} value={k} disabled={off}>
+        {off ? `${CLAUDE_MODELS[k].label} (no ${keyFor(k)})` : CLAUDE_MODELS[k].label}
+      </option>
+    )
+  })
+}
 
 /** "Fable" from "Claude Fable 5.1": the month line is kept short. */
 const familyLabel = (k: ClaudeModelKey) => shortModelLabel(k).replace(/ [\d.]+$/, '')
@@ -95,6 +115,11 @@ export function NewGame({
   const offerClaude = CLAUDE_GAMES && claude !== undefined
   // The budget request failed: the local server is not running or has no key.
   const claudeUnavailable = isClaude && claude !== undefined && claude.budgetLeftUsd === null
+  // A seated model the server holds no key for (e.g. Jev without TYPESAFE_API_KEY): Start would only be refused.
+  const unseatable =
+    isClaude && claude?.models !== undefined
+      ? [claude.white, claude.black].find((k) => !claude.models!.includes(k))
+      : undefined
   return (
     <div className="new-game">
       <label>
@@ -170,11 +195,7 @@ export function NewGame({
               value={claude.white}
               onChange={(e) => claude.onWhiteChange(e.target.value as ClaudeModelKey)}
             >
-              {MODEL_KEYS.map((k) => (
-                <option key={k} value={k}>
-                  {CLAUDE_MODELS[k].label}
-                </option>
-              ))}
+              <ModelOptions models={claude.models} />
             </select>
           </label>
           <label>
@@ -184,11 +205,7 @@ export function NewGame({
               value={claude.black}
               onChange={(e) => claude.onBlackChange(e.target.value as ClaudeModelKey)}
             >
-              {MODEL_KEYS.map((k) => (
-                <option key={k} value={k}>
-                  {CLAUDE_MODELS[k].label}
-                </option>
-              ))}
+              <ModelOptions models={claude.models} />
             </select>
           </label>
           <p className="claude-note" data-testid="claude-estimate">
@@ -203,15 +220,20 @@ export function NewGame({
                 : usd(claude.budgetLeftUsd)}
           </p>
           {claude.month && typeof claude.budgetLeftUsd === 'number' ? <MonthLine month={claude.month} /> : null}
+          {unseatable !== undefined && !claudeUnavailable ? (
+            <p className="claude-note" role="status" data-testid="claude-seat-hint">
+              {`${CLAUDE_MODELS[unseatable].label} needs ${keyFor(unseatable)} on the local server (see README).`}
+            </p>
+          ) : null}
           {claudeUnavailable ? (
             <p className="claude-note" role="status" data-testid="claude-unavailable-hint">
-              Claude games are unavailable. Start the local server (npm run server) with ANTHROPIC_API_KEY in .env.
+              Claude games are unavailable. Start the local server (npm run server) with ANTHROPIC_API_KEY in .env (or TYPESAFE_API_KEY, for Jev).
             </p>
           ) : null}
         </div>
       ) : null}
       <div className="new-game-actions">
-        <button data-testid="new-game" disabled={claudeUnavailable} onClick={onStart}>
+        <button data-testid="new-game" disabled={claudeUnavailable || unseatable !== undefined} onClick={onStart}>
           New game
         </button>
         {onPuzzles ? (

@@ -73,7 +73,55 @@ describe('NewGame: Claude vs Claude', () => {
     expect(screen.queryByTestId('claude-black')).toBeNull()
   })
 
-  test('two selects list all four models by label and report changes', () => {
+  test('Jev is a seat option in both selects, after the Claude models', () => {
+    const { onWhite } = renderNewGame({ mode: 'claude-vs-claude' })
+    for (const id of ['claude-white', 'claude-black']) {
+      const options = [...screen.getByTestId(id).querySelectorAll('option')]
+      expect(options.at(-1)).toHaveValue('jev')
+      expect(options.at(-1)).toHaveTextContent('TypeSafe Jev')
+      expect(options.at(-1)).not.toBeDisabled()
+    }
+    fireEvent.change(screen.getByTestId('claude-white'), { target: { value: 'jev' } })
+    expect(onWhite).toHaveBeenCalledWith('jev')
+  })
+
+  test('a model the server cannot seat is disabled and says which key it needs', () => {
+    renderNewGame({ mode: 'claude-vs-claude', claude: { models: ['fable', 'opus', 'sonnet', 'haiku'] } })
+    for (const id of ['claude-white', 'claude-black']) {
+      const jev = screen.getByTestId(id).querySelector('option[value="jev"]') as HTMLOptionElement
+      expect(jev).toBeDisabled()
+      expect(jev).toHaveTextContent('TypeSafe Jev (no TYPESAFE_API_KEY)')
+      const opus = screen.getByTestId(id).querySelector('option[value="opus"]') as HTMLOptionElement
+      expect(opus).not.toBeDisabled()
+    }
+    expect(screen.queryByTestId('claude-seat-hint')).toBeNull()
+    expect(screen.getByTestId('new-game')).not.toBeDisabled()
+  })
+
+  test('with only a TypeSafe key the Claude models say they need ANTHROPIC_API_KEY', () => {
+    renderNewGame({ mode: 'claude-vs-claude', claude: { white: 'jev', black: 'jev', models: ['jev'] } })
+    const opus = screen.getByTestId('claude-white').querySelector('option[value="opus"]') as HTMLOptionElement
+    expect(opus).toBeDisabled()
+    expect(opus).toHaveTextContent('Claude Opus 5.5 (no ANTHROPIC_API_KEY)')
+    expect(screen.getByTestId('new-game')).not.toBeDisabled()
+  })
+
+  test('a seated model the server cannot seat disables Start and says why', () => {
+    renderNewGame({ mode: 'claude-vs-claude', claude: { white: 'jev', black: 'haiku', models: ['haiku'] } })
+    expect(screen.getByTestId('claude-seat-hint')).toHaveTextContent(
+      'TypeSafe Jev needs TYPESAFE_API_KEY on the local server (see README).',
+    )
+    expect(screen.getByTestId('new-game')).toBeDisabled()
+  })
+
+  test('an older server that lists no models leaves every option enabled', () => {
+    renderNewGame({ mode: 'claude-vs-claude', claude: { white: 'jev' } })
+    const disabled = [...screen.getByTestId('claude-white').querySelectorAll('option')].filter((o) => o.disabled)
+    expect(disabled).toEqual([])
+    expect(screen.getByTestId('new-game')).not.toBeDisabled()
+  })
+
+  test('two selects list all five models by label and report changes', () => {
     const { onWhite, onBlack } = renderNewGame({ mode: 'claude-vs-claude' })
     const labels = Object.values(CLAUDE_MODELS).map((m) => m.label)
     for (const id of ['claude-white', 'claude-black']) {
