@@ -11,11 +11,12 @@
  * closed by throwing, so an unreadable ledger can never turn into a game.
  */
 import { LIMITS } from '../src/coach/protocol'
-import { ZERO_USAGE, isClaudeModelKey, type SideUsage } from '../src/claude/models'
+import { CLAUDE_MODELS, ZERO_USAGE, isClaudeModelKey, type ClaudeModelKey, type SideUsage } from '../src/claude/models'
 import { Position } from '../src/game-core/position'
 import { STARTING_FEN } from '../src/game-core/types'
 import type { MessagesClient } from './claude'
 import { requestMove } from './claudeMove'
+import { requestJevMove, type JevClient } from './jevMove'
 import {
   GAMES_LIMITS,
   authorizeMove,
@@ -42,6 +43,8 @@ export interface GameDeps {
   boot: string
   /** Null when no Anthropic key is configured. */
   client: MessagesClient | null
+  /** TypeSafe's System One, for Jev seats; null or absent when no TYPESAFE_API_KEY is configured. */
+  jev?: JevClient | null
   now?: () => number
 }
 
@@ -56,6 +59,15 @@ const MESSAGES: Record<string, string> = {
   timeout: 'Claude took too long.',
   upstream: 'Claude is unavailable.',
   'rate-limited': 'Claude is rate-limiting requests.',
+  'no-jev-key': 'Jev is not configured (no TYPESAFE_API_KEY).',
+}
+
+/** The same failures, worded for a Jev seat's move. */
+const JEV_MESSAGES: Record<string, string> = {
+  'illegal-reply': 'Jev replied with an unusable move.',
+  timeout: 'Jev took too long.',
+  upstream: 'Jev is unavailable.',
+  'rate-limited': 'Jev is rate-limiting requests.',
 }
 
 const json = (status: number, body: unknown): Response =>
@@ -65,8 +77,8 @@ const json = (status: number, body: unknown): Response =>
   })
 
 /** Fixed texts only: nothing from a caught error or from the request is echoed. */
-const fail = (status: number, kind: string): Response =>
-  json(status, { error: { kind, message: MESSAGES[kind] ?? 'Error.' } })
+const fail = (status: number, kind: string, messages: Record<string, string> = MESSAGES): Response =>
+  json(status, { error: { kind, message: messages[kind] ?? MESSAGES[kind] ?? 'Error.' } })
 
 const MOVE_STATUS: Record<string, number> = {
   forbidden: 403,
@@ -74,12 +86,24 @@ const MOVE_STATUS: Record<string, number> = {
   over: 409,
   'bad-request': 400,
   'no-key': 503,
+  'no-jev-key': 503,
 }
 // Everything else (illegal-reply, timeout, upstream, rate-limited) is a 502 the browser retries.
 const moveStatus = (kind: string): number => MOVE_STATUS[kind] ?? 502
 
-/** A key Anthropic rejects is a configuration problem, not something a retry fixes: report it as no key. */
-const moveKind = (kind: string): string => (kind === 'auth' ? 'no-key' : kind)
+/** A key Anthropic (or TypeSafe) rejects is a configuration problem, not something a retry fixes: report it as no key. */
+const moveKind = (kind: string, model: ClaudeModelKey): string => (kind === 'auth' ? noKeyKind(model) : kind)
+
+/** The refusal for a seat whose provider has no key. */
+const noKeyKind = (model: ClaudeModelKey): string => (CLAUDE_MODELS[model].provider === 'typesafe' ? 'no-jev-key' : 'no-key')
+
+/** Whether this server holds a key for the model's provider. */
+const canSeat = (model: ClaudeModelKey, deps: GameDeps): boolean =>
+  CLAUDE_MODELS[model].provider === 'typesafe' ? Boolean(deps.jev) : deps.client !== null
+
+/** The models this server can seat, in list order: the browser disables the others. */
+const seatable = (deps: GameDeps): ClaudeModelKey[] =>
+  (Object.keys(CLAUDE_MODELS) as ClaudeModelKey[]).filter((k) => canSeat(k, deps))
 
 const MAX_HISTORY = 400
 const MAX_PGN_CHARS = 20_000
@@ -128,11 +152,13 @@ export async function handleGame(endpoint: GameEndpoint, request: Request, deps:
     if (!isRecord(body)) return fail(400, 'bad-request')
   }
 
-  // Without a key no game can be played: say so on budget (the browser's
+  // Without any key no game can be played: say so on budget (the browser's
   // readiness probe, which then disables Start) and on start (nothing is
-  // reserved or locked). A begun game's move/end keep their own handling,
-  // and the record only reads the saved games, so it needs no key.
-  if (!deps.client && (endpoint === 'budget' || endpoint === 'start')) return fail(503, 'no-key')
+  // reserved or locked). With one provider's key only, budget lists the
+  // models it can seat and start refuses the others (see start). A begun
+  // game's move/end keep their own handling, and the record only reads the
+  // saved games, so it needs no key.
+  if (!deps.client && !deps.jev && (endpoint === 'budget' || endpoint === 'start')) return fail(503, 'no-key')
 
   try {
     switch (endpoint) {
@@ -141,6 +167,7 @@ export async function handleGame(endpoint: GameEndpoint, request: Request, deps:
           budgetLeftUsd: await budgetLeft(deps.store, now),
           monthlyUsd: GAMES_LIMITS.monthlyUsd,
           ...(await monthUsage(deps.store, now)),
+          models: seatable(deps),
         })
       case 'start':
         return await start(body as Record<string, unknown>, deps, now)
@@ -160,6 +187,8 @@ export async function handleGame(endpoint: GameEndpoint, request: Request, deps:
 async function start(body: Record<string, unknown>, deps: GameDeps, now: number): Promise<Response> {
   const { white, black } = body
   if (!isClaudeModelKey(white) || !isClaudeModelKey(black)) return fail(400, 'bad-request')
+  // Refused before anything is reserved or locked.
+  for (const model of [white, black]) if (!canSeat(model, deps)) return fail(503, noKeyKind(model))
   const r = await startGame(deps.store, now, deps.secret, { white, black }, deps.boot)
   if (!r.ok) return fail(r.kind === 'busy' ? 409 : r.kind === 'budget' ? 402 : 400, r.kind)
   return json(200, { gameId: r.gameId, token: r.token, budgetLeftUsd: r.budgetLeftUsd })
@@ -183,12 +212,17 @@ async function move(body: Record<string, unknown>, deps: GameDeps, now: number):
     plies: history.length,
   })
   if (!auth.ok) return fail(moveStatus(auth.kind), auth.kind)
-  if (!deps.client) return fail(503, 'no-key')
-
-  const outcome = await requestMove(
-    { client: deps.client },
-    { model: auth.model, ...(startFen !== undefined ? { startFen } : {}), history },
-  )
+  const model = auth.model
+  const isJev = CLAUDE_MODELS[model].provider === 'typesafe'
+  const moveReq = { model, ...(startFen !== undefined ? { startFen } : {}), history }
+  let outcome: Awaited<ReturnType<typeof requestMove>>
+  if (isJev) {
+    if (!deps.jev) return fail(503, 'no-jev-key')
+    outcome = await requestJevMove({ jev: deps.jev }, moveReq)
+  } else {
+    if (!deps.client) return fail(503, 'no-key')
+    outcome = await requestMove({ client: deps.client }, moveReq)
+  }
   // A reply that arrived cost money even when it was unusable: charge before answering either way.
   // Every call made counts toward the side's usage; a bad request made none.
   const side = white ? 'white' : 'black'
@@ -196,7 +230,10 @@ async function move(body: Record<string, unknown>, deps: GameDeps, now: number):
   const { spent, usage } = outcome.tokens
     ? await chargeMove(deps.store, now, gameId, { side, costUsd: outcome.costUsd, ms: outcome.ms, ...outcome.tokens })
     : noCall
-  if (!outcome.ok) return fail(moveStatus(moveKind(outcome.kind)), moveKind(outcome.kind))
+  if (!outcome.ok) {
+    const kind = moveKind(outcome.kind, model)
+    return fail(moveStatus(kind), kind, isJev ? JEV_MESSAGES : MESSAGES)
+  }
   return json(200, { san: outcome.san, why: outcome.why, costUsd: outcome.costUsd, gameSpentUsd: spent, usage })
 }
 

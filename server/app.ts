@@ -4,6 +4,7 @@ import type { Claude } from './claude'
 import { runCoach, type CoachEndpoint } from './coach'
 import type { MessagesClient } from './claude'
 import { handleGame, type GameEndpoint } from './gameHandler'
+import type { JevClient } from './jevMove'
 import type { GameStore } from './store'
 
 function sendError(res: Response, status: number, error: CoachErrorResponse['error']): void {
@@ -34,6 +35,8 @@ function isAllowedHost(hostHeader: string | undefined): boolean {
 
 export interface GamesDeps {
   client: MessagesClient | null
+  /** TypeSafe's System One for Jev seats; null or absent without TYPESAFE_API_KEY. */
+  jev?: JevClient | null
   store: GameStore
   /** Random per process; game tokens are HMACs under it. */
   secret: Buffer
