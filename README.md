@@ -100,6 +100,38 @@ unaffected; the server's startup line says which providers are enabled.
 most moves, and the `us` multi-region endpoint was worse, so it moved to 3.6
 Flash, which answers in 1 to 2.5 s. The seat key stays `gemini-flash`.)
 
+### A round-robin trial between the seats
+
+`npm run trial` plays every pairing of the model seats against each other,
+headless, through the same move functions and routing as the local server
+(`server/moveDispatch.ts`), with the app's retry and Stockfish-fallback
+rules. It has its own hard spending cap and ledger and never touches the
+monthly one.
+
+```sh
+npm run trial -- --dry-run                       # the 84-game schedule, a cost and time estimate
+npm run trial -- --trial-id rr-2026-10-02        # all 7 seats, 4 games a pairing, $40 cap
+npm run trial -- --trial-id pilot --models haiku,jev,gemini-flash \
+  --games-per-pair 1 --max-plies 20 --cap-usd 1
+npm run trial:report -- --trial-id rr-2026-10-02 # report.md and report.json
+```
+
+Run it from the checkout that holds `.env` (a worktree has none), or with
+`ANTHROPIC_API_KEY` in the environment. Flags: `--models` (default all), `--games-per-pair` (4), `--cap-usd` (40),
+`--max-plies` (160; then Stockfish at depth 18 adjudicates: 300 cp or a
+forced mate wins), `--concurrency` (3; never two games at once for one
+model), `--replay-unfinished`, `--dry-run`. A game starts only if the spend
+so far plus both seats' reserves fits under the cap, and every call is
+checked against it too. Everything lives in `~/.chess-game/trials/<id>/`
+(`CHESS_TRIALS_DIR` overrides): `trial.json`, `ledger.jsonl`,
+`progress.json`, `run.log` (`tail -f` it), one file per finished game under
+`games/`, and the report's Stockfish and commentary caches. Run the same
+command again to resume: finished games are skipped and the spend is
+re-read from the ledger. The report analyses every move with Stockfish
+(depth 14, cached) and asks Claude Opus 5.5 for 3-5 style bullets per model
+from the computed numbers only; that cost goes in the trial ledger as
+"commentary".
+
 ## Checks
 
 ```sh

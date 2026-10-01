@@ -261,6 +261,44 @@ This supersedes the 3.8 Flash parts of the addendum above (kept as history).
   each) Flash holds **$0.16** a side, down from $0.60. For comparison LOW gave the same moves at
   1.1 to 6.1 s and up to 75 output tokens.
 
+## Addendum, 2026-10-01: an automated round-robin trial (scripts/trial)
+
+Peter's rulings: all 7 seats, 21 pairings x 4 games (colours 2/2), a separate $40 hard cap with
+its own ledger, games capped at 160 plies and then adjudicated by Stockfish.
+
+- **Routing:** `server/moveDispatch.ts` (`dispatchMove`) is the one place a seat's provider is
+  chosen; `/api/game/move` and the trial both call it. `moveClientsFor(env)` in `server/index.ts`
+  builds the provider clients for both.
+- **Rules per move, as in the app:** retry once after a retryable failure (timeout, unusable
+  reply, upstream); then Stockfish plays the move at `CLAUDE_FALLBACK_LEVEL` (now in
+  `src/match/claudeFallback.ts`), counted as a fallback against the model; 5 fallbacks, a missing
+  or rejected key, or a bad request end the game with no result (`model-unavailable`). A rate
+  limit is backed off (5, 15, 30, 60 s) and asked again before that retry is spent.
+- **Endings:** checkmate, stalemate, threefold repetition, the fifty-move rule, insufficient
+  material; at `--max-plies` Stockfish (depth 18) scores the final position: |eval| >= 300 cp or
+  a forced mate wins for the side ahead, otherwise a draw. The game file records the eval.
+- **Budget:** `ledger.jsonl` in the trial directory, never the monthly ledger. A game starts only
+  if spend + what running games still hold + both seats' `RESERVE_PER_GAME_USD` fits under the
+  cap; games start in schedule order (a cheaper later game never jumps the queue). Before every
+  call the worst case (the provider's output cap over a 4,000-token prompt) must still fit, so the
+  cap is hard; a game stopped by it is set aside in `aborted/` and replayed on the next run.
+- **Pool:** `--concurrency` games at once (default 3), never two for one model; each running game
+  leases its own Stockfish instance (the `stockfish` package's lite single WASM, re-required per
+  instance; the loader nulls `fetch`, which is restored after each load).
+- **Resume:** `games/<id>.json` is written atomically when a game ends; a restart skips those and
+  re-reads spend from the ledger. `trial.json` pins the field, games per pair and max plies.
+- **Report:** `npm run trial:report`: CPL per move at depth 14 (capped at 1000; blunder >= 300,
+  mistake 100-299, inaccuracy 50-99; opening = plies 1-20, endgame = non-pawn material <= 26),
+  cached in `analysis/`; per model W/D/L and score overall and per opponent, median and p90 s per
+  move, cost, tokens, fallbacks, timeouts, game length, endings, ECO openings (`src/openings`),
+  and style signals (captures, checks, pawn moves, castling, early queen trades, CPL ahead / level
+  / behind, repetition). One Claude Opus 5.5 call per model writes 3-5 style bullets from those
+  numbers and short excerpts only (cached by prompt; charged to the trial ledger as commentary).
+- **Pilot (2026-10-01, `pilot-2026-10-01`):** haiku, jev, gemini-flash, 1 game a pairing, 20
+  plies, $1 cap. 3 games, all adjudicated at ply 20 (Flash 2-0, Jev 1-1, Haiku 0-2); $0.034 on
+  moves and $0.052 on commentary. Flash: median 1.3 s, one 429 backed off; average CPL Flash 10,
+  Haiku 151, Jev 262. The report's figures were checked by hand against the game files and ledger.
+
 ## Phase 0 results (measured 2026-09-29, local server, Peter's own key)
 
 Three moves per model from the start position (both seats the same model), then one full
