@@ -12,12 +12,13 @@
  */
 import { LIMITS } from '../src/coach/protocol'
 import { CLAUDE_MODELS, ZERO_USAGE, isClaudeModelKey, type ClaudeModelKey, type SideUsage } from '../src/claude/models'
-import { providerOf } from '../src/claude/providers'
+import { providerOf, type ModelProvider } from '../src/claude/providers'
 import { Position } from '../src/game-core/position'
 import { STARTING_FEN } from '../src/game-core/types'
 import type { MessagesClient } from './claude'
 import { requestMove } from './claudeMove'
 import { requestJevMove, type JevClient } from './jevMove'
+import { requestGeminiMove, type VertexClient } from './geminiMove'
 import {
   GAMES_LIMITS,
   authorizeMove,
@@ -46,6 +47,8 @@ export interface GameDeps {
   client: MessagesClient | null
   /** TypeSafe's System One, for Jev seats; null or absent when no TYPESAFE_API_KEY is configured. */
   jev?: JevClient | null
+  /** Vertex AI, for Gemini seats; null or absent when not configured. Seats them only while ADC works (`available`). */
+  vertex?: VertexClient | null
   now?: () => number
 }
 
@@ -61,6 +64,7 @@ const MESSAGES: Record<string, string> = {
   upstream: 'Claude is unavailable.',
   'rate-limited': 'Claude is rate-limiting requests.',
   'no-jev-key': 'Jev is not configured (no TYPESAFE_API_KEY).',
+  'no-gemini-auth': 'Gemini is not configured (no Google Application Default Credentials).',
 }
 
 /** The same failures, worded for a Jev seat's move. */
@@ -69,6 +73,20 @@ const JEV_MESSAGES: Record<string, string> = {
   timeout: 'Jev took too long.',
   upstream: 'Jev is unavailable.',
   'rate-limited': 'Jev is rate-limiting requests.',
+}
+
+/** And for a Gemini seat's move. */
+const GEMINI_MESSAGES: Record<string, string> = {
+  'illegal-reply': 'Gemini replied with an unusable move.',
+  timeout: 'Gemini took too long.',
+  upstream: 'Gemini is unavailable.',
+  'rate-limited': 'Gemini is rate-limiting requests.',
+}
+
+const MESSAGES_FOR: Record<ModelProvider, Record<string, string>> = {
+  anthropic: MESSAGES,
+  typesafe: JEV_MESSAGES,
+  vertex: GEMINI_MESSAGES,
 }
 
 const json = (status: number, body: unknown): Response =>
@@ -88,23 +106,31 @@ const MOVE_STATUS: Record<string, number> = {
   'bad-request': 400,
   'no-key': 503,
   'no-jev-key': 503,
+  'no-gemini-auth': 503,
 }
 // Everything else (illegal-reply, timeout, upstream, rate-limited) is a 502 the browser retries.
 const moveStatus = (kind: string): number => MOVE_STATUS[kind] ?? 502
 
-/** A key Anthropic (or TypeSafe) rejects is a configuration problem, not something a retry fixes: report it as no key. */
+/** A key (or ADC) the provider rejects is a configuration problem, not something a retry fixes: report it as no key. */
 const moveKind = (kind: string, model: ClaudeModelKey): string => (kind === 'auth' ? noKeyKind(model) : kind)
 
-/** The refusal for a seat whose provider has no key. */
-const noKeyKind = (model: ClaudeModelKey): string => (providerOf(model) === 'typesafe' ? 'no-jev-key' : 'no-key')
+const NO_KEY: Record<ModelProvider, string> = { anthropic: 'no-key', typesafe: 'no-jev-key', vertex: 'no-gemini-auth' }
 
-/** Whether this server holds a key for the model's provider. */
-const canSeat = (model: ClaudeModelKey, deps: GameDeps): boolean =>
-  providerOf(model) === 'typesafe' ? Boolean(deps.jev) : deps.client !== null
+/** The refusal for a seat whose provider has no key. */
+const noKeyKind = (model: ClaudeModelKey): string => NO_KEY[providerOf(model)]
+
+/** Whether this server can reach each provider now: a key for Anthropic and TypeSafe, working ADC for Vertex AI. */
+async function providersUp(deps: GameDeps): Promise<Record<ModelProvider, boolean>> {
+  return {
+    anthropic: deps.client !== null,
+    typesafe: Boolean(deps.jev),
+    vertex: deps.vertex ? await deps.vertex.available() : false,
+  }
+}
 
 /** The models this server can seat, in list order: the browser disables the others. */
-const seatable = (deps: GameDeps): ClaudeModelKey[] =>
-  (Object.keys(CLAUDE_MODELS) as ClaudeModelKey[]).filter((k) => canSeat(k, deps))
+const seatable = (up: Record<ModelProvider, boolean>): ClaudeModelKey[] =>
+  (Object.keys(CLAUDE_MODELS) as ClaudeModelKey[]).filter((k) => up[providerOf(k)])
 
 const MAX_HISTORY = 400
 const MAX_PGN_CHARS = 20_000
@@ -153,13 +179,15 @@ export async function handleGame(endpoint: GameEndpoint, request: Request, deps:
     if (!isRecord(body)) return fail(400, 'bad-request')
   }
 
-  // Without any key no game can be played: say so on budget (the browser's
+  // Without any key (or working ADC) no game can be played: say so on budget (the browser's
   // readiness probe, which then disables Start) and on start (nothing is
   // reserved or locked). With one provider's key only, budget lists the
   // models it can seat and start refuses the others (see start). A begun
   // game's move/end keep their own handling, and the record only reads the
   // saved games, so it needs no key.
-  if (!deps.client && !deps.jev && (endpoint === 'budget' || endpoint === 'start')) return fail(503, 'no-key')
+  const needsSeats = endpoint === 'budget' || endpoint === 'start'
+  const up = needsSeats ? await providersUp(deps) : null
+  if (up && !up.anthropic && !up.typesafe && !up.vertex) return fail(503, 'no-key')
 
   try {
     switch (endpoint) {
@@ -168,10 +196,10 @@ export async function handleGame(endpoint: GameEndpoint, request: Request, deps:
           budgetLeftUsd: await budgetLeft(deps.store, now),
           monthlyUsd: GAMES_LIMITS.monthlyUsd,
           ...(await monthUsage(deps.store, now)),
-          models: seatable(deps),
+          models: seatable(up!),
         })
       case 'start':
-        return await start(body as Record<string, unknown>, deps, now)
+        return await start(body as Record<string, unknown>, deps, up!, now)
       case 'move':
         return await move(body as Record<string, unknown>, deps, now)
       case 'end':
@@ -185,11 +213,16 @@ export async function handleGame(endpoint: GameEndpoint, request: Request, deps:
   }
 }
 
-async function start(body: Record<string, unknown>, deps: GameDeps, now: number): Promise<Response> {
+async function start(
+  body: Record<string, unknown>,
+  deps: GameDeps,
+  up: Record<ModelProvider, boolean>,
+  now: number,
+): Promise<Response> {
   const { white, black } = body
   if (!isClaudeModelKey(white) || !isClaudeModelKey(black)) return fail(400, 'bad-request')
   // Refused before anything is reserved or locked.
-  for (const model of [white, black]) if (!canSeat(model, deps)) return fail(503, noKeyKind(model))
+  for (const model of [white, black]) if (!up[providerOf(model)]) return fail(503, noKeyKind(model))
   const r = await startGame(deps.store, now, deps.secret, { white, black }, deps.boot)
   if (!r.ok) return fail(r.kind === 'busy' ? 409 : r.kind === 'budget' ? 402 : 400, r.kind)
   return json(200, { gameId: r.gameId, token: r.token, budgetLeftUsd: r.budgetLeftUsd })
@@ -214,12 +247,15 @@ async function move(body: Record<string, unknown>, deps: GameDeps, now: number):
   })
   if (!auth.ok) return fail(moveStatus(auth.kind), auth.kind)
   const model = auth.model
-  const isJev = providerOf(model) === 'typesafe'
+  const provider = providerOf(model)
   const moveReq = { model, ...(startFen !== undefined ? { startFen } : {}), history }
   let outcome: Awaited<ReturnType<typeof requestMove>>
-  if (isJev) {
+  if (provider === 'typesafe') {
     if (!deps.jev) return fail(503, 'no-jev-key')
     outcome = await requestJevMove({ jev: deps.jev }, moveReq)
+  } else if (provider === 'vertex') {
+    if (!deps.vertex) return fail(503, 'no-gemini-auth')
+    outcome = await requestGeminiMove({ vertex: deps.vertex }, moveReq)
   } else {
     if (!deps.client) return fail(503, 'no-key')
     outcome = await requestMove({ client: deps.client }, moveReq)
@@ -233,7 +269,7 @@ async function move(body: Record<string, unknown>, deps: GameDeps, now: number):
     : noCall
   if (!outcome.ok) {
     const kind = moveKind(outcome.kind, model)
-    return fail(moveStatus(kind), kind, isJev ? JEV_MESSAGES : MESSAGES)
+    return fail(moveStatus(kind), kind, MESSAGES_FOR[provider])
   }
   return json(200, { san: outcome.san, why: outcome.why, costUsd: outcome.costUsd, gameSpentUsd: spent, usage })
 }

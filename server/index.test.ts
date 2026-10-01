@@ -1,11 +1,12 @@
 // @vitest-environment node
 import type { AddressInfo } from 'node:net'
 import type { Server } from 'node:http'
-import { afterEach, beforeEach, describe, expect, test } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { gamesDirFor, LISTEN_HOST, startServer, typesafeEnvFileFor, typesafeKeyFor } from './index'
+import { gamesDirFor, gcpProjectFor, LISTEN_HOST, startServer, typesafeEnvFileFor, typesafeKeyFor } from './index'
+import type { VertexClient } from './geminiMove'
 
 let server: Server | null = null
 
@@ -23,7 +24,10 @@ test('binds to loopback even when a HOST env var asks for every interface', asyn
   // var (common in shells/containers/CI, or a .env file) must never widen
   // the bind address beyond this machine.
   // No TypeSafe file: a test never reads the owner's real key.
-  server = await startServer({ PORT: '0', HOST: '0.0.0.0', TYPESAFE_ENV_FILE: '/nonexistent/typesafe-env' } as NodeJS.ProcessEnv)
+  server = await startServer({ PORT: '0', HOST: '0.0.0.0', TYPESAFE_ENV_FILE: '/nonexistent/typesafe-env' } as NodeJS.ProcessEnv, {
+    // No Vertex client: a test never asks the owner's real Google credentials.
+    vertex: null,
+  })
   const address = server.address() as AddressInfo
   expect(address.address).toBe('127.0.0.1')
 })
@@ -87,5 +91,47 @@ describe('the TypeSafe key for Jev', () => {
   test('the file is ~/.config/typesafe/env unless TYPESAFE_ENV_FILE names another', () => {
     expect(typesafeEnvFileFor({}, '/Users/someone')).toBe('/Users/someone/.config/typesafe/env')
     expect(typesafeEnvFileFor({ TYPESAFE_ENV_FILE: '/tmp/x' }, '/Users/someone')).toBe('/tmp/x')
+  })
+})
+
+describe('Gemini on Vertex AI', () => {
+  test('the project is GOOGLE_CLOUD_PROJECT, else poised-runner-159919; a blank one is ignored', () => {
+    expect(gcpProjectFor({})).toBe('poised-runner-159919')
+    expect(gcpProjectFor({ GOOGLE_CLOUD_PROJECT: ' my-proj ' })).toBe('my-proj')
+    expect(gcpProjectFor({ GOOGLE_CLOUD_PROJECT: '  ' })).toBe('poised-runner-159919')
+  })
+
+  const env = { PORT: '0', TYPESAFE_ENV_FILE: '/nonexistent/typesafe-env', GOOGLE_CLOUD_PROJECT: 'proj-x' } as NodeJS.ProcessEnv
+  const fakeVertex = (up: boolean): VertexClient => ({
+    available: async () => up,
+    generateContent: async () => {
+      throw new Error('unexpected call')
+    },
+  })
+
+  test('the startup line says Gemini is enabled, with the project and location, when ADC works', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+    try {
+      server = await startServer(env, { vertex: fakeVertex(true) })
+      const line = log.mock.calls.map((c) => String(c[0])).join('\n')
+      expect(line).toContain('Gemini enabled (Vertex AI, project proj-x, global)')
+    } finally {
+      log.mockRestore()
+    }
+  })
+
+  test('and disabled when ADC does not work, or there is no client', async () => {
+    for (const vertex of [fakeVertex(false), null]) {
+      const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+      try {
+        server = await startServer(env, { vertex })
+        const line = log.mock.calls.map((c) => String(c[0])).join('\n')
+        expect(line).toContain('Gemini disabled (no Google Application Default Credentials)')
+      } finally {
+        log.mockRestore()
+        await new Promise<void>((resolve) => server!.close(() => resolve()))
+        server = null
+      }
+    }
   })
 })

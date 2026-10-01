@@ -48,6 +48,7 @@ describe('begin', () => {
     [500, 'upstream', 'unavailable'],
     [503, 'no-key', 'unavailable'],
     [503, 'no-jev-key', 'no-jev-key'],
+    [503, 'no-gemini-auth', 'no-gemini-auth'],
   ] as const)('maps %i %s to %s', async (status, kind, want) => {
     const { client } = setup(err(status, kind))
     expect(await client.begin('opus', 'opus')).toEqual({ ok: false, kind: want })

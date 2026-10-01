@@ -19,15 +19,15 @@ export type MoveOutcome =
 /** Distributes over the union, unlike Omit. */
 type WithoutMs<T> = T extends unknown ? Omit<T, 'ms'> : never
 
-const MAX_WHY_WORDS = 20
+export const MAX_WHY_WORDS = 20
 // Thinking tokens count toward max_tokens and cannot be switched off on the
 // 5.x models, so the cap leaves room for them; the reply itself is tiny.
 const MAX_TOKENS = 8000
 
-const cutWords = (s: string, n: number) => s.trim().split(/\s+/).filter(Boolean).slice(0, n).join(' ')
+export const cutWords = (s: string, n: number) => s.trim().split(/\s+/).filter(Boolean).slice(0, n).join(' ')
 
 /** The model's JSON reply -> its move and reason, or null when it is not that shape. */
-function parseReply(text: string): { move: string; why: string } | null {
+export function parseReply(text: string): { move: string; why: string } | null {
   try {
     const v: unknown = JSON.parse(text)
     if (typeof v !== 'object' || v === null) return null
@@ -37,6 +37,35 @@ function parseReply(text: string): { move: string; why: string } | null {
   } catch {
     return null
   }
+}
+
+/**
+ * The prompt every model that answers in JSON is given (Claude here, Gemini in
+ * ./geminiMove): who is to move, the FEN, the numbered game so far and the
+ * legal SAN list, which the caller's schema also pins the reply to. Null when
+ * there is no move to ask for (an illegal history or a finished game).
+ */
+export function movePrompt(req: { startFen?: string; history: string[] }): { legal: string[]; system: string; user: string } | null {
+  const start = Position.fromFen(req.startFen ?? STARTING_FEN)
+  if (!start.ok) return null
+  const firstMover = start.position.turn()
+
+  const pos = new Position(req.startFen ?? STARTING_FEN)
+  for (const san of req.history) {
+    if (!pos.trySan(san).ok) return null
+  }
+  const legal = pos.legalSans()
+  // Checkmate, stalemate and other finished positions have no move to ask for.
+  if (pos.status().kind !== 'in-progress' || legal.length === 0) return null
+
+  const side = pos.turn() === 'w' ? 'White' : 'Black'
+  const system = `You are playing chess as ${side}. Choose one move from the list. Reply with the move and a reason of at most ${MAX_WHY_WORDS} words.`
+  const user = [
+    `FEN: ${pos.fen()}`,
+    `Moves so far: ${req.history.length ? numberedMoves(req.history, firstMover) : '(none)'}`,
+    `Legal moves: ${legal.join(', ')}`,
+  ].join('\n')
+  return { legal, system, user }
 }
 
 /**
@@ -52,26 +81,10 @@ export async function requestMove(
   const done = (o: WithoutMs<MoveOutcome>): MoveOutcome => ({ ...o, ms: Date.now() - started }) as MoveOutcome
   const bad = () => done({ ok: false, kind: 'bad-request', costUsd: 0, tokens: null })
 
-  const start = Position.fromFen(req.startFen ?? STARTING_FEN)
-  if (!start.ok) return bad()
-  const firstMover = start.position.turn()
-
-  const pos = new Position(req.startFen ?? STARTING_FEN)
-  for (const san of req.history) {
-    if (!pos.trySan(san).ok) return bad()
-  }
-  const legal = pos.legalSans()
-  // Checkmate, stalemate and other finished positions have no move to ask for.
-  if (pos.status().kind !== 'in-progress' || legal.length === 0) return bad()
-
+  const prompt = movePrompt(req)
+  if (!prompt) return bad()
+  const { legal, system, user } = prompt
   const model = CLAUDE_MODELS[req.model]
-  const side = pos.turn() === 'w' ? 'White' : 'Black'
-  const system = `You are playing chess as ${side}. Choose one move from the list. Reply with the move and a reason of at most ${MAX_WHY_WORDS} words.`
-  const user = [
-    `FEN: ${pos.fen()}`,
-    `Moves so far: ${req.history.length ? numberedMoves(req.history, firstMover) : '(none)'}`,
-    `Legal moves: ${legal.join(', ')}`,
-  ].join('\n')
 
   const format = {
     type: 'json_schema',

@@ -29,6 +29,7 @@
     "@netlify/blobs": "^11.1.0",
     "chess.js": "^1.4.0",
     "express": "^5.2.1",
+    "google-auth-library": "^11.1.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "stockfish": "^19.0.0"

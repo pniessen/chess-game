@@ -14,5 +14,7 @@ export function claudeErrorText(kind: ClaudeStartError): string {
       return 'Claude is unavailable — start the local server (npm run server) with ANTHROPIC_API_KEY in .env. Nothing was started.'
     case 'no-jev-key':
       return 'Jev is unavailable — the local server has no TYPESAFE_API_KEY (see README). Nothing was started.'
+    case 'no-gemini-auth':
+      return 'Gemini is unavailable — the local server has no Google Application Default Credentials (run gcloud auth application-default login; see README). Nothing was started.'
   }
 }
