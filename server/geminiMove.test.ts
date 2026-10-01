@@ -83,6 +83,7 @@ describe('requestGeminiMove', () => {
     expect(headers.get('content-type')).toBe('application/json')
     // The credential travels in the header only.
     expect(JSON.stringify(body)).not.toContain(TOKEN)
+    expect(url).not.toContain(TOKEN)
 
     expect(body.systemInstruction.parts[0].text).toBe(
       'You are playing chess as White. Choose one move from the list. Reply with the move and a reason of at most 20 words.',
@@ -164,12 +165,21 @@ describe('requestGeminiMove', () => {
   })
 
   test('a 200 that is not the reply shape is an illegal reply, charged what its usage says', async () => {
+    const { fetchImpl } = fakeFetch(() => Response.json({ candidates: [], usageMetadata: usage }))
+    const out = await requestGeminiMove({ vertex: client(fetchImpl) }, { model: 'gemini-flash', history: [] })
+    expect(out).toMatchObject({ ok: false, kind: 'illegal-reply', tokens: { inputTokens: 282, outputTokens: 122 } })
+  })
+
+  test('a 200 without readable usage is still billed by Google: charged the worst case, like a timeout', async () => {
     for (const payload of [{}, { candidates: [] }, { promptFeedback: { blockReason: 'SAFETY' } }, 'not json']) {
       const { fetchImpl } = fakeFetch(() =>
         typeof payload === 'string' ? new Response(payload, { status: 200 }) : Response.json(payload),
       )
       const out = await requestGeminiMove({ vertex: client(fetchImpl) }, { model: 'gemini-flash', history: [] })
-      expect(out).toMatchObject({ ok: false, kind: 'illegal-reply', costUsd: 0, tokens: { inputTokens: 0, outputTokens: 0 } })
+      expect(out).toMatchObject({ ok: false, kind: 'illegal-reply' })
+      expect(out.tokens!.inputTokens).toBeGreaterThan(0)
+      expect(out.tokens!.outputTokens).toBe(2000)
+      expect(out.costUsd).toBeGreaterThan(0.015)
     }
   })
 
@@ -189,16 +199,16 @@ describe('requestGeminiMove', () => {
 
   test('RESOURCE_EXHAUSTED is rate-limited whatever the status says', async () => {
     const { fetchImpl } = fakeFetch(() =>
-      Response.json({ error: { code: 429, status: 'RESOURCE_EXHAUSTED', message: 'Quota exceeded' } }, { status: 429 }),
+      Response.json({ error: { code: 400, status: 'RESOURCE_EXHAUSTED', message: 'Quota exceeded' } }, { status: 400 }),
     )
     const out = await requestGeminiMove({ vertex: client(fetchImpl) }, { model: 'gemini-flash', history: [] })
     expect(out).toMatchObject({ ok: false, kind: 'rate-limited', costUsd: 0 })
   })
 
-  test('no Application Default Credentials is auth, free, and no request is sent', async () => {
+  test('no Application Default Credentials is auth, free, and no request is sent (so no call is counted)', async () => {
     const { sent, fetchImpl } = fakeFetch(() => geminiReply(moveJson('e4')))
     const out = await requestGeminiMove({ vertex: client(fetchImpl, { fail: true }) }, { model: 'gemini-flash', history: [] })
-    expect(out).toMatchObject({ ok: false, kind: 'auth', costUsd: 0, tokens: { inputTokens: 0, outputTokens: 0 } })
+    expect(out).toMatchObject({ ok: false, kind: 'auth', costUsd: 0, tokens: null })
     expect(sent).toHaveLength(0)
     // Nothing from the credentials error is kept.
     expect(JSON.stringify(out)).not.toContain(TOKEN)
@@ -279,14 +289,35 @@ describe('createVertexClient().available', () => {
     expect(auth.calls).toBe(2)
   })
 
-  test('a move refused for auth makes the next check ask ADC again', async () => {
+  test('a move Google refuses (401/403: API off, no IAM role, wrong project) makes it unavailable for a while', async () => {
+    for (const status of [401, 403]) {
+      const auth = fakeAuth()
+      let now = 1_000_000
+      const { fetchImpl } = fakeFetch(() => Response.json({ error: { code: status } }, { status }))
+      const vertex = createVertexClient({ project: PROJECT, auth, fetch: fetchImpl, now: () => now })
+      expect(await vertex.available()).toBe(true)
+      await requestGeminiMove({ vertex }, { model: 'gemini-flash', history: [] })
+      // ADC still yields headers, but Google said no: the budget must not offer Gemini again at once.
+      expect(await vertex.available()).toBe(false)
+      now += 60_000
+      expect(await vertex.available()).toBe(true)
+    }
+  })
+
+  test('ADC that never answers is bounded by the timeout: auth on a move, unavailable on a check', async () => {
+    const hanging: VertexAuth = { getRequestHeaders: () => new Promise<Headers>(() => {}) }
+    const { sent, fetchImpl } = fakeFetch(() => geminiReply(moveJson('e4')))
+    const vertex = createVertexClient({ project: PROJECT, auth: hanging, fetch: fetchImpl, timeoutMs: 20 })
+    expect(await vertex.available()).toBe(false)
+    const out = await requestGeminiMove({ vertex }, { model: 'gemini-flash', history: [] })
+    expect(out).toMatchObject({ ok: false, kind: 'auth', costUsd: 0 })
+    expect(sent).toHaveLength(0)
+  })
+
+  test('concurrent checks share one ADC lookup', async () => {
     const auth = fakeAuth()
-    const { fetchImpl } = fakeFetch(() => Response.json({ error: { code: 401 } }, { status: 401 }))
-    const vertex = createVertexClient({ project: PROJECT, auth, fetch: fetchImpl })
-    expect(await vertex.available()).toBe(true)
-    await requestGeminiMove({ vertex }, { model: 'gemini-flash', history: [] })
-    const before = auth.calls
-    await vertex.available()
-    expect(auth.calls).toBe(before + 1)
+    const vertex = createVertexClient({ project: PROJECT, auth })
+    expect(await Promise.all([vertex.available(), vertex.available(), vertex.available()])).toEqual([true, true, true])
+    expect(auth.calls).toBe(1)
   })
 })

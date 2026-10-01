@@ -90,37 +90,59 @@ export function createVertexClient(opts: {
   const getAuth = () =>
     (authPromise ??= import('google-auth-library').then(({ GoogleAuth }) => new GoogleAuth({ scopes: [VERTEX_SCOPE] })))
 
+  // The credentials lookup (a token refresh may go to the network) is bounded by the same timeout as a call.
   const headers = async (): Promise<Headers> => {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const late = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new VertexAuthError()), timeoutMs)
+    })
     try {
-      const h = await (await getAuth()).getRequestHeaders()
+      const h = await Promise.race([getAuth().then((a) => a.getRequestHeaders()), late])
       if (!h.get('authorization')) throw new VertexAuthError()
       return h
     } catch {
       throw new VertexAuthError()
+    } finally {
+      clearTimeout(timer)
     }
   }
 
+  // `ok`: ADC worked and Google has not refused it since. `failedAt`: when ADC failed or Google
+  // answered 401/403 (e.g. the API is off, an IAM role is missing, the project is not this
+  // account's): until RECHECK_MS later `available` says no, even though ADC still yields headers.
   let ok = false
   let failedAt: number | null = null
+  let checking: Promise<boolean> | null = null
+  const refused = () => {
+    ok = false
+    failedAt = now()
+  }
   return {
     async available() {
       if (ok) return true
       if (failedAt !== null && now() - failedAt < RECHECK_MS) return false
-      try {
-        await headers()
-        ok = true
-        failedAt = null
-      } catch {
-        failedAt = now()
-      }
-      return ok
+      // Concurrent budget and start requests share one lookup.
+      checking ??= headers()
+        .then(() => {
+          ok = true
+          failedAt = null
+          return true
+        })
+        .catch(() => {
+          refused()
+          return false
+        })
+        .finally(() => {
+          checking = null
+        })
+      return checking
     },
     async generateContent(modelId, body) {
       let h: Headers
       try {
         h = await headers()
       } catch (err) {
-        ok = false
+        refused()
         throw err
       }
       h.set('content-type', 'application/json')
@@ -130,8 +152,7 @@ export function createVertexClient(opts: {
         body: JSON.stringify(body),
         signal: AbortSignal.timeout(timeoutMs),
       })
-      // Credentials that stopped working: the next budget check asks ADC again.
-      if (res.status === 401 || res.status === 403) ok = false
+      if (res.status === 401 || res.status === 403) refused()
       return res
     },
   }
@@ -187,22 +208,22 @@ export async function requestGeminiMove(
   // call was abandoned here, not refused there): charge the worst case, the estimated input plus
   // the whole output cap, as a Claude move does. The signal also covers the body read.
   const isTimeout = (err: unknown) => err instanceof Error && err.name === 'TimeoutError'
-  const timedOut = () => {
+  const worstCase = () => {
     const promptChars = system.length + user.length + JSON.stringify(body.generationConfig.responseSchema).length
     const est = timeoutTokens(promptChars, MAX_TOKENS)
-    return done({
-      ok: false,
-      kind: 'timeout',
+    return {
       costUsd: timeoutCostUsd(key, promptChars, MAX_TOKENS),
       tokens: { inputTokens: est.input_tokens, outputTokens: est.output_tokens },
-    })
+    }
   }
+  const timedOut = () => done({ ok: false, kind: 'timeout', ...worstCase() })
 
   let res: Response
   try {
     res = await deps.vertex.generateContent(CLAUDE_MODELS[key].id, body)
   } catch (err) {
-    if (err instanceof VertexAuthError) return free('auth')
+    // No credentials: nothing was sent, so no call is counted.
+    if (err instanceof VertexAuthError) return done({ ok: false, kind: 'auth', costUsd: 0, tokens: null })
     if (isTimeout(err)) return timedOut()
     // A network failure is free.
     return free('upstream')
@@ -221,8 +242,11 @@ export async function requestGeminiMove(
     return free(kindOfRefusal(res.status, error['status']))
   }
 
+  // Google bills every 200. One without readable usage is charged the worst case, like a timeout,
+  // so the ledger never under-counts.
+  if (!isRecord(payload) || !isRecord(payload['usageMetadata'])) return done({ ok: false, kind: 'illegal-reply', ...worstCase() })
   // Thinking is billed as output, so thoughtsTokenCount is counted in with the reply's own tokens.
-  const usage = isRecord(payload) && isRecord(payload['usageMetadata']) ? payload['usageMetadata'] : {}
+  const usage = payload['usageMetadata']
   const tokens = {
     inputTokens: count(usage['promptTokenCount']),
     outputTokens: count(usage['candidatesTokenCount']) + count(usage['thoughtsTokenCount']),
