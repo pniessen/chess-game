@@ -1,10 +1,10 @@
 // The Claude-vs-Claude model allow-list. Dependency-free on purpose: the
 // browser sends only these keys, and both the server and the UI import this file.
-// Despite the name it also lists one non-Claude model, Jev, which takes a
-// seat like any other: same ledger, usage, head-to-head and UI. Whose API
-// answers a seat lives in ./providers, which public builds never import.
+// Despite the name it also lists non-Claude models, Jev and two Gemini models,
+// which take a seat like any other: same ledger, usage, head-to-head and UI.
+// Whose API answers a seat lives in ./providers, which public builds never import.
 
-export type ClaudeModelKey = 'fable' | 'opus' | 'sonnet' | 'haiku' | 'jev'
+export type ClaudeModelKey = 'fable' | 'opus' | 'sonnet' | 'haiku' | 'jev' | 'gemini-pro' | 'gemini-flash'
 
 export interface ClaudeModel {
   id: string
@@ -29,13 +29,46 @@ export interface ClaudeModel {
 // per Btok / per Mtok, "Charged per input token. Output tokens are free."
 // `jev-latest` is an alias (jev-1.13.0 on that date), so its label carries no
 // version; the seat picker adds its maker (seatLabel in ./providers).
-export const CLAUDE_MODELS: Record<ClaudeModelKey, ClaudeModel> = {
+/**
+ * Whether this bundle carries the local-only rows (the Gemini models): the
+ * CLAUDE_GAMES rule of ./enabled, plus the local server, which runs under tsx
+ * where `import.meta.env` does not exist. The pure form, for the unit test.
+ */
+export function localModelsIncluded(env: { MODE?: string; VITE_CLAUDE_GAMES?: string } | undefined): boolean {
+  return env === undefined || env.MODE === 'development' || env.VITE_CLAUDE_GAMES === 'on'
+}
+
+/**
+ * The same rule written as direct `import.meta.env` reads, so Vite folds it to
+ * `false` in a public build and the minifier drops every row behind it: this
+ * table ships in every bundle, and a public one must not say "gemini" at all
+ * (build without VITE_CLAUDE_GAMES and grep dist). Not imported from ./enabled,
+ * which reads `import.meta.env.MODE` unguarded and would throw on the server.
+ */
+const LOCAL_MODELS: boolean =
+  import.meta.env === undefined || import.meta.env.MODE === 'development' || import.meta.env.VITE_CLAUDE_GAMES === 'on'
+
+// Gemini's prices are cloud.google.com/vertex-ai/generative-ai/pricing (read
+// 2026-10-01), global endpoint, prompts of at most 200K tokens. "Text output
+// (response and reasoning)": thinking tokens are billed as output, and the
+// usage's thoughtsTokenCount is counted in with the output (server/geminiMove.ts).
+// 3.1 Pro Preview: $2 in / $12 out. 3.8 Flash: $1.50 / $7.50 standard, which
+// applies from 2027-01-01; until then Google charges an introductory $0.75 /
+// $3.75, so this ledger over-counts Flash 2x for now rather than ever under-count.
+const LOCAL_ONLY_MODELS = {
+  'gemini-pro': { id: 'gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro', priceIn: 2, priceOut: 12 },
+  'gemini-flash': { id: 'gemini-3.8-flash', label: 'Gemini 3.8 Flash', priceIn: 1.5, priceOut: 7.5 },
+} satisfies Partial<Record<ClaudeModelKey, ClaudeModel>>
+
+// In a public build the Gemini keys are absent, so isClaudeModelKey refuses them there.
+export const CLAUDE_MODELS = {
   fable: { id: 'claude-fable-5-1', label: 'Claude Fable 5.1', priceIn: 10, priceOut: 50, effort: 'low' },
   opus: { id: 'claude-opus-5-5', label: 'Claude Opus 5.5', priceIn: 4, priceOut: 20, effort: 'low' },
   sonnet: { id: 'claude-sonnet-5-5', label: 'Claude Sonnet 5.5', priceIn: 2, priceOut: 10, effort: 'low' },
   haiku: { id: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5', priceIn: 1, priceOut: 5 },
   jev: { id: 'jev-latest', label: 'Jev', priceIn: 0.042, priceOut: 0 },
-}
+  ...(LOCAL_MODELS ? LOCAL_ONLY_MODELS : {}),
+} as Record<ClaudeModelKey, ClaudeModel>
 
 /** The label without its "Claude " prefix ("Opus 5.5", "Jev"), for the clocks and the thinking line. */
 export function shortModelLabel(key: ClaudeModelKey): string {
@@ -163,7 +196,7 @@ export const CLAUDE_SESSION_IDLE_MS = 25 * 60_000
  * (0.11 sonnet, 0.06 haiku) would have stopped a Haiku game near ply 130 with
  * "budget used up". Retune from the ledger's saved games if play drifts.
  */
-export const RESERVE_PER_GAME_USD: Record<ClaudeModelKey, number> = {
+export const RESERVE_PER_GAME_USD = {
   fable: 1.5,
   opus: 0.63,
   sonnet: 0.32,
@@ -172,7 +205,10 @@ export const RESERVE_PER_GAME_USD: Record<ClaudeModelKey, number> = {
   // it does not grow over a game: the 2026-09-30 spike's largest was 1,305
   // input tokens. 80 moves x 3,000 tokens x $0.042/Mtok is $0.0101: two cents.
   jev: 0.02,
-}
+  // Gemini, local builds only (see LOCAL_MODELS). Same rule as the Claude rows, from
+  // three opening moves each measured 2026-10-01 through Vertex AI at thinking level LOW.
+  ...(LOCAL_MODELS ? { 'gemini-pro': 0.7, 'gemini-flash': 0.18 } : {}),
+} as Record<ClaudeModelKey, number>
 
 /**
  * The head-to-head record of the two models on the board, over every saved

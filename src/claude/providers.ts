@@ -5,8 +5,11 @@
 // name and no key name (vite.config.ts builds; grep dist for "typesafe").
 import { CLAUDE_MODELS, type ClaudeModelKey } from './models'
 
-/** Anthropic's Messages API (server/claudeMove.ts), or TypeSafe's System One (server/jevMove.ts). */
-export type ModelProvider = 'anthropic' | 'typesafe'
+/**
+ * Anthropic's Messages API (server/claudeMove.ts), TypeSafe's System One
+ * (server/jevMove.ts), or Google's Gemini on Vertex AI (server/geminiMove.ts).
+ */
+export type ModelProvider = 'anthropic' | 'typesafe' | 'vertex'
 
 const PROVIDERS: Record<ClaudeModelKey, ModelProvider> = {
   fable: 'anthropic',
@@ -14,14 +17,22 @@ const PROVIDERS: Record<ClaudeModelKey, ModelProvider> = {
   sonnet: 'anthropic',
   haiku: 'anthropic',
   jev: 'typesafe',
+  'gemini-pro': 'vertex',
+  'gemini-flash': 'vertex',
 }
 
 export const providerOf = (key: ClaudeModelKey): ModelProvider => PROVIDERS[key]
 
-/** The environment variable the local server needs to seat this model. */
-export const keyNameFor = (key: ClaudeModelKey): string =>
-  PROVIDERS[key] === 'typesafe' ? 'TYPESAFE_API_KEY' : 'ANTHROPIC_API_KEY'
+const NEEDS: Record<ModelProvider, string> = {
+  anthropic: 'ANTHROPIC_API_KEY',
+  typesafe: 'TYPESAFE_API_KEY',
+  // Vertex AI takes no key here: the server signs in with Application Default Credentials.
+  vertex: 'Google ADC',
+}
 
-/** The seat picker's name: the model's label, with its maker when the label does not say ("TypeSafe Jev"). */
+/** What the local server needs to seat this model: an environment variable, or Google ADC for Gemini. */
+export const keyNameFor = (key: ClaudeModelKey): string => NEEDS[PROVIDERS[key]]
+
+/** The seat picker's name: the model's label, with its maker when the label does not say ("TypeSafe Jev", but "Gemini 3.8 Flash"). */
 export const seatLabel = (key: ClaudeModelKey): string =>
   PROVIDERS[key] === 'typesafe' ? `TypeSafe ${CLAUDE_MODELS[key].label}` : CLAUDE_MODELS[key].label

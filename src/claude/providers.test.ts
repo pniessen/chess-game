@@ -12,16 +12,21 @@ describe('providers', () => {
       sonnet: 'anthropic',
       haiku: 'anthropic',
       jev: 'typesafe',
+      'gemini-pro': 'vertex',
+      'gemini-flash': 'vertex',
     })
   })
 
   test('each provider names the key the local server needs', () => {
     expect(keyNameFor('jev')).toBe('TYPESAFE_API_KEY')
-    for (const k of KEYS.filter((k) => k !== 'jev')) expect(keyNameFor(k)).toBe('ANTHROPIC_API_KEY')
+    expect(keyNameFor('gemini-pro')).toBe('Google ADC')
+    expect(keyNameFor('gemini-flash')).toBe('Google ADC')
+    for (const k of KEYS.filter((k) => providerOf(k) === 'anthropic')) expect(keyNameFor(k)).toBe('ANTHROPIC_API_KEY')
   })
 
   test('the seat label adds the maker where the model label lacks it', () => {
     expect(seatLabel('jev')).toBe('TypeSafe Jev')
     expect(seatLabel('opus')).toBe('Claude Opus 5.5')
+    expect(seatLabel('gemini-flash')).toBe('Gemini 3.8 Flash')
   })
 })
