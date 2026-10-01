@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import type { Server } from 'node:http'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
@@ -9,6 +9,7 @@ import { MOVE_TIMEOUT_MS } from '../src/claude/models'
 import { createClaude } from './claude'
 import { randomBytes, randomUUID } from 'node:crypto'
 import { fileStore } from './fileStore'
+import { createJevClient } from './jevMove'
 
 /**
  * The relay is unauthenticated and holds the Anthropic API key, so it must
@@ -28,9 +29,37 @@ export function gamesDirFor(env: NodeJS.ProcessEnv, home: string = homedir()): s
   return env['CLAUDE_GAMES_DIR']?.trim() || join(home, '.chess-game', 'claude-games')
 }
 
+/** Where the TypeSafe key is kept: `TYPESAFE_ENV_FILE` if set, else `~/.config/typesafe/env`. */
+export function typesafeEnvFileFor(env: NodeJS.ProcessEnv, home: string = homedir()): string {
+  return env['TYPESAFE_ENV_FILE']?.trim() || join(home, '.config', 'typesafe', 'env')
+}
+
+/**
+ * The TypeSafe API key for Jev seats: `TYPESAFE_API_KEY` from the
+ * environment (a sourced shell, or `.env` through `npm run server`'s
+ * --env-file-if-exists), else that variable's line in `file` (a shell file
+ * of `export TYPESAFE_API_KEY=...`, quotes optional). Null when neither has
+ * one. The value is only ever handed to createJevClient: never logged.
+ */
+export function typesafeKeyFor(env: NodeJS.ProcessEnv, file: string): string | null {
+  const fromEnv = env['TYPESAFE_API_KEY']?.trim()
+  if (fromEnv) return fromEnv
+  let text: string
+  try {
+    text = readFileSync(file, 'utf8')
+  } catch {
+    return null
+  }
+  const m = /^[ \t]*(?:export[ \t]+)?TYPESAFE_API_KEY[ \t]*=[ \t]*(.*?)[ \t]*$/m.exec(text)
+  const raw = m?.[1] ?? ''
+  const unquoted = /^(['"])(.*)\1$/.exec(raw)?.[2] ?? raw
+  return unquoted.trim() || null
+}
+
 export function startServer(env: NodeJS.ProcessEnv = process.env): Promise<Server> {
   const port = Number(env['PORT'] ?? 8787)
   const apiKey = env['ANTHROPIC_API_KEY']?.trim() || null
+  const typesafeKey = typesafeKeyFor(env, typesafeEnvFileFor(env))
   const gamesDir = gamesDirFor(env)
   const distDir = fileURLToPath(new URL('../dist', import.meta.url))
 
@@ -42,6 +71,8 @@ export function startServer(env: NodeJS.ProcessEnv = process.env): Promise<Serve
     // marks the games lock as this process's, so after a restart a stale lock is settled at once.
     games: {
       client: apiKey ? new Anthropic({ apiKey, timeout: MOVE_TIMEOUT_MS, maxRetries: 0 }) : null,
+      // Jev seats (TypeSafe); without a key the budget leaves `jev` out of its models and start refuses it.
+      jev: typesafeKey ? createJevClient({ apiKey: typesafeKey }) : null,
       store: fileStore(gamesDir),
       secret: randomBytes(32),
       boot: randomUUID(),
@@ -51,9 +82,10 @@ export function startServer(env: NodeJS.ProcessEnv = process.env): Promise<Serve
 
   return new Promise((resolve) => {
     const server = app.listen(port, LISTEN_HOST, () => {
-      // Never log the key itself.
+      // Never log either key itself.
       console.log(
-        `coach server on http://${LISTEN_HOST}:${port} — Claude ${apiKey ? 'enabled' : 'disabled (no ANTHROPIC_API_KEY)'}`,
+        `coach server on http://${LISTEN_HOST}:${port} — Claude ${apiKey ? 'enabled' : 'disabled (no ANTHROPIC_API_KEY)'}, ` +
+          `Jev ${typesafeKey ? 'enabled' : 'disabled (no TYPESAFE_API_KEY)'}`,
       )
       resolve(server)
     })
