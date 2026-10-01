@@ -205,9 +205,14 @@ export const RESERVE_PER_GAME_USD = {
   // it does not grow over a game: the 2026-09-30 spike's largest was 1,305
   // input tokens. 80 moves x 3,000 tokens x $0.042/Mtok is $0.0101: two cents.
   jev: 0.02,
-  // Gemini, local builds only (see LOCAL_MODELS). Same rule as the Claude rows, from
-  // three opening moves each measured 2026-10-01 through Vertex AI at thinking level LOW.
-  ...(LOCAL_MODELS ? { 'gemini-pro': 0.7, 'gemini-flash': 0.18 } : {}),
+  // Gemini, local builds only (see LOCAL_MODELS). Same rule as the Claude rows (80 x the
+  // dearest opening move x 1.75 x 1.25), from opening moves measured 2026-10-01 through
+  // Vertex AI at thinking level LOW: Pro $0.00174 / $0.00284 (282 in, 98 / 190 out, a third
+  // call was rate-limited), Flash $0.00058 / $0.00073 / $0.00135 (21 / 41 / 123 out).
+  // That rule gives Flash $0.24, but Flash also timed out on 4 of its 12 calls in the 16-ply
+  // smoke game (each charged its 2,000-token cap, $0.015): at that rate 80 moves add about
+  // 40 x $0.015 = $0.60, so Flash holds $0.60. Retune both from saved games.
+  ...(LOCAL_MODELS ? { 'gemini-pro': 0.5, 'gemini-flash': 0.6 } : {}),
 } as Record<ClaudeModelKey, number>
 
 /**

@@ -39,9 +39,11 @@ export const GEMINI_THINKING_LEVEL = { 'gemini-pro': 'LOW', 'gemini-flash': 'LOW
 
 export type GeminiModelKey = keyof typeof GEMINI_THINKING_LEVEL
 
-// Thinking tokens count toward maxOutputTokens; the reply itself is tiny. The same cap as a
-// Claude move, and what a timed-out call is charged for.
-const MAX_TOKENS = 8000
+// Thinking tokens count toward maxOutputTokens; the reply itself is tiny. At thinking level LOW
+// the live calls of 2026-10-01 used at most 206 output tokens, thinking included, so 2,000 is ten
+// times that. It is also what a timed-out call is charged for, and 3.8 Flash timed out on 4 of 12
+// calls in the smoke game: the Claude seats' 8,000 would charge each of those $0.06, not $0.015.
+const MAX_TOKENS = 2000
 
 /** After ADC fails, how long `available` answers false before asking again. */
 const RECHECK_MS = 30_000

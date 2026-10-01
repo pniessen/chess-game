@@ -102,7 +102,7 @@ describe('requestGeminiMove', () => {
     expect(g.responseSchema.properties.move.enum).toContain('Bb5')
     expect(g.responseSchema.properties.move.enum).toHaveLength(27)
     expect(g.thinkingConfig).toEqual({ thinkingLevel: 'LOW' })
-    expect(g.maxOutputTokens).toBe(8000)
+    expect(g.maxOutputTokens).toBe(2000)
     // Gemini 3 ignores sampling parameters and rejects some others: none are sent.
     expect(g.temperature).toBeUndefined()
     expect(g.candidateCount).toBeUndefined()
@@ -220,8 +220,8 @@ describe('requestGeminiMove', () => {
     const out = await requestGeminiMove({ vertex: client(fetchImpl, { timeoutMs: 20 }) }, { model: 'gemini-pro', history: [] })
     expect(out).toMatchObject({ ok: false, kind: 'timeout' })
     expect(out.tokens!.inputTokens).toBeGreaterThan(0)
-    expect(out.tokens!.outputTokens).toBe(8000)
-    expect(out.costUsd).toBeCloseTo(timeoutCostUsd('gemini-pro', out.tokens!.inputTokens * 3.5, 8000), 4)
+    expect(out.tokens!.outputTokens).toBe(2000)
+    expect(out.costUsd).toBeCloseTo(timeoutCostUsd('gemini-pro', out.tokens!.inputTokens * 3.5, 2000), 4)
   })
 
   test('a timeout while the body is still arriving is a timeout too', async () => {
