@@ -231,7 +231,7 @@ test('at 1440x800 the month line fits without page scroll', async ({ page }) => 
 })
 
 /** The models a server with both keys can seat, as /api/game/budget lists them. */
-const ALL_MODELS = ['fable', 'opus', 'sonnet', 'haiku', 'jev']
+const ALL_MODELS = ['fable', 'opus', 'sonnet', 'haiku', 'jev', 'gemini-pro', 'gemini-flash']
 
 test('Jev holds the White seat: its moves carry its probability, not a made-up reason', async ({ page }) => {
   // Jev is charged for input tokens only, at $0.042 per million: a fraction of a cent a move.
@@ -322,6 +322,102 @@ test('a server without TYPESAFE_API_KEY: Jev is disabled in both seats, a Claude
     await expect(jev).toHaveText('TypeSafe Jev (no TYPESAFE_API_KEY)')
   }
   await page.getByTestId('claude-white').selectOption('opus')
+  await page.getByTestId('claude-black').selectOption('haiku')
+  await expect(page.getByTestId('new-game')).toBeEnabled()
+  await page.getByTestId('new-game').click()
+  await expect.poll(() => calls.start).toBe(1)
+})
+
+test('Gemini 3.8 Flash and Gemini 3.1 Pro hold the seats: a scripted game through Vertex AI, stubbed', async ({ page }) => {
+  // Priced like the real thing: a few hundred prompt tokens and some thinking billed as output.
+  const GEMINI_SCRIPT = [
+    { san: 'f3', why: 'Prepares g4 for a kingside expansion.', costUsd: 0.0012 },
+    { san: 'e5', why: 'Takes the centre and opens the diagonal for the queen.', costUsd: 0.0031 },
+    { san: 'g4', why: 'Continues the kingside pawn advance.', costUsd: 0.0013 },
+    { san: 'Qh4#', why: 'The queen mates along the opened e1-h4 diagonal.', costUsd: 0.0034 },
+  ]
+  let n = 0
+  const calls = await stubGame(page, (route) => {
+    const step = GEMINI_SCRIPT[n]!
+    n++
+    const played = GEMINI_SCRIPT.slice(0, n)
+    const side = (parity: number) => {
+      const steps = played.filter((_, i) => i % 2 === parity)
+      return {
+        costUsd: steps.reduce((s, x) => s + x.costUsd, 0),
+        ms: steps.length * 2500,
+        inputTokens: steps.length * 300,
+        outputTokens: steps.length * 120,
+        calls: steps.length,
+      }
+    }
+    return route.fulfill({
+      json: {
+        san: step.san,
+        why: step.why,
+        costUsd: step.costUsd,
+        gameSpentUsd: played.reduce((s, x) => s + x.costUsd, 0),
+        usage: { w: side(0), b: side(1) },
+      },
+    })
+  })
+  await page.route('**/api/game/budget', (r) =>
+    r.fulfill({
+      json: {
+        budgetLeftUsd: 12.5,
+        monthlyUsd: 20,
+        byModel: { 'gemini-pro': { costUsd: 0.031, ms: 40_000, inputTokens: 3000, outputTokens: 1200, calls: 10 } },
+        earlierUsd: 0,
+        models: ALL_MODELS,
+      },
+    }),
+  )
+  const startBodies: unknown[] = []
+  page.on('request', (req) => {
+    if (req.url().endsWith('/api/game/start')) startBodies.push(req.postDataJSON())
+  })
+  await page.goto('/')
+
+  await page.getByTestId('mode').selectOption('claude-vs-claude')
+  await expect(page.getByTestId('claude-white').locator('option[value="gemini-flash"]')).toHaveText('Gemini 3.8 Flash')
+  await expect(page.getByTestId('claude-black').locator('option[value="gemini-pro"]')).toHaveText('Gemini 3.1 Pro')
+  await page.getByTestId('claude-white').selectOption('gemini-flash')
+  await page.getByTestId('claude-black').selectOption('gemini-pro')
+  await expect(page.getByTestId('claude-month')).toHaveText('This month: Gemini Pro $0.03 (10 calls, 4.0 s/call)')
+  await expect(page.getByTestId('claude-seat-hint')).toHaveCount(0)
+  await page.getByTestId('new-game').click()
+
+  await expect(page.getByTestId('claude-record')).toHaveText('Gemini 3.8 Flash 1 – 0 Gemini 3.1 Pro · 2 draws')
+  await expect(page.getByTestId('claude-thinking')).toContainText('Gemini 3.8 Flash is thinking')
+  await expect(page.getByTestId('claude-why')).toHaveText('Prepares g4 for a kingside expansion.')
+  await expect(page.getByTestId('game-end-card')).toBeVisible({ timeout: 30_000 })
+  await expect(page.getByTestId('game-end-headline')).toHaveText('Checkmate — Black wins')
+  await expect(page.getByTestId('claude-cost-w')).toHaveText('· Gemini 3.8 Flash $0.00')
+  await expect(page.getByTestId('claude-cost-b')).toHaveText('· Gemini 3.1 Pro $0.01')
+
+  expect(startBodies).toEqual([{ white: 'gemini-flash', black: 'gemini-pro' }])
+  expect(calls.move).toEqual([[], ['f3'], ['f3', 'e5'], ['f3', 'e5', 'g4']])
+  await expect.poll(() => calls.end).toBe(1)
+  expect(calls.record[0]).toEqual({ url: '/api/game/record?white=gemini-flash&black=gemini-pro', afterEnd: false })
+})
+
+test('a server without Google ADC: Gemini is disabled in both seats and a Gemini seat cannot start', async ({ page }) => {
+  const calls = await stubGame(page, (route) =>
+    route.fulfill({ status: 402, json: { error: { kind: 'budget', message: 'x' } } }),
+  )
+  await page.route('**/api/game/budget', (r) =>
+    r.fulfill({ json: { budgetLeftUsd: 12.5, monthlyUsd: 20, byModel: {}, earlierUsd: 0, models: ALL_MODELS.slice(0, 5) } }),
+  )
+  await page.goto('/')
+  await page.getByTestId('mode').selectOption('claude-vs-claude')
+  for (const seat of ['claude-white', 'claude-black']) {
+    for (const [key, label] of [['gemini-pro', 'Gemini 3.1 Pro'], ['gemini-flash', 'Gemini 3.8 Flash']]) {
+      const option = page.getByTestId(seat).locator(`option[value="${key}"]`)
+      await expect(option).toHaveJSProperty('disabled', true)
+      await expect(option).toHaveText(`${label} (no Google ADC)`)
+    }
+  }
+  await page.getByTestId('claude-white').selectOption('jev')
   await page.getByTestId('claude-black').selectOption('haiku')
   await expect(page.getByTestId('new-game')).toBeEnabled()
   await page.getByTestId('new-game').click()
