@@ -43,6 +43,17 @@ export interface ClaudeSession {
  */
 export function useClaudeSession(controller: MatchController, mover: ClaudeMover | null): ClaudeSession {
   const openRef = useRef(false)
+  /**
+   * Whether the session's own game is on the board yet. begin() opens the
+   * server game BEFORE the caller starts (or resumes) the match, so for a
+   * moment the board still holds the previous, finished game — and anything
+   * that emits then (resetClaudeSpend does, whenever that game cost money)
+   * must not make the finish watcher end the brand-new session with the old
+   * game's PGN. Found 2026-09-30: every finished game saved twice, one under
+   * the next game's pairing. Disarmed by begin, armed once the controller
+   * leaves `finished`.
+   */
+  const armedRef = useRef(false)
   /** Bumped by every begin and every replace: a begin that lands after either is stale. */
   const seqRef = useRef(0)
   const inFlightRef = useRef(false)
@@ -114,6 +125,7 @@ export function useClaudeSession(controller: MatchController, mover: ClaudeMover
         return false
       }
       openRef.current = true
+      armedRef.current = controller.snapshot().phase.kind !== 'finished'
       // A new server game's spend starts at zero; a re-begin (Resume after
       // the old session lapsed) must not keep showing the old total.
       controller.resetClaudeSpend()
@@ -133,7 +145,11 @@ export function useClaudeSession(controller: MatchController, mover: ClaudeMover
   useEffect(
     () =>
       controller.subscribe((s) => {
-        if (s.phase.kind === 'finished' && openRef.current) end()
+        if (s.phase.kind !== 'finished') {
+          armedRef.current = true
+          return
+        }
+        if (openRef.current && armedRef.current) end()
       }),
     [controller, end],
   )
