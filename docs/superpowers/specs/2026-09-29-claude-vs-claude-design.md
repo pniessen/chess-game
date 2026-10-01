@@ -128,6 +128,36 @@ owner-token field and no `/api/game/*` functions.
   (budget request fails) and Start is disabled.
 - **Phase 0 (Task 10)** runs locally against Peter's own key.
 
+## Addendum, 2026-09-30: TypeSafe's Jev takes a seat
+
+- **What:** `jev` is a fifth key in `CLAUDE_MODELS` (`provider: 'typesafe'`, id `jev-latest`,
+  label "TypeSafe Jev"). It is seated, charged, saved, counted in the head-to-head and shown in
+  the usage lines exactly like a Claude model; the seat kind stays `claude`.
+- **The call** (`server/jevMove.ts`): `POST https://api.typesafe.ai/v1/systemone`, bearer
+  `TYPESAFE_API_KEY`, `state` = `{fen, side_to_move, board}`, one `choice` question whose criteria
+  are the legal moves keyed `m0..mN` and described in words ("Bxf7+: bishop from c4 to f7,
+  capturing a pawn, check"). Jev can only pick a listed move; an unknown key is an illegal reply.
+  Same 45 s timeout. 401/403 read as no key (503 `no-jev-key`), 429/529 as rate-limited, other
+  failures as upstream (the browser retries, then Stockfish falls back as for Claude).
+- **No rationale:** Jev returns a probability, not a reason, so a move's note is
+  "Jev's pick (p 0.27)". Nothing is invented.
+- **Price:** docs.typesafe.ai/models.md (2026-09-30): $0.042 per million input tokens, output
+  tokens free. `costUsd` is computed from `usage.input_tokens`; a timeout is charged its estimated
+  input. Reserve: $0.02 a side (80 moves x 3,000 tokens is $0.0101; the prompt carries no history,
+  so it does not grow).
+- **Key:** server-side only. `TYPESAFE_API_KEY` from the environment, else the
+  `TYPESAFE_API_KEY=` line of `~/.config/typesafe/env` (`TYPESAFE_ENV_FILE` overrides the path).
+  Never logged, never in a response or the browser bundle.
+- **Without the key:** `GET /api/game/budget` lists the seatable models in `models`; the UI
+  disables the others ("TypeSafe Jev (no TYPESAFE_API_KEY)") and blocks Start if one is seated;
+  `start` refuses a Jev seat with 503 `no-jev-key` before reserving anything. With only a TypeSafe
+  key, Jev vs Jev plays and Claude seats answer `no-key`.
+- **Spike (2026-09-29, 19 positions):** median 169 ms a move, no illegal pick, mean centipawn loss
+  215 against random's 414, Stockfish's best move 7 times in 19. Weak, but legal and fast.
+- **Live smoke (2026-09-30, Jev vs Jev through the relay, temp ledger, 20 plies):** median 183 ms
+  / max 397 ms per `/api/game/move`, no failures, 21,445 input / 4,291 output tokens over 20 calls
+  (about 1,070 input a move), $0.0009 for the game.
+
 ## Phase 0 results (measured 2026-09-29, local server, Peter's own key)
 
 Three moves per model from the start position (both seats the same model), then one full

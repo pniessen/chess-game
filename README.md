@@ -81,6 +81,14 @@ npm run server       # http://127.0.0.1:8787, loopback only
 
 `npm start` builds the app and serves it from that same server.
 
+Claude vs Claude (local only: `npm run dev`, or `npm run start:claude`) can
+also seat TypeSafe's **Jev**. The server takes `TYPESAFE_API_KEY` from its
+environment (a sourced shell or `.env`); when that is unset it reads the
+`TYPESAFE_API_KEY=` line of `~/.config/typesafe/env` (or of the file
+`TYPESAFE_ENV_FILE` names). The key stays on the server and is never logged.
+Without it the Jev option is disabled and Claude-only games are unaffected;
+with only a TypeSafe key, Jev vs Jev still plays.
+
 ## Checks
 
 ```sh
