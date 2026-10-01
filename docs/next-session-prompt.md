@@ -104,6 +104,13 @@ supersedes the owner-only sections), plan `docs/superpowers/plans/2026-09-29-cla
   8.5 to 23 s, 3.6 Flash 1 to 2.5 s every time, and the `us` multi-region endpoint timed out on
   12/12 (a trivial prompt took 119 s), so the seat is 3.6 Flash on `global` and the `us`
   endpoint stays off. See the spec's 2026-10-01 addenda before changing it.
+- **Round-robin trial** (`scripts/trial/`, `npm run trial` / `npm run trial:report`): headless
+  games between the seats through `server/moveDispatch.ts` (the server's own routing), the
+  app's retry-once-then-Stockfish-fallback rule (`src/match/claudeFallback.ts`), back-off on
+  rate limits, its own hard cap and `ledger.jsonl` under `~/.chess-game/trials/<id>/`, resumable,
+  at most one game per model at a time. The report: Stockfish CPL per move (depth 14, cached),
+  per-model results, speed, cost, endings, openings, style signals, and Opus 5.5 style bullets.
+  Not imported by `src/`, so no bundle carries it. See the spec's trial addendum.
 - **Constants** (model ids, list prices, per-game reserves, move timeout, the 160-ply
   adjudication cap, the 25-minute session idle limit) live in `src/claude/models.ts`.
 - **Task 10 (live measurement) is still pending:** it now runs locally with Peter's own key,

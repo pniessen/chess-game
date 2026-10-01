@@ -16,9 +16,9 @@ import { providerOf, type ModelProvider } from '../src/claude/providers'
 import { Position } from '../src/game-core/position'
 import { STARTING_FEN } from '../src/game-core/types'
 import type { MessagesClient } from './claude'
-import { requestMove } from './claudeMove'
-import { requestJevMove, type JevClient } from './jevMove'
-import { requestGeminiMove, type VertexClient } from './geminiMove'
+import type { JevClient } from './jevMove'
+import type { VertexClient } from './geminiMove'
+import { dispatchMove, noKeyKind } from './moveDispatch'
 import {
   GAMES_LIMITS,
   authorizeMove,
@@ -113,11 +113,6 @@ const moveStatus = (kind: string): number => MOVE_STATUS[kind] ?? 502
 
 /** A key (or ADC) the provider rejects is a configuration problem, not something a retry fixes: report it as no key. */
 const moveKind = (kind: string, model: ClaudeModelKey): string => (kind === 'auth' ? noKeyKind(model) : kind)
-
-const NO_KEY: Record<ModelProvider, string> = { anthropic: 'no-key', typesafe: 'no-jev-key', vertex: 'no-gemini-auth' }
-
-/** The refusal for a seat whose provider has no key. */
-const noKeyKind = (model: ClaudeModelKey): string => NO_KEY[providerOf(model)]
 
 /** Whether this server can reach each provider now: a key for Anthropic and TypeSafe, working ADC for Vertex AI. */
 async function providersUp(deps: GameDeps): Promise<Record<ModelProvider, boolean>> {
@@ -249,17 +244,9 @@ async function move(body: Record<string, unknown>, deps: GameDeps, now: number):
   const model = auth.model
   const provider = providerOf(model)
   const moveReq = { model, ...(startFen !== undefined ? { startFen } : {}), history }
-  let outcome: Awaited<ReturnType<typeof requestMove>>
-  if (provider === 'typesafe') {
-    if (!deps.jev) return fail(503, 'no-jev-key')
-    outcome = await requestJevMove({ jev: deps.jev }, moveReq)
-  } else if (provider === 'vertex') {
-    if (!deps.vertex) return fail(503, 'no-gemini-auth')
-    outcome = await requestGeminiMove({ vertex: deps.vertex }, moveReq)
-  } else {
-    if (!deps.client) return fail(503, 'no-key')
-    outcome = await requestMove({ client: deps.client }, moveReq)
-  }
+  const routed = await dispatchMove(deps, moveReq)
+  if ('missing' in routed) return fail(503, routed.missing)
+  const { outcome } = routed
   // A reply that arrived cost money even when it was unusable: charge before answering either way.
   // Every call made counts toward the side's usage; a bad request made none.
   const side = white ? 'white' : 'black'

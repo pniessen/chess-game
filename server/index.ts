@@ -11,6 +11,7 @@ import { randomBytes, randomUUID } from 'node:crypto'
 import { fileStore } from './fileStore'
 import { createJevClient } from './jevMove'
 import { DEFAULT_GCP_PROJECT, VERTEX_LOCATION, createVertexClient, type VertexClient } from './geminiMove'
+import type { MoveClients } from './moveDispatch'
 
 /**
  * The relay is unauthenticated and holds the Anthropic API key, so it must
@@ -65,6 +66,32 @@ export function gcpProjectFor(env: NodeJS.ProcessEnv): string {
   return env['GOOGLE_CLOUD_PROJECT']?.trim() || DEFAULT_GCP_PROJECT
 }
 
+/**
+ * The move clients for every provider this environment can reach: Anthropic
+ * from `ANTHROPIC_API_KEY`, TypeSafe from `typesafeKeyFor`, Vertex AI over ADC
+ * (it seats Gemini only while ADC works). The local server and the trial
+ * runner (scripts/trial) both build theirs here. `opts.vertex` replaces the
+ * Vertex AI client (tests pass null or a fake). `opts.fetch` pins the fetch
+ * every client uses (the trial passes the real one, which a Stockfish load
+ * would otherwise null for a moment). No key is logged or returned.
+ */
+export function moveClientsFor(
+  env: NodeJS.ProcessEnv,
+  opts: { vertex?: VertexClient | null; timeoutMs?: number; fetch?: typeof fetch } = {},
+): Required<MoveClients> & { gcpProject: string } {
+  const apiKey = env['ANTHROPIC_API_KEY']?.trim() || null
+  const typesafeKey = typesafeKeyFor(env, typesafeEnvFileFor(env))
+  const gcpProject = gcpProjectFor(env)
+  const timeoutMs = opts.timeoutMs ?? MOVE_TIMEOUT_MS
+  const f = opts.fetch ? { fetch: opts.fetch } : {}
+  return {
+    client: apiKey ? new Anthropic({ apiKey, timeout: timeoutMs, maxRetries: 0, ...f }) : null,
+    jev: typesafeKey ? createJevClient({ apiKey: typesafeKey, timeoutMs, ...f }) : null,
+    vertex: opts.vertex !== undefined ? opts.vertex : createVertexClient({ project: gcpProject, timeoutMs, ...f }),
+    gcpProject,
+  }
+}
+
 /** How long the startup line waits on the ADC check before calling Gemini disabled (the budget asks again later). */
 const ADC_CHECK_MS = 10_000
 
@@ -76,11 +103,9 @@ const ADC_CHECK_MS = 10_000
 export function startServer(env: NodeJS.ProcessEnv = process.env, opts: { vertex?: VertexClient | null } = {}): Promise<Server> {
   const port = Number(env['PORT'] ?? 8787)
   const apiKey = env['ANTHROPIC_API_KEY']?.trim() || null
-  const typesafeKey = typesafeKeyFor(env, typesafeEnvFileFor(env))
   const gamesDir = gamesDirFor(env)
   const distDir = fileURLToPath(new URL('../dist', import.meta.url))
-  const gcpProject = gcpProjectFor(env)
-  const vertex = opts.vertex !== undefined ? opts.vertex : createVertexClient({ project: gcpProject })
+  const { client, jev, vertex, gcpProject } = moveClientsFor(env, opts)
 
   const app = createApp({
     claude: apiKey ? createClaude({ apiKey }) : null,
@@ -89,9 +114,9 @@ export function startServer(env: NodeJS.ProcessEnv = process.env, opts: { vertex
     // Tokens are HMACs under a secret that lives only as long as this process; the boot id
     // marks the games lock as this process's, so after a restart a stale lock is settled at once.
     games: {
-      client: apiKey ? new Anthropic({ apiKey, timeout: MOVE_TIMEOUT_MS, maxRetries: 0 }) : null,
+      client,
       // Jev seats (TypeSafe); without a key the budget leaves `jev` out of its models and start refuses it.
-      jev: typesafeKey ? createJevClient({ apiKey: typesafeKey }) : null,
+      jev,
       // Gemini seats (Vertex AI, ADC); without working ADC the budget leaves them out and start refuses them.
       vertex,
       store: fileStore(gamesDir),
@@ -109,7 +134,7 @@ export function startServer(env: NodeJS.ProcessEnv = process.env, opts: { vertex
       // Never log either key itself, nor anything from Google's credentials.
       console.log(
         `coach server on http://${LISTEN_HOST}:${port} — Claude ${apiKey ? 'enabled' : 'disabled (no ANTHROPIC_API_KEY)'}, ` +
-          `Jev ${typesafeKey ? 'enabled' : 'disabled (no TYPESAFE_API_KEY)'}, ` +
+          `Jev ${jev ? 'enabled' : 'disabled (no TYPESAFE_API_KEY)'}, ` +
           `Gemini ${adc ? `enabled (Vertex AI, project ${gcpProject}, ${VERTEX_LOCATION})` : 'disabled (no Google Application Default Credentials)'}`,
       )
       resolve(server)

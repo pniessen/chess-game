@@ -22,7 +22,9 @@
     "curate-puzzles": "tsx scripts/curate-puzzles.ts",
     "start": "npm run build && npm run server",
     "start:claude": "VITE_CLAUDE_GAMES=on npm run build && npm run server",
-    "postinstall": "node scripts/copy-engine.mjs"
+    "postinstall": "node scripts/copy-engine.mjs",
+    "trial": "node --env-file-if-exists=.env --import tsx scripts/trial/run.ts",
+    "trial:report": "node --env-file-if-exists=.env --import tsx scripts/trial/report.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.127.0",
