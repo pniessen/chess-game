@@ -40,7 +40,7 @@ export interface RunDeps {
   onGameEnd?(spec: GameSpec): void
 }
 
-export type RunState = 'done' | 'blocked-by-cap' | 'cap-reached' | 'stopped'
+export type RunState = 'done' | 'blocked-by-cap' | 'cap-reached' | 'out-of-credit' | 'stopped'
 
 export interface RunSummary {
   state: RunState
@@ -110,6 +110,8 @@ export async function runTrial(opts: RunOptions, deps: RunDeps): Promise<RunSumm
   let played = 0
   let errors = 0
   let capReached = false
+  /** The model whose provider ran out of credit, if one did: no new game starts. */
+  let outOfCredit: string | null = null
   let blocked: GameSpec | undefined
   let state: RunState | 'running' = 'running'
 
@@ -191,8 +193,9 @@ export async function runTrial(opts: RunOptions, deps: RunDeps): Promise<RunSumm
             void writeProgress()
           },
         })
-        if (record.termination === 'cap') {
-          capReached = true
+        if (record.termination === 'cap' || record.termination === 'out-of-credit') {
+          if (record.termination === 'cap') capReached = true
+          else outOfCredit ??= record.unavailable?.reason ?? 'a model'
           await writeJsonAtomic(join(opts.dir, 'aborted', `${spec.id}-${Date.now()}.json`), record)
           pending.unshift(spec)
         } else {
@@ -219,7 +222,7 @@ export async function runTrial(opts: RunOptions, deps: RunDeps): Promise<RunSumm
 
   await writeProgress()
   for (;;) {
-    const stopping = capReached || deps.stop?.stopped
+    const stopping = capReached || outOfCredit !== null || deps.stop?.stopped
     if (!stopping && running.size < opts.concurrency) {
       // Games that crashed this run are not retried until the next run.
       const a = nextAction(pending, busy, running.size, (s) => canStart(spent, holds(), reserve(s), opts.capUsd))
@@ -233,7 +236,7 @@ export async function runTrial(opts: RunOptions, deps: RunDeps): Promise<RunSumm
     await Promise.race([...running.values()].map((r) => r.done))
   }
 
-  state = capReached ? 'cap-reached' : deps.stop?.stopped ? 'stopped' : blocked ? 'blocked-by-cap' : 'done'
+  state = outOfCredit ? 'out-of-credit' : capReached ? 'cap-reached' : deps.stop?.stopped ? 'stopped' : blocked ? 'blocked-by-cap' : 'done'
   // Crashed games are still pending; say so rather than "done".
   spent = (await readLedger(opts.dir)).spentUsd
   await writeProgress()
@@ -252,5 +255,6 @@ export async function runTrial(opts: RunOptions, deps: RunDeps): Promise<RunSumm
       `${errors ? `, ${errors} crashed` : ''}; spent $${spent.toFixed(4)} of $${opts.capUsd}` +
       `${blocked ? `; next game ${blocked.id} needs $${reserve(blocked).toFixed(2)} held and does not fit` : ''}`,
   )
+  if (outOfCredit) deps.log(`stopped because ${outOfCredit}: add credit with that provider, then re-run the same command to resume`)
   return summary
 }

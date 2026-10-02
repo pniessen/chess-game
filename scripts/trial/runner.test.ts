@@ -221,4 +221,21 @@ describe('runTrial', () => {
     expect(s.spentUsd).toBeLessThanOrEqual(0.16)
     await rm(root, { recursive: true })
   })
+
+
+  test('out of credit: the game is set aside, no new game starts, and a re-run resumes', async () => {
+    const { root, opts } = await setup({ models: ['haiku', 'jev'], gamesPerPair: 3, concurrency: 1 })
+    const f = fakeMoves()
+    let n = 0
+    const broke = async (req: MoveRequest) => {
+      if (req.model === 'haiku' && ++n === 3) return { outcome: { ok: false as const, kind: 'upstream' as const, costUsd: 0, ms: 1, tokens: { inputTokens: 0, outputTokens: 0 }, outOfCredit: true as const } }
+      return f.move(req)
+    }
+    const s = await runTrial(opts, { ...deps(f), move: broke })
+    expect(s).toMatchObject({ state: 'out-of-credit', played: 0, pending: 3 })
+    expect((await readdir(join(opts.dir, 'aborted'))).length).toBe(1)
+    const s2 = await runTrial(opts, deps(fakeMoves()))
+    expect(s2).toMatchObject({ state: 'done', played: 3 })
+    await rm(root, { recursive: true })
+  })
 })

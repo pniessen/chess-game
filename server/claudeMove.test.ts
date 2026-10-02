@@ -151,6 +151,19 @@ describe('requestMove', () => {
     expect(await requestMove({ client: c2 }, { model: 'sonnet', history: [] })).toMatchObject({ detail: 'connection error' })
   })
 
+  test('an account out of credit is flagged, so a caller can stop rather than fall back', async () => {
+    const broke = new Anthropic.BadRequestError(400, { type: 'error', error: { type: 'invalid_request_error', message: 'Your credit balance is too low to access the Anthropic API.' } }, 'Your credit balance is too low to access the Anthropic API.', new Headers())
+    const { client } = fakeClient(async () => {
+      throw broke
+    })
+    const r = await requestMove({ client }, { model: 'sonnet', history: [] })
+    expect(r).toMatchObject({ ok: false, kind: 'upstream', outOfCredit: true, detail: 'HTTP 400 invalid_request_error' })
+    const { client: c2 } = fakeClient(async () => {
+      throw new Anthropic.BadRequestError(400, { type: 'error', error: { type: 'invalid_request_error', message: 'max_tokens too big' } }, 'max_tokens too big', new Headers())
+    })
+    expect(await requestMove({ client: c2 }, { model: 'sonnet', history: [] })).not.toHaveProperty('outOfCredit')
+  })
+
   test('illegal or finished history is bad-request and never calls the client', async () => {
     const cases = [
       { history: ['e5'] },

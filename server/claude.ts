@@ -53,6 +53,11 @@ export function errorDetail(err: unknown): string {
   return err instanceof Error ? err.name : 'unknown error'
 }
 
+/** Anthropic refuses every request with a 400 once the account's credit balance is spent. */
+export function isOutOfCredit(err: unknown): boolean {
+  return err instanceof Anthropic.BadRequestError && /credit balance/i.test(err.message)
+}
+
 const failure = (kind: FailureKind): ClaudeResult => ({ ok: false, kind, message: MESSAGES[kind] })
 
 export function createClaude(opts: { apiKey?: string; baseURL?: string; client?: MessagesClient }): Claude {

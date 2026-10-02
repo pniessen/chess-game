@@ -21,6 +21,8 @@ export type Termination =
   | 'model-unavailable'
   /** The trial's hard spending cap stopped the game before its next call. Not saved as finished. */
   | 'cap'
+  /** A provider said the account has no credit left. Not saved as finished; the trial stops. */
+  | 'out-of-credit'
 
 export type GameResult = '1-0' | '0-1' | '1/2-1/2' | '*'
 

@@ -180,6 +180,10 @@ export async function playGame(spec: GameSpec, deps: PlayDeps): Promise<GameReco
       if (o.kind === 'timeout') t.timeouts++
       if (o.kind === 'illegal-reply') t.illegalReplies++
       if (o.kind === 'rate-limited') t.rateLimited++
+      if (o.outOfCredit) {
+        stop('out-of-credit', side, `${model}: out of credit`)
+        break
+      }
       if (FATAL.has(o.kind)) {
         stop('model-unavailable', side, o.kind)
         break
