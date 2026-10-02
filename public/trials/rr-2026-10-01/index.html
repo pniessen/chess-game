@@ -1,0 +1,352 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="Seven AI models in an 84-game chess round-robin: standings, head-to-head, Stockfish move accuracy, speed, cost and style notes.">
+<title>Model Chess Round-Robin</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a tournament bulletin. One narrow reading column; tables and the crosstable may run wider inside their own scrollers. */
+:root {
+  --bg: #f5f7f5;
+  --surface: #ffffff;
+  --fg: #141a17;
+  --muted: #5b6660;
+  --rule: #d9e0db;
+  --accent: #2f6b4f;
+  --heat: #6fb790;
+  --bar: #2f6b4f;
+  --v-google: #2a78d6;
+  --v-anthropic: #eb6834;
+  --v-typesafe: #1baf7a;
+  --win: #2f7d4f;
+  --loss: #b8433f;
+  --draw: #7c8580;
+  --font-display: "Bricolage Grotesque", "Avenir Next", "Segoe UI", system-ui, sans-serif;
+  --font-body: "IBM Plex Sans", "Helvetica Neue", Arial, system-ui, sans-serif;
+  --font-data: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111513; --surface: #181e1b; --fg: #e9eeea; --muted: #a2ada6; --rule: #2c3530;
+    --accent: #7cc9a0; --heat: #2f8a5f; --bar: #7cc9a0;
+    --v-google: #3987e5; --v-anthropic: #d95926; --v-typesafe: #199e70;
+    --win: #6cc28f; --loss: #e57a74; --draw: #96a19a;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #111513; --surface: #181e1b; --fg: #e9eeea; --muted: #a2ada6; --rule: #2c3530;
+  --accent: #7cc9a0; --heat: #2f8a5f; --bar: #7cc9a0;
+  --v-google: #3987e5; --v-anthropic: #d95926; --v-typesafe: #199e70;
+  --win: #6cc28f; --loss: #e57a74; --draw: #96a19a;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html { color-scheme: light; } body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 15px; line-height: 1.55; }
+.page { max-width: 980px; margin: 0 auto; padding-inline: 20px; padding-block: 40px 72px; display: grid; gap: 56px; }
+h1, h2, h3 { font-family: var(--font-display); text-wrap: balance; margin: 0; letter-spacing: -0.01em; }
+h1 { font-size: clamp(2rem, 5vw, 3.1rem); font-weight: 800; line-height: 1.05; }
+h2 { font-size: 1.55rem; font-weight: 800; }
+h3 { font-size: 1.2rem; font-weight: 600; }
+p { margin: 0; max-width: 66ch; }
+.eyebrow { font-family: var(--font-data); font-size: 0.75rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.num, td.n, .mono { font-family: var(--font-data); font-variant-numeric: tabular-nums; }
+section { display: grid; gap: 16px; min-width: 0; }
+.lede { font-size: 1.08rem; color: var(--fg); }
+.muted { color: var(--muted); }
+header { display: grid; gap: 14px; }
+.facts { display: flex; flex-wrap: wrap; gap: 8px 28px; font-family: var(--font-data); font-size: 0.85rem; color: var(--muted); padding-top: 4px; border-top: 1px solid var(--rule); padding-block: 12px 0; }
+.facts b { color: var(--fg); font-weight: 500; }
+.scroller { overflow-x: auto; min-width: 0; }
+table { border-collapse: collapse; width: 100%; font-size: 0.9rem; }
+th { text-align: left; font-weight: 500; font-size: 0.72rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); padding: 8px 10px; border-bottom: 1px solid var(--rule); white-space: nowrap; }
+td { padding: 9px 10px; border-bottom: 1px solid var(--rule); vertical-align: middle; white-space: nowrap; }
+th.n, td.n { text-align: right; }
+.model { display: inline-flex; align-items: center; gap: 8px; font-weight: 500; }
+.dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+.v-google { background: var(--v-google); } .v-anthropic { background: var(--v-anthropic); } .v-typesafe { background: var(--v-typesafe); }
+.scorebar { display: flex; align-items: center; gap: 10px; min-width: 150px; }
+.scorebar .track { flex: 1; height: 6px; background: var(--rule); border-radius: 3px; overflow: hidden; }
+.scorebar .fill { height: 100%; background: var(--bar); border-radius: 3px; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 0.85rem; color: var(--muted); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.chart { position: relative; background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; padding: 8px; }
+.chart svg { display: block; width: 100%; height: auto; }
+.chart text { fill: var(--muted); font-family: var(--font-data); font-size: 11px; }
+.chart .lbl { fill: var(--fg); font-family: var(--font-body); font-size: 12px; font-weight: 500; }
+.chart .grid { stroke: var(--rule); stroke-width: 1; }
+.tip { position: absolute; pointer-events: none; background: var(--fg); color: var(--bg); font-size: 0.8rem; line-height: 1.4; padding: 8px 10px; border-radius: 4px; max-width: 240px; }
+.tip b { font-weight: 600; }
+.cross td, .cross th { text-align: center; padding: 8px 6px; }
+.cross th.row { text-align: left; color: var(--fg); text-transform: none; letter-spacing: 0; font-size: 0.88rem; font-weight: 500; }
+.cross td.cell { font-family: var(--font-data); min-width: 64px; border: 2px solid var(--bg); }
+.cross td.self { color: var(--muted); }
+.cross td.tot { font-family: var(--font-data); font-weight: 500; }
+.cards { display: grid; gap: 20px; }
+.card { background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; padding: 20px; display: grid; gap: 16px; min-width: 0; }
+.card-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 16px; }
+.card-head h3 { display: inline-flex; align-items: center; gap: 10px; }
+.record { font-family: var(--font-data); font-size: 0.9rem; color: var(--muted); }
+.record b { color: var(--fg); font-weight: 500; }
+.kv { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px 20px; }
+.kv div { display: grid; gap: 2px; }
+.kv dt { font-size: 0.72rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.kv dd { margin: 0; font-family: var(--font-data); font-variant-numeric: tabular-nums; font-size: 0.95rem; }
+.two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: 24px; }
+@media (max-width: 720px) { .two { grid-template-columns: minmax(0, 1fr); } }
+.phase { display: grid; gap: 8px; }
+.phase .row { display: grid; grid-template-columns: 88px minmax(0, 1fr) 44px; align-items: center; gap: 10px; font-size: 0.84rem; }
+.phase .track { height: 8px; background: var(--rule); border-radius: 4px; overflow: hidden; }
+.phase .fill { height: 100%; background: var(--bar); border-radius: 4px; }
+.phase .v { font-family: var(--font-data); text-align: right; font-variant-numeric: tabular-nums; }
+.sub { font-size: 0.72rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin-bottom: 2px; }
+ul.notes { margin: 0; padding-left: 18px; display: grid; gap: 8px; max-width: 70ch; }
+ul.notes li { padding-left: 2px; }
+.openings { font-size: 0.85rem; color: var(--muted); display: grid; gap: 4px; }
+.openings b { color: var(--fg); font-weight: 500; }
+.method { display: grid; gap: 10px; }
+.method dl { display: grid; gap: 10px; margin: 0; }
+.method dt { font-weight: 600; }
+.method dd { margin: 0; color: var(--muted); max-width: 70ch; }
+details summary { cursor: pointer; font-family: var(--font-display); font-weight: 600; font-size: 1.2rem; }
+details summary:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.filter { display: flex; align-items: center; gap: 10px; font-size: 0.88rem; color: var(--muted); padding-block: 12px; }
+select { font: inherit; color: var(--fg); background: var(--surface); border: 1px solid var(--rule); border-radius: 4px; padding: 4px 8px; }
+.res-w { color: var(--win); } .res-l { color: var(--loss); } .res-d { color: var(--draw); }
+footer { font-size: 0.82rem; color: var(--muted); border-top: 1px solid var(--rule); padding-top: 16px; }
+@media (prefers-reduced-motion: no-preference) { .scorebar .fill, .phase .fill { transition: width .4s ease; } }
+</style>
+</head>
+<body>
+
+<div class="page">
+  <header>
+    <div class="eyebrow">Round-robin · 1–2 October 2026 · trial rr-2026-10-01</div>
+    <h1>Model Chess Round-Robin</h1>
+    <p class="lede">Seven AI models played every other model four times, two games with each colour. Stockfish, the open-source chess engine, judged every move afterwards. This page sets out who won, how well each model played, and what it cost in time and money.</p>
+    <div class="facts" id="facts"></div>
+  </header>
+
+  <section aria-labelledby="h-standings">
+    <h2 id="h-standings">Standings</h2>
+    <p class="muted">Score is wins plus half the draws. <b>Avg loss</b> is how much worse a model's moves were than Stockfish's best, in centipawns: 100 is about one pawn, lower is better. Gemini 3.1 Pro and Opus 5.5 tied on points; Gemini ranks first on accuracy, while Opus won their own four games 2.5–1.5.</p>
+    <div class="legend" id="legend"></div>
+    <div class="scroller"><table id="standings"></table></div>
+  </section>
+
+  <section aria-labelledby="h-value">
+    <h2 id="h-value">Strength against cost</h2>
+    <p class="muted">Each dot is a model: its score against its average cost per game, on a log scale. Up and to the left is better value. Hover a dot for its numbers.</p>
+    <div class="chart" id="scatter"><div class="tip" id="tip" hidden></div></div>
+  </section>
+
+  <section aria-labelledby="h-cross">
+    <h2 id="h-cross">Head to head</h2>
+    <p class="muted">Points the row model scored against the column model, out of four games. Darker means the row model did better.</p>
+    <div class="scroller"><table class="cross" id="cross"></table></div>
+  </section>
+
+  <section aria-labelledby="h-models">
+    <h2 id="h-models">Model by model</h2>
+    <p class="muted">The style notes were written by Claude Opus 5.5 from the statistics only, with an instruction to claim nothing the numbers do not support. The bars show average loss per move in each phase of the game, on one scale for every model.</p>
+    <div class="cards" id="cards"></div>
+  </section>
+
+  <section aria-labelledby="h-method">
+    <h2 id="h-method">How it was run</h2>
+    <div class="method"><dl id="method"></dl></div>
+  </section>
+
+  <section>
+    <details>
+      <summary>All 84 games</summary>
+      <div class="filter"><label for="game-filter">Show games for</label><select id="game-filter"></select></div>
+      <div class="scroller"><table id="games"></table></div>
+    </details>
+  </section>
+
+  <footer id="footer"></footer>
+</div>
+
+<script>
+const DATA = {"generated":"2026-10-02T00:52:50.288Z","ledger":{"spentUsd":32.37432427800005,"moveUsd":32.10552827800006,"commentaryUsd":0.26879600000000003},"cap":40,"maxPlies":160,"depth":14,"leaderboard":["gemini-pro","opus","gemini-flash","fable","sonnet","jev","haiku"],"perModel":[{"key":"fable","label":"Claude Fable 5.1","record":{"games":24,"wins":8,"draws":5,"losses":11,"points":10.5,"scorePct":43.75},"white":{"games":12,"wins":4,"draws":3,"losses":5,"points":5.5},"black":{"games":12,"wins":4,"draws":2,"losses":6,"points":5},"speed":{"meanSec":6.558690588235294,"medianSec":5.2995,"p90Sec":9.698,"maxSec":42.31,"moves":850},"time":{"ownSecPerGame":232.28695833333333,"gameMinutes":6.249884722222222},"cost":{"totalUsd":12.60426,"perGameUsd":0.5251775,"perMoveUsd":0.014828541176470589,"inputTokens":762991,"outputTokens":99487,"calls":850},"rel":{"fallbacks":0,"timeouts":0,"rateLimited":0,"illegalReplies":0,"unavailableGames":0},"avgPlies":70.875,"endings":{"matesGiven":8,"matesReceived":11,"adjudicatedWins":0,"adjudicatedLosses":0,"adjudicatedDraws":0,"repetitions":1,"stalemates":0,"fiftyMove":0,"insufficientMaterial":4,"unfinished":0},"openings":{"white":[{"name":"B90 Sicilian Defense: Najdorf Variation, English Attack","count":2},{"name":"C99 Ruy Lopez: Closed, Chigorin Defense, Panov System","count":2},{"name":"B01 Scandinavian Defense: Mieses-Kotroc Variation","count":1}],"black":[{"name":"C89 Ruy Lopez: Marshall Attack, Modern Main Line","count":3},{"name":"C44 Irish Gambit","count":2},{"name":"C44 King's Pawn Game: Schulze-M\u00fcller Gambit","count":2}]},"acc":{"avgCpl":108.53176470588235,"blunders":98,"mistakes":66,"inacc":74,"best":0.5047058823529412,"moves":850,"phase":{"opening":{"cpl":28.875,"moves":240,"bl":7},"middlegame":{"cpl":146.31313131313132,"moves":297,"bl":46},"endgame":{"cpl":133.76038338658148,"moves":313,"bl":45}},"ahead":144.96763754045307,"level":37.19186046511628,"behind":175.9543147208122},"style":{"captureRate":0.26941176470588235,"checkRate":0.13294117647058823,"pawnMoveShare":0.25058823529411767,"castledRate":0.7916666666666666,"avgCastleMoveNumber":8},"bullets":["Its play was sharp in the opening (the first phase of the game, where players develop their pieces) but fell off badly afterward: average centipawn loss (CPL, how much worse each move was than the engine's best, with 100 roughly a pawn) was 28.88 over 240 opening moves, versus 146.31 in the middlegame and 133.76 in the endgame.","Its accuracy depended heavily on the score: in level positions it averaged 37.19 CPL with 14 blunders (moves losing 3+ pawns' worth) in 344 moves, but it rose to 144.97 CPL when ahead (47 blunders in 309 moves) and 175.95 when behind (37 blunders in 197 moves).","Overall it was slightly more accurate than the field, at 108.53 CPL versus the field's 113.67, and it matched the engine's top choice on 50.5% of moves, yet it scored only 43.75% (8 wins, 5 draws, 11 losses in 24 games).","Its games were usually decided by checkmate, which accounted for 8 of its wins and all 11 of its losses; its move mix closely matched the field, with captures on 26.9% of moves (field 26.5%) and checks on 13.3% (field 13.5%).","It took more time and secured its king more often than average: a median of 5.3 seconds per move against the field's 2.68, and it castled (a move tucking the king behind pawns) in 79.2% of games versus 66.1%, typically around move 8."]},{"key":"opus","label":"Claude Opus 5.5","record":{"games":24,"wins":19,"draws":2,"losses":3,"points":20,"scorePct":83.33333333333333},"white":{"games":12,"wins":9,"draws":2,"losses":1,"points":10},"black":{"games":12,"wins":10,"draws":0,"losses":2,"points":10},"speed":{"meanSec":5.402626285714286,"medianSec":3.987,"p90Sec":9.616,"maxSec":54.854,"moves":875},"time":{"ownSecPerGame":196.97075,"gameMinutes":6.060715277777778},"cost":{"totalUsd":6.397907999999998,"perGameUsd":0.2665794999999999,"perMoveUsd":0.007311894857142855,"inputTokens":821437,"outputTokens":155608,"calls":876},"rel":{"fallbacks":0,"timeouts":1,"rateLimited":0,"illegalReplies":0,"unavailableGames":0},"avgPlies":72.58333333333333,"endings":{"matesGiven":19,"matesReceived":3,"adjudicatedWins":0,"adjudicatedLosses":0,"adjudicatedDraws":0,"repetitions":1,"stalemates":1,"fiftyMove":0,"insufficientMaterial":0,"unfinished":0},"openings":{"white":[{"name":"C99 Ruy Lopez: Closed, Chigorin Defense, Panov System","count":3},{"name":"B01 Scandinavian Defense: Mieses-Kotroc Variation","count":2},{"name":"B81 Sicilian Defense: Scheveningen Variation, Keres Attack","count":2}],"black":[{"name":"C89 Ruy Lopez: Marshall Attack, Modern Main Line","count":4},{"name":"C44 Irish Gambit","count":2},{"name":"C44 King's Pawn Game: Schulze-M\u00fcller Gambit","count":2}]},"acc":{"avgCpl":72.72685714285714,"blunders":61,"mistakes":62,"inacc":59,"best":0.5737142857142857,"moves":875,"phase":{"opening":{"cpl":24.408333333333335,"moves":240,"bl":4},"middlegame":{"cpl":107.12056737588652,"moves":282,"bl":31},"endgame":{"cpl":78.10198300283287,"moves":353,"bl":26}},"ahead":109.25070422535211,"level":24.281167108753316,"behind":109.77622377622377},"style":{"captureRate":0.2765714285714286,"checkRate":0.12342857142857143,"pawnMoveShare":0.26285714285714284,"castledRate":0.7083333333333334,"avgCastleMoveNumber":7.823529411764706},"bullets":["It scored 83.3% over 24 games (19 wins, 2 draws, 3 losses), with almost identical results as White (10 points from 12 games) and as Black (10 points from 12 games); every one of its 19 wins came by checkmate.","Its average centipawn loss (how far its moves fell short of the engine Stockfish's best, where 100 is about a pawn) was 72.7 against a field average of 113.7, and it chose the engine's top move 57.4% of the time.","It was most precise early on, losing only 24.4 per move in the opening (the first phase, where standard moves are played), but this rose to 107.1 in the middlegame and 78.1 in the endgame; 31 of its 61 blunders (moves costing 300 or more) came in the middlegame.","It played much more accurately in even positions (24.3 average loss) than when ahead (109.3) or behind (109.8, from a smaller sample of 143 moves); its costliest single move, 26...Bxg3, gave away about 1000 in a game it lost.","Its move choices were close to the field's: captures 27.7% of moves (field 26.5%), checks 12.3% (field 13.5%), pawn moves 26.3% (field 24%), and it castled (a move that tucks the king to safety) in 70.8% of games versus 66.1%, while taking a median 3.99 seconds per move against the field's 2.68."]},{"key":"sonnet","label":"Claude Sonnet 5.5","record":{"games":24,"wins":5,"draws":7,"losses":12,"points":8.5,"scorePct":35.416666666666664},"white":{"games":12,"wins":1,"draws":4,"losses":7,"points":3},"black":{"games":12,"wins":4,"draws":3,"losses":5,"points":5.5},"speed":{"meanSec":3.1781763341067286,"medianSec":2.815,"p90Sec":4.167,"maxSec":51.565,"moves":862},"time":{"ownSecPerGame":114.1495,"gameMinutes":4.0409347222222225},"cost":{"totalUsd":2.3513759999999997,"perGameUsd":0.09797399999999999,"perMoveUsd":0.0027278143851508117,"inputTokens":722753,"outputTokens":90587,"calls":864},"rel":{"fallbacks":0,"timeouts":0,"rateLimited":0,"illegalReplies":2,"unavailableGames":0},"avgPlies":72.04166666666667,"endings":{"matesGiven":4,"matesReceived":12,"adjudicatedWins":1,"adjudicatedLosses":0,"adjudicatedDraws":0,"repetitions":2,"stalemates":0,"fiftyMove":0,"insufficientMaterial":5,"unfinished":0},"openings":{"white":[{"name":"C91 Ruy Lopez: Closed, Bogoljubow Variation","count":4},{"name":"C89 Ruy Lopez: Marshall Attack, Modern Variation","count":2},{"name":"B01 Scandinavian Defense: Mieses-Kotroc Variation","count":1}],"black":[{"name":"B31 Sicilian Defense: Nyezhmetdinov-Rossolimo Attack, Fianchetto Variation","count":3},{"name":"B60 Sicilian Defense: Richter-Rauzer Variation","count":3},{"name":"B21 Sicilian Defense: Smith-Morra Gambit","count":2}]},"acc":{"avgCpl":126.11252900232019,"blunders":123,"mistakes":69,"inacc":76,"best":0.4396751740139211,"moves":862,"phase":{"opening":{"cpl":38.45,"moves":240,"bl":9},"middlegame":{"cpl":241.38418079096044,"moves":177,"bl":52},"endgame":{"cpl":127.54157303370786,"moves":445,"bl":62}},"ahead":172.59298245614036,"level":62.181481481481484,"behind":139.1889250814332},"style":{"captureRate":0.27494199535962877,"checkRate":0.1148491879350348,"pawnMoveShare":0.25406032482598606,"castledRate":0.75,"avgCastleMoveNumber":7.444444444444445},"bullets":["It finished with 5 wins, 7 draws and 12 losses in 24 games (35.4% of points), and did better as Black (5.5 points from 12 games) than as White (3 points from 12 games, with only 1 win).","Its average centipawn loss (how much worse its moves were than the top engine's choice, where 100 is about one pawn) was 126, a bit worse than the field average of 114. It picked the engine's preferred move 44% of the time.","It played the opening well (average loss 38 over 240 moves) but faltered in the middlegame (average loss 241 over 177 moves, with 52 blunders, meaning moves that lose at least about three pawns' worth). Across all 862 moves it made 123 blunders.","It struggled to hold onto advantages: when ahead, its average loss rose to 173 with 55 blunders over 285 moves, compared with 62 when the position was level. It was checkmated 12 times and delivered checkmate only 4 times.","Stylistically it was close to the field. It castled (tucked its king away) in 75% of games versus 66% for the field, gave checks on 11.5% of moves versus 13.5%, and used a median of 2.82 seconds per move versus the field's 2.68."]},{"key":"haiku","label":"Claude Haiku 4.5","record":{"games":24,"wins":0,"draws":7,"losses":17,"points":3.5,"scorePct":14.583333333333334},"white":{"games":12,"wins":0,"draws":3,"losses":9,"points":1.5},"black":{"games":12,"wins":0,"draws":4,"losses":8,"points":2},"speed":{"meanSec":1.9870357967667438,"medianSec":2.027,"p90Sec":2.426,"maxSec":9.638,"moves":866},"time":{"ownSecPerGame":71.698875,"gameMinutes":3.431660416666667},"cost":{"totalUsd":0.7620950000000002,"perGameUsd":0.03175395833333334,"perMoveUsd":0.0008800173210161665,"inputTokens":597685,"outputTokens":32882,"calls":866},"rel":{"fallbacks":0,"timeouts":0,"rateLimited":0,"illegalReplies":0,"unavailableGames":0},"avgPlies":72.41666666666667,"endings":{"matesGiven":0,"matesReceived":16,"adjudicatedWins":0,"adjudicatedLosses":1,"adjudicatedDraws":0,"repetitions":3,"stalemates":0,"fiftyMove":0,"insufficientMaterial":4,"unfinished":0},"openings":{"white":[{"name":"C44 King's Pawn Game: Schulze-M\u00fcller Gambit","count":5},{"name":"B01 Scandinavian Defense: Mieses-Kotroc Variation","count":1},{"name":"B33 Sicilian Defense: Open","count":1}],"black":[{"name":"B45 Sicilian Defense: Four Knights Variation","count":3},{"name":"B21 Sicilian Defense: Smith-Morra Gambit","count":2},{"name":"B81 Sicilian Defense: Scheveningen Variation, Keres Attack","count":2}]},"acc":{"avgCpl":188.04849884526558,"blunders":188,"mistakes":112,"inacc":101,"best":0.3464203233256351,"moves":866,"phase":{"opening":{"cpl":105.41176470588235,"moves":238,"bl":36},"middlegame":{"cpl":296.45,"moves":200,"bl":67},"endgame":{"cpl":183.34579439252337,"moves":428,"bl":85}},"ahead":267.9155844155844,"level":63.494680851063826,"behind":209.26335877862596},"style":{"captureRate":0.24364896073903003,"checkRate":0.13625866050808313,"pawnMoveShare":0.25635103926096997,"castledRate":0.375,"avgCastleMoveNumber":12.222222222222221},"bullets":["Results: across 24 games it won none, drew 7 and lost 17, for a 14.58% score; 16 of the losses came by checkmate, and it never checkmated an opponent.","Accuracy: its moves lost on average 188 centipawns (100 centipawns is roughly one pawn's worth of value) compared with the Stockfish engine's best choice, well above the field average of 113.67. It made 188 blunders (moves losing 3 or more pawns' worth) in 866 moves.","Phase of the game: it was steadiest in the opening, losing an average of 105 centipawns per move, and worst in the middlegame, losing 296 per move over 200 moves. When the position was roughly level it played much better, losing 63 per move, than when it was ahead (268) or behind (209).","King safety: it castled in only 37.5% of games, against a field average of 66.1%. Castling is the move that tucks the king behind its pawns, and when it did castle it was on average by move 12.","Style and speed: its share of captures (24.4% vs 26.5%), checks (13.6% vs 13.5%) and pawn moves (25.6% vs 24%) was close to the field averages. It moved a bit faster than average, with a median of 2.03 seconds per move against 2.68, and had no timeouts or illegal moves."]},{"key":"jev","label":"Jev","record":{"games":24,"wins":0,"draws":8,"losses":16,"points":4,"scorePct":16.666666666666668},"white":{"games":12,"wins":0,"draws":3,"losses":9,"points":1.5},"black":{"games":12,"wins":0,"draws":5,"losses":7,"points":2.5},"speed":{"meanSec":0.2394171195652174,"medianSec":0.2055,"p90Sec":0.305,"maxSec":14.633,"moves":736},"time":{"ownSecPerGame":7.342125,"gameMinutes":1.8827569444444445},"cost":{"totalUsd":0.035717514,"perGameUsd":0.00148822975,"perMoveUsd":4.8529230978260866e-05,"inputTokens":850417,"outputTokens":108226,"calls":736},"rel":{"fallbacks":0,"timeouts":0,"rateLimited":0,"illegalReplies":0,"unavailableGames":0},"avgPlies":61.666666666666664,"endings":{"matesGiven":0,"matesReceived":16,"adjudicatedWins":0,"adjudicatedLosses":0,"adjudicatedDraws":0,"repetitions":4,"stalemates":0,"fiftyMove":0,"insufficientMaterial":4,"unfinished":0},"openings":{"white":[{"name":"B21 Sicilian Defense: Smith-Morra Gambit","count":6},{"name":"C44 Irish Gambit","count":6}],"black":[{"name":"B01 Scandinavian Defense: Mieses-Kotroc Variation","count":6},{"name":"C42 Petrov's Defense: Damiano Variation","count":5},{"name":"C42 Petrov's Defense: Three Knights Game","count":1}]},"acc":{"avgCpl":201.07065217391303,"blunders":184,"mistakes":88,"inacc":79,"best":0.27853260869565216,"moves":736,"phase":{"opening":{"cpl":267.0420168067227,"moves":238,"bl":91},"middlegame":{"cpl":336.11538461538464,"moves":78,"bl":31},"endgame":{"cpl":138.60714285714286,"moves":420,"bl":62}},"ahead":187.9805194805195,"level":151.2483660130719,"behind":223.53846153846155},"style":{"captureRate":0.2391304347826087,"checkRate":0.10869565217391304,"pawnMoveShare":0.15489130434782608,"castledRate":0.375,"avgCastleMoveNumber":7.555555555555555},"bullets":["Jev scored 16.7% over 24 games with no wins, 8 draws and 16 losses, and all 16 losses were by checkmate. Its average centipawn loss (CPL, how much worse its moves were than the chess engine Stockfish's best move; 100 is about a pawn) was 201, versus a field average of about 114.","It made frequent large errors: 184 blunders (moves losing 3 or more pawns' worth) in 736 moves, and it chose the engine's top move only 27.9% of the time. The excerpts show pieces given away early, such as its queen on move 4 as White and on move 3 as Black.","Its play was weakest in the opening, at 267 CPL with 91 blunders in 238 moves, and the middlegame was worse at 336 CPL, though that rests on a small sample of 78 moves. The endgame was its best phase at 139 CPL over 420 moves.","Its moves were far quicker than the field: a median of 0.21 seconds per move against a field average of 2.68. It had no timeouts or illegal replies.","It moved pawns less often than the field (15.5% of moves vs 24%) and castled (tucked its king to safety beside a rook) in only 37.5% of games vs 66.1%, always on the kingside. It also gave fewer checks than average (10.9% vs 13.5%)."]},{"key":"gemini-pro","label":"Gemini 3.1 Pro","record":{"games":24,"wins":19,"draws":2,"losses":3,"points":20,"scorePct":83.33333333333333},"white":{"games":12,"wins":11,"draws":0,"losses":1,"points":11},"black":{"games":12,"wins":8,"draws":2,"losses":2,"points":9},"speed":{"meanSec":7.334634482758621,"medianSec":4.3105,"p90Sec":14.6,"maxSec":83.919,"moves":870},"time":{"ownSecPerGame":265.8805,"gameMinutes":7.21936875},"cost":{"totalUsd":3.195067999999999,"perGameUsd":0.1331278333333333,"perMoveUsd":0.0036724919540229873,"inputTokens":481150,"outputTokens":186064,"calls":975},"rel":{"fallbacks":0,"timeouts":13,"rateLimited":92,"illegalReplies":0,"unavailableGames":0},"avgPlies":72.16666666666667,"endings":{"matesGiven":18,"matesReceived":2,"adjudicatedWins":1,"adjudicatedLosses":1,"adjudicatedDraws":0,"repetitions":0,"stalemates":1,"fiftyMove":0,"insufficientMaterial":1,"unfinished":0},"openings":{"white":[{"name":"C97 Ruy Lopez: Closed, Chigorin Defense","count":3},{"name":"C42 Petrov's Defense: Damiano Variation","count":2},{"name":"C89 Ruy Lopez: Marshall Attack, Modern Main Line","count":2}],"black":[{"name":"B90 Sicilian Defense: Najdorf Variation, English Attack","count":4},{"name":"B21 Sicilian Defense: Smith-Morra Gambit","count":2},{"name":"C99 Ruy Lopez: Closed, Chigorin Defense, Panov System","count":2}]},"acc":{"avgCpl":55.49195402298851,"blunders":38,"mistakes":64,"inacc":72,"best":0.5367816091954023,"moves":870,"phase":{"opening":{"cpl":10.352941176470589,"moves":238,"bl":1},"middlegame":{"cpl":61.464516129032255,"moves":310,"bl":13},"endgame":{"cpl":83.1055900621118,"moves":322,"bl":24}},"ahead":87.24668435013263,"level":17.38736263736264,"behind":70.20930232558139},"style":{"captureRate":0.27586206896551724,"checkRate":0.16896551724137931,"pawnMoveShare":0.2471264367816092,"castledRate":0.7916666666666666,"avgCastleMoveNumber":9.631578947368421},"bullets":["It scored 83.3% (19 wins, 2 draws, 3 losses in 24 games), and it finished games itself: 18 of its 19 wins came by checkmate, with only 1 win decided by adjudication (the game being called early).","Its moves lost an average of 55 centipawns each against Stockfish's top choice (100 centipawns is about a pawn), roughly half the field average of 114, and it matched Stockfish's best move 53.7% of the time.","Its accuracy fell sharply as games went on: average loss was 10 centipawns per move in the opening, 61 in the middlegame and 83 in the endgame (the final phase with few pieces left), where 24 of its 38 blunders (moves losing 300+ centipawns) occurred.","It was much sloppier when ahead (87 centipawns lost per move, 30 blunders in 377 moves) than in level positions (17 per move, 3 blunders); for example, a check with a new queen in one game threw away 1000 centipawns, and it allowed 1 stalemate (a no-legal-move draw).","It played somewhat more forcing chess than average, giving check on 16.9% of moves versus 13.5% for the field, castled (tucked its king to safety) in 79.2% of games versus 66.1%, and took a median 4.31 seconds per move versus the field's 2.68."]},{"key":"gemini-flash","label":"Gemini 3.6 Flash","record":{"games":24,"wins":16,"draws":3,"losses":5,"points":17.5,"scorePct":72.91666666666667},"white":{"games":12,"wins":7,"draws":2,"losses":3,"points":8},"black":{"games":12,"wins":9,"draws":1,"losses":2,"points":9.5},"speed":{"meanSec":1.542953781512605,"medianSec":1.1145,"p90Sec":1.47,"maxSec":46.806,"moves":952},"time":{"ownSecPerGame":61.203833333333336,"gameMinutes":4.484893055555555},"cost":{"totalUsd":1.0411185,"perGameUsd":0.0433799375,"perMoveUsd":0.0010936118697478993,"inputTokens":528084,"outputTokens":33199,"calls":955},"rel":{"fallbacks":0,"timeouts":1,"rateLimited":2,"illegalReplies":0,"unavailableGames":0},"avgPlies":79.16666666666667,"endings":{"matesGiven":15,"matesReceived":4,"adjudicatedWins":1,"adjudicatedLosses":1,"adjudicatedDraws":0,"repetitions":1,"stalemates":0,"fiftyMove":0,"insufficientMaterial":2,"unfinished":0},"openings":{"white":[{"name":"C89 Ruy Lopez: Marshall Attack, Modern Main Line","count":3},{"name":"B31 Sicilian Defense: Nyezhmetdinov-Rossolimo Attack, Fianchetto Variation","count":2},{"name":"C99 Ruy Lopez: Closed, Chigorin Defense, Panov System","count":2}],"black":[{"name":"C99 Ruy Lopez: Closed, Chigorin Defense, Panov System","count":3},{"name":"B90 Sicilian Defense: Najdorf Variation, English Attack","count":2},{"name":"C44 Irish Gambit","count":2}]},"acc":{"avgCpl":62.57668067226891,"blunders":56,"mistakes":63,"inacc":63,"best":0.5441176470588235,"moves":952,"phase":{"opening":{"cpl":10.322175732217573,"moves":239,"bl":1},"middlegame":{"cpl":79.74592833876221,"moves":307,"bl":24},"endgame":{"cpl":80.35467980295566,"moves":406,"bl":31}},"ahead":104.43052391799544,"level":12.243037974683544,"behind":75.35593220338983},"style":{"captureRate":0.27415966386554624,"checkRate":0.15756302521008403,"pawnMoveShare":0.25735294117647056,"castledRate":0.8333333333333334,"avgCastleMoveNumber":8.55},"bullets":["It scored well, taking 72.9% of the points over 24 games (16 wins, 3 draws, 5 losses), and did slightly better as Black (9.5 of 12 points) than as White (8 of 12). Most wins came by checkmate: it delivered mate 15 times and was mated 4 times.","Its moves were more accurate on average than the field's, with an average centipawn loss (how much worse each move was than the engine's top choice, where 100 is about a pawn) of 62.6 against the field's 113.7. It found the engine's best move 54.4% of the time.","Its play was very precise in the opening (average loss 10.3, just 1 blunder in 239 moves) but much looser in the middlegame (79.8) and endgame (80.4). Of its 56 blunders (moves losing 3 pawns' worth or more), 55 came after the opening.","Its biggest weakness was converting advantages: when ahead it averaged a loss of 104.4 and made 46 of its 56 blunders, compared with 12.2 when the position was level. Its costliest move in the excerpts gave up a whole rook with check (25. Rxf8+), throwing away about 10 pawns' worth, where Stockfish preferred Qxd5.","It moved fast and kept its king safe, with a median of 1.11 seconds per move against the field's 2.68. It castled (tucked its king behind its pawns) in 83.3% of games against the field's 66.1%, and gave check a bit more often (15.8% of moves against 13.5%)."]}],"cross":{"fable":{"gemini-flash":[0,4],"gemini-pro":[0.5,4],"haiku":[3,4],"jev":[4,4],"opus":[1,4],"sonnet":[2,4]},"opus":{"fable":[3,4],"gemini-flash":[2.5,4],"gemini-pro":[2.5,4],"haiku":[4,4],"jev":[4,4],"sonnet":[4,4]},"sonnet":{"fable":[2,4],"opus":[0,4],"gemini-flash":[0.5,4],"gemini-pro":[0,4],"haiku":[3.5,4],"jev":[2.5,4]},"haiku":{"fable":[1,4],"gemini-flash":[0,4],"gemini-pro":[0,4],"jev":[2,4],"opus":[0,4],"sonnet":[0.5,4]},"jev":{"fable":[0,4],"haiku":[2,4],"gemini-flash":[0.5,4],"gemini-pro":[0,4],"opus":[0,4],"sonnet":[1.5,4]},"gemini-pro":{"fable":[3.5,4],"gemini-flash":[3,4],"haiku":[4,4],"jev":[4,4],"opus":[1.5,4],"sonnet":[4,4]},"gemini-flash":{"fable":[4,4],"gemini-pro":[1,4],"haiku":[4,4],"jev":[3.5,4],"opus":[1.5,4],"sonnet":[3.5,4]}},"terminations":{"checkmate":64,"insufficient-material":10,"threefold-repetition":6,"adjudicated":3,"stalemate":1},"field":{"avgCpl":113.67260023290633,"medianSec":2.684,"captureRate":0.2648180452842345,"checkRate":0.13467168442395058,"pawnMoveShare":0.24046106064916037,"castledRate":0.6607142857142857},"games":[{"id":"fable-gemini-flash-1","w":"gemini-flash","b":"fable","res":"1-0","end":"checkmate","plies":53,"wall":237185,"wt":30152,"bt":205317,"cost":0.62343},{"id":"fable-gemini-flash-2","w":"fable","b":"gemini-flash","res":"0-1","end":"checkmate","plies":82,"wall":351323,"wt":279043,"bt":68427,"cost":0.67692},{"id":"fable-gemini-flash-3","w":"gemini-flash","b":"fable","res":"1-0","end":"checkmate","plies":95,"wall":358333,"wt":67554,"bt":285889,"cost":0.66265},{"id":"fable-gemini-flash-4","w":"fable","b":"gemini-flash","res":"0-1","end":"checkmate","plies":44,"wall":167889,"wt":131604,"bt":35094,"cost":0.25982},{"id":"fable-gemini-pro-1","w":"fable","b":"gemini-pro","res":"0-1","end":"checkmate","plies":54,"wall":241786,"wt":147135,"bt":92967,"cost":0.37511},{"id":"fable-gemini-pro-2","w":"gemini-pro","b":"fable","res":"1-0","end":"checkmate","plies":45,"wall":532322,"wt":196587,"bt":144126,"cost":0.35896},{"id":"fable-gemini-pro-3","w":"fable","b":"gemini-pro","res":"1/2-1/2","end":"insufficient-material","plies":143,"wall":1241350,"wt":453778,"bt":568819,"cost":1.24197},{"id":"fable-gemini-pro-4","w":"gemini-pro","b":"fable","res":"1-0","end":"checkmate","plies":61,"wall":508097,"wt":325236,"bt":165248,"cost":0.52857},{"id":"fable-haiku-1","w":"fable","b":"haiku","res":"1-0","end":"checkmate","plies":65,"wall":281937,"wt":220328,"bt":59061,"cost":0.46417},{"id":"fable-haiku-2","w":"haiku","b":"fable","res":"0-1","end":"checkmate","plies":64,"wall":353636,"wt":61340,"bt":289267,"cost":0.73749},{"id":"fable-haiku-3","w":"fable","b":"haiku","res":"1/2-1/2","end":"insufficient-material","plies":112,"wall":463379,"wt":347336,"bt":108316,"cost":0.79155},{"id":"fable-haiku-4","w":"haiku","b":"fable","res":"1/2-1/2","end":"insufficient-material","plies":101,"wall":427310,"wt":108688,"bt":311163,"cost":0.71495},{"id":"fable-jev-1","w":"jev","b":"fable","res":"0-1","end":"checkmate","plies":24,"wall":69397,"wt":3096,"bt":65871,"cost":0.11388},{"id":"fable-jev-2","w":"fable","b":"jev","res":"1-0","end":"checkmate","plies":21,"wall":61263,"wt":58392,"bt":2485,"cost":0.11355},{"id":"fable-jev-3","w":"jev","b":"fable","res":"0-1","end":"checkmate","plies":24,"wall":77383,"wt":3457,"bt":73542,"cost":0.11388},{"id":"fable-jev-4","w":"fable","b":"jev","res":"1-0","end":"checkmate","plies":143,"wall":514063,"wt":483156,"bt":20088,"cost":1.17796},{"id":"fable-opus-1","w":"fable","b":"opus","res":"1-0","end":"checkmate","plies":107,"wall":620372,"wt":365713,"bt":242435,"cost":1.18102},{"id":"fable-opus-2","w":"opus","b":"fable","res":"1-0","end":"checkmate","plies":59,"wall":333210,"wt":172597,"bt":158516,"cost":0.57521},{"id":"fable-opus-3","w":"fable","b":"opus","res":"0-1","end":"checkmate","plies":44,"wall":216289,"wt":133864,"bt":81227,"cost":0.42639},{"id":"fable-opus-4","w":"opus","b":"fable","res":"1-0","end":"checkmate","plies":119,"wall":810574,"wt":314010,"bt":486708,"cost":1.65451},{"id":"fable-sonnet-1","w":"sonnet","b":"fable","res":"1/2-1/2","end":"threefold-repetition","plies":48,"wall":190935,"wt":63878,"bt":125718,"cost":0.31839},{"id":"fable-sonnet-2","w":"fable","b":"sonnet","res":"0-1","end":"checkmate","plies":48,"wall":292107,"wt":216782,"bt":73649,"cost":0.69487},{"id":"fable-sonnet-3","w":"sonnet","b":"fable","res":"0-1","end":"checkmate","plies":54,"wall":243012,"wt":69927,"bt":171515,"cost":0.43369},{"id":"fable-sonnet-4","w":"fable","b":"sonnet","res":"1/2-1/2","end":"insufficient-material","plies":91,"wall":406682,"wt":254876,"bt":147353,"cost":0.62279},{"id":"gemini-pro-gemini-flash-1","w":"gemini-flash","b":"gemini-pro","res":"0-1","end":"checkmate","plies":62,"wall":612722,"wt":39471,"bt":555445,"cost":0.20734},{"id":"gemini-pro-gemini-flash-2","w":"gemini-pro","b":"gemini-flash","res":"1-0","end":"checkmate","plies":121,"wall":498936,"wt":407514,"bt":82007,"cost":0.30296},{"id":"gemini-pro-gemini-flash-3","w":"gemini-flash","b":"gemini-pro","res":"1-0","end":"adjudicated","plies":160,"wall":624976,"wt":161746,"bt":422898,"cost":0.37191},{"id":"gemini-pro-gemini-flash-4","w":"gemini-pro","b":"gemini-flash","res":"1-0","end":"adjudicated","plies":160,"wall":730844,"wt":528977,"bt":105724,"cost":0.39348},{"id":"haiku-gemini-flash-1","w":"gemini-flash","b":"haiku","res":"1-0","end":"checkmate","plies":45,"wall":71640,"wt":30514,"bt":39710,"cost":0.04001},{"id":"haiku-gemini-flash-2","w":"haiku","b":"gemini-flash","res":"0-1","end":"checkmate","plies":52,"wall":86187,"wt":53162,"bt":31621,"cost":0.04422},{"id":"haiku-gemini-flash-3","w":"gemini-flash","b":"haiku","res":"1-0","end":"checkmate","plies":53,"wall":97271,"wt":47375,"bt":48006,"cost":0.0477},{"id":"haiku-gemini-flash-4","w":"haiku","b":"gemini-flash","res":"0-1","end":"checkmate","plies":42,"wall":77963,"wt":35411,"bt":41353,"cost":0.03658},{"id":"haiku-gemini-pro-1","w":"haiku","b":"gemini-pro","res":"0-1","end":"checkmate","plies":16,"wall":68179,"wt":13261,"bt":54710,"cost":0.02506},{"id":"haiku-gemini-pro-2","w":"gemini-pro","b":"haiku","res":"1-0","end":"checkmate","plies":41,"wall":222017,"wt":175562,"bt":40314,"cost":0.10919},{"id":"haiku-gemini-pro-3","w":"haiku","b":"gemini-pro","res":"0-1","end":"checkmate","plies":40,"wall":124249,"wt":41460,"bt":81713,"cost":0.08024},{"id":"haiku-gemini-pro-4","w":"gemini-pro","b":"haiku","res":"1-0","end":"checkmate","plies":49,"wall":239986,"wt":165562,"bt":42616,"cost":0.10649},{"id":"haiku-jev-1","w":"haiku","b":"jev","res":"1/2-1/2","end":"threefold-repetition","plies":109,"wall":122526,"wt":107037,"bt":10238,"cost":0.05208},{"id":"haiku-jev-2","w":"jev","b":"haiku","res":"1/2-1/2","end":"threefold-repetition","plies":112,"wall":126324,"wt":10614,"bt":109004,"cost":0.05384},{"id":"haiku-jev-3","w":"haiku","b":"jev","res":"1/2-1/2","end":"insufficient-material","plies":142,"wall":164415,"wt":141251,"bt":14306,"cost":0.07406},{"id":"haiku-jev-4","w":"jev","b":"haiku","res":"1/2-1/2","end":"threefold-repetition","plies":108,"wall":137483,"wt":11563,"bt":115417,"cost":0.05287},{"id":"jev-gemini-flash-1","w":"gemini-flash","b":"jev","res":"1/2-1/2","end":"insufficient-material","plies":154,"wall":135876,"wt":91278,"bt":30579,"cost":0.09425},{"id":"jev-gemini-flash-2","w":"jev","b":"gemini-flash","res":"0-1","end":"checkmate","plies":20,"wall":14656,"wt":1966,"bt":12410,"cost":0.0086},{"id":"jev-gemini-flash-3","w":"gemini-flash","b":"jev","res":"1-0","end":"checkmate","plies":17,"wall":12632,"wt":10762,"bt":1641,"cost":0.00797},{"id":"jev-gemini-flash-4","w":"jev","b":"gemini-flash","res":"0-1","end":"checkmate","plies":26,"wall":23422,"wt":3214,"bt":19672,"cost":0.01273},{"id":"jev-gemini-pro-1","w":"jev","b":"gemini-pro","res":"0-1","end":"checkmate","plies":26,"wall":59684,"wt":2851,"bt":56335,"cost":0.04158},{"id":"jev-gemini-pro-2","w":"gemini-pro","b":"jev","res":"1-0","end":"checkmate","plies":49,"wall":108294,"wt":101701,"bt":5125,"cost":0.07404},{"id":"jev-gemini-pro-3","w":"jev","b":"gemini-pro","res":"0-1","end":"checkmate","plies":24,"wall":46754,"wt":2482,"bt":43846,"cost":0.03387},{"id":"jev-gemini-pro-4","w":"gemini-pro","b":"jev","res":"1-0","end":"checkmate","plies":25,"wall":121167,"wt":107290,"bt":3422,"cost":0.03968},{"id":"opus-gemini-flash-1","w":"opus","b":"gemini-flash","res":"0-1","end":"checkmate","plies":80,"wall":353922,"wt":238097,"bt":111921,"cost":0.34705},{"id":"opus-gemini-flash-2","w":"gemini-flash","b":"opus","res":"0-1","end":"checkmate","plies":90,"wall":291121,"wt":52496,"bt":233417,"cost":0.36929},{"id":"opus-gemini-flash-3","w":"opus","b":"gemini-flash","res":"1/2-1/2","end":"threefold-repetition","plies":119,"wall":441356,"wt":347878,"bt":85705,"cost":0.5751},{"id":"opus-gemini-flash-4","w":"gemini-flash","b":"opus","res":"0-1","end":"checkmate","plies":148,"wall":582525,"wt":94075,"bt":476106,"cost":0.69831},{"id":"opus-gemini-pro-1","w":"opus","b":"gemini-pro","res":"1-0","end":"checkmate","plies":95,"wall":502123,"wt":304545,"bt":190548,"cost":0.58755},{"id":"opus-gemini-pro-2","w":"gemini-pro","b":"opus","res":"1-0","end":"checkmate","plies":81,"wall":565809,"wt":312149,"bt":224982,"cost":0.45259},{"id":"opus-gemini-pro-3","w":"opus","b":"gemini-pro","res":"1/2-1/2","end":"stalemate","plies":148,"wall":1400342,"wt":398676,"bt":887801,"cost":0.85085},{"id":"opus-gemini-pro-4","w":"gemini-pro","b":"opus","res":"0-1","end":"checkmate","plies":112,"wall":641970,"wt":337948,"bt":284739,"cost":0.55873},{"id":"opus-haiku-1","w":"opus","b":"haiku","res":"1-0","end":"checkmate","plies":43,"wall":175346,"wt":132389,"bt":41579,"cost":0.19985},{"id":"opus-haiku-2","w":"haiku","b":"opus","res":"0-1","end":"checkmate","plies":62,"wall":190498,"wt":61560,"bt":126944,"cost":0.17917},{"id":"opus-haiku-3","w":"opus","b":"haiku","res":"1-0","end":"checkmate","plies":41,"wall":167065,"wt":129934,"bt":35960,"cost":0.17738},{"id":"opus-haiku-4","w":"haiku","b":"opus","res":"0-1","end":"checkmate","plies":64,"wall":305399,"wt":62415,"bt":240151,"cost":0.43289},{"id":"opus-jev-1","w":"opus","b":"jev","res":"1-0","end":"checkmate","plies":23,"wall":51899,"wt":49205,"bt":2416,"cost":0.08049},{"id":"opus-jev-2","w":"jev","b":"opus","res":"0-1","end":"checkmate","plies":20,"wall":40777,"wt":2217,"bt":38257,"cost":0.04109},{"id":"opus-jev-3","w":"opus","b":"jev","res":"1-0","end":"checkmate","plies":23,"wall":70236,"wt":67172,"bt":2650,"cost":0.08461},{"id":"opus-jev-4","w":"jev","b":"opus","res":"0-1","end":"checkmate","plies":20,"wall":31919,"wt":1800,"bt":29837,"cost":0.03787},{"id":"opus-sonnet-1","w":"opus","b":"sonnet","res":"1-0","end":"checkmate","plies":97,"wall":438888,"wt":290051,"bt":143135,"cost":0.49959},{"id":"opus-sonnet-2","w":"sonnet","b":"opus","res":"0-1","end":"checkmate","plies":28,"wall":74818,"wt":28417,"bt":45924,"cost":0.08718},{"id":"opus-sonnet-3","w":"opus","b":"sonnet","res":"1-0","end":"checkmate","plies":91,"wall":358994,"wt":219566,"bt":135057,"cost":0.36595},{"id":"opus-sonnet-4","w":"sonnet","b":"opus","res":"0-1","end":"checkmate","plies":28,"wall":61978,"wt":22360,"bt":39159,"cost":0.08724},{"id":"sonnet-gemini-flash-1","w":"gemini-flash","b":"sonnet","res":"1/2-1/2","end":"insufficient-material","plies":98,"wall":183766,"wt":53005,"bt":124260,"cost":0.1583},{"id":"sonnet-gemini-flash-2","w":"sonnet","b":"gemini-flash","res":"0-1","end":"checkmate","plies":34,"wall":100544,"wt":55721,"bt":44137,"cost":0.05117},{"id":"sonnet-gemini-flash-3","w":"gemini-flash","b":"sonnet","res":"1-0","end":"checkmate","plies":71,"wall":161530,"wt":47543,"bt":110934,"cost":0.11768},{"id":"sonnet-gemini-flash-4","w":"sonnet","b":"gemini-flash","res":"0-1","end":"checkmate","plies":74,"wall":241627,"wt":113779,"bt":104850,"cost":0.14958},{"id":"sonnet-gemini-pro-1","w":"gemini-pro","b":"sonnet","res":"1-0","end":"checkmate","plies":41,"wall":300617,"wt":211647,"bt":62726,"cost":0.1362},{"id":"sonnet-gemini-pro-2","w":"sonnet","b":"gemini-pro","res":"0-1","end":"checkmate","plies":54,"wall":250472,"wt":129047,"bt":119449,"cost":0.22964},{"id":"sonnet-gemini-pro-3","w":"gemini-pro","b":"sonnet","res":"1-0","end":"checkmate","plies":79,"wall":268705,"wt":149549,"bt":115243,"cost":0.2137},{"id":"sonnet-gemini-pro-4","w":"sonnet","b":"gemini-pro","res":"0-1","end":"checkmate","plies":46,"wall":484490,"wt":76189,"bt":286879,"cost":0.13683},{"id":"sonnet-haiku-1","w":"haiku","b":"sonnet","res":"0-1","end":"adjudicated","plies":160,"wall":448019,"wt":178019,"bt":250411,"cost":0.31005},{"id":"sonnet-haiku-2","w":"sonnet","b":"haiku","res":"1-0","end":"checkmate","plies":91,"wall":271393,"wt":172694,"bt":94702,"cost":0.23959},{"id":"sonnet-haiku-3","w":"haiku","b":"sonnet","res":"0-1","end":"checkmate","plies":32,"wall":95597,"wt":29757,"bt":65067,"cost":0.06181},{"id":"sonnet-haiku-4","w":"sonnet","b":"haiku","res":"1/2-1/2","end":"insufficient-material","plies":94,"wall":223772,"wt":122485,"bt":92727,"cost":0.14988},{"id":"sonnet-jev-1","w":"jev","b":"sonnet","res":"1/2-1/2","end":"threefold-repetition","plies":106,"wall":201484,"wt":11425,"bt":183824,"cost":0.15714},{"id":"sonnet-jev-2","w":"sonnet","b":"jev","res":"1/2-1/2","end":"insufficient-material","plies":140,"wall":287285,"wt":260215,"bt":15853,"cost":0.22839},{"id":"sonnet-jev-3","w":"jev","b":"sonnet","res":"0-1","end":"checkmate","plies":26,"wall":34575,"wt":2578,"bt":31377,"cost":0.02848},{"id":"sonnet-jev-4","w":"sonnet","b":"jev","res":"1/2-1/2","end":"insufficient-material","plies":98,"wall":197656,"wt":181840,"bt":10145,"cost":0.13381}]};
+const VENDOR = { fable: 'anthropic', opus: 'anthropic', sonnet: 'anthropic', haiku: 'anthropic', jev: 'typesafe', 'gemini-pro': 'google', 'gemini-flash': 'google' };
+const VENDOR_NAME = { anthropic: 'Anthropic', google: 'Google', typesafe: 'TypeSafe' };
+const by = Object.fromEntries(DATA.perModel.map((m) => [m.key, m]));
+const short = (k) => by[k].label.replace(/^Claude /, '');
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+const usd = (n) => (n >= 1 ? `$${n.toFixed(2)}` : n >= 0.01 ? `$${n.toFixed(3)}` : `$${n.toFixed(4)}`);
+const pts = (p) => (Number.isInteger(p) ? String(p) : p.toFixed(1));
+const clock = (ms) => `${Math.floor(ms / 60000)}:${String(Math.floor((ms % 60000) / 1000)).padStart(2, '0')}`;
+const pct = (x) => `${Math.round(100 * x)}%`;
+const dot = (k) => `<span class="dot v-${VENDOR[k]}" aria-hidden="true"></span>`;
+const modelCell = (k, full = true) => `<span class="model">${dot(k)}${esc(full ? by[k].label : short(k))}</span>`;
+const order = DATA.leaderboard;
+
+// Facts strip
+{
+  const g = DATA.games;
+  const wall = g.reduce((t, x) => t + x.wall, 0);
+  const mates = DATA.terminations.checkmate || 0;
+  document.getElementById('facts').innerHTML = [
+    `<span><b>${g.length}</b> games</span>`,
+    `<span><b>${mates}</b> ended in checkmate</span>`,
+    `<span><b>${(wall / 3600000).toFixed(1)} h</b> of play, 3 boards at once</span>`,
+    `<span><b>${usd(DATA.ledger.spentUsd)}</b> spent of a $${DATA.cap} cap</span>`,
+  ].join('');
+}
+
+// Legend
+document.getElementById('legend').innerHTML = Object.entries(VENDOR_NAME)
+  .map(([v, n]) => `<span><span class="dot v-${v}"></span>${n}</span>`)
+  .join('');
+
+// Standings
+{
+  const head = `<thead><tr><th class="n">#</th><th>Model</th><th>Score</th><th class="n">W-D-L</th><th class="n">Avg loss</th><th class="n">Blunders a game</th><th class="n">Avg s a move</th><th class="n">Game length</th><th class="n">Cost a game</th></tr></thead>`;
+  const rows = order.map((k, i) => {
+    const m = by[k], r = m.record;
+    return `<tr><td class="n">${i + 1}</td><td>${modelCell(k)}</td>
+      <td><div class="scorebar"><span class="num">${Math.round(r.scorePct)}%</span><div class="track"><div class="fill" style="width:${r.scorePct}%"></div></div></div></td>
+      <td class="n">${r.wins}-${r.draws}-${r.losses}</td>
+      <td class="n">${Math.round(m.acc.avgCpl)}</td>
+      <td class="n">${(m.acc.blunders / r.games).toFixed(1)}</td>
+      <td class="n">${m.speed.meanSec.toFixed(1)}</td>
+      <td class="n">${m.time.gameMinutes.toFixed(1)} min</td>
+      <td class="n">${usd(m.cost.perGameUsd)}</td></tr>`;
+  });
+  document.getElementById('standings').innerHTML = head + `<tbody>${rows.join('')}</tbody>`;
+}
+
+// Scatter: score vs cost a game (log x)
+{
+  const W = 900, H = 440, L = 56, R = 28, T = 22, B = 50;
+  const xs = DATA.perModel.map((m) => m.cost.perGameUsd);
+  const lo = 0.001, hi = 1;
+  const x = (v) => L + ((Math.log10(v) - Math.log10(lo)) / (Math.log10(hi) - Math.log10(lo))) * (W - L - R);
+  const y = (s) => T + (1 - s / 100) * (H - T - B);
+  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Score against cost per game for each model">`;
+  for (const s of [0, 25, 50, 75, 100]) svg += `<line class="grid" x1="${L}" x2="${W - R}" y1="${y(s)}" y2="${y(s)}"/><text x="${L - 10}" y="${y(s) + 4}" text-anchor="end">${s}%</text>`;
+  for (const c of [0.001, 0.01, 0.1, 1]) svg += `<line class="grid" x1="${x(c)}" x2="${x(c)}" y1="${T}" y2="${H - B}"/><text x="${x(c)}" y="${H - B + 18}" text-anchor="middle">${c >= 1 ? '$1' : '$' + c}</text>`;
+  svg += `<text x="${(L + W - R) / 2}" y="${H - 8}" text-anchor="middle">cost a game (log scale)</text>`;
+  svg += `<text x="14" y="${(T + H - B) / 2}" text-anchor="middle" transform="rotate(-90 14 ${(T + H - B) / 2})">score</text>`;
+  // Label offsets keep the two 83% models apart.
+  const nudge = { opus: [12, 16], 'gemini-pro': [12, -10], 'gemini-flash': [12, 4], fable: [-12, -10, 'end'], sonnet: [12, 4], haiku: [12, 12], jev: [12, 4] };
+  for (const m of DATA.perModel) {
+    const cx = x(m.cost.perGameUsd), cy = y(m.record.scorePct);
+    const [dx, dy, anchor] = nudge[m.key] || [12, 4];
+    svg += `<g class="pt" data-k="${m.key}" tabindex="0"><circle cx="${cx}" cy="${cy}" r="18" fill="transparent"/>
+      <circle cx="${cx}" cy="${cy}" r="7" fill="var(--v-${VENDOR[m.key]})" stroke="var(--surface)" stroke-width="2"/>
+      <text class="lbl" x="${cx + dx}" y="${cy + dy}" text-anchor="${anchor || 'start'}">${esc(short(m.key))}</text></g>`;
+  }
+  svg += `</svg>`;
+  const host = document.getElementById('scatter');
+  host.insertAdjacentHTML('afterbegin', svg);
+  const tip = document.getElementById('tip');
+  const show = (g, ev) => {
+    const m = by[g.dataset.k];
+    tip.innerHTML = `<b>${esc(m.label)}</b><br>Score ${Math.round(m.record.scorePct)}% (${m.record.wins}-${m.record.draws}-${m.record.losses})<br>${usd(m.cost.perGameUsd)} a game · ${m.speed.meanSec.toFixed(1)} s a move<br>Avg loss ${Math.round(m.acc.avgCpl)}`;
+    tip.hidden = false;
+    const hb = host.getBoundingClientRect();
+    const gb = g.getBoundingClientRect();
+    let left = gb.left - hb.left + gb.width / 2 + 14, top = gb.top - hb.top - 10;
+    if (left + 240 > hb.width) left = gb.left - hb.left - 250;
+    tip.style.left = `${Math.max(4, left)}px`;
+    tip.style.top = `${Math.max(4, top)}px`;
+  };
+  host.querySelectorAll('.pt').forEach((g) => {
+    g.addEventListener('mouseenter', (e) => show(g, e));
+    g.addEventListener('focus', (e) => show(g, e));
+    g.addEventListener('mouseleave', () => (tip.hidden = true));
+    g.addEventListener('blur', () => (tip.hidden = true));
+  });
+}
+
+// Crosstable
+{
+  const head = `<thead><tr><th></th>${order.map((k) => `<th title="${esc(by[k].label)}">${esc(short(k))}</th>`).join('')}<th>Total</th></tr></thead>`;
+  const rows = order.map((a) => {
+    const cells = order.map((b) => {
+      if (a === b) return `<td class="cell self">—</td>`;
+      const [p, g] = DATA.cross[a][b];
+      const f = g ? p / g : 0;
+      return `<td class="cell" style="background:color-mix(in oklab, var(--heat) ${Math.round(f * 100)}%, var(--surface))" title="${esc(by[a].label)} vs ${esc(by[b].label)}: ${pts(p)} of ${g}">${pts(p)}</td>`;
+    });
+    const r = by[a].record;
+    return `<tr><th class="row" scope="row">${modelCell(a, false)}</th>${cells.join('')}<td class="tot">${pts(r.points)}/${r.games}</td></tr>`;
+  });
+  document.getElementById('cross').innerHTML = head + `<tbody>${rows.join('')}</tbody>`;
+}
+
+// Model cards
+{
+  const maxCpl = 350;
+  const phaseRow = (name, v) => `<div class="row"><span>${name}</span><div class="track"><div class="fill" style="width:${Math.min(100, (100 * v) / maxCpl)}%"></div></div><span class="v">${Math.round(v)}</span></div>`;
+  const opening = (list) => list.map((o) => `${esc(o.name)} (${o.count})`).join('; ');
+  document.getElementById('cards').innerHTML = order.map((k, i) => {
+    const m = by[k], r = m.record, a = m.acc;
+    return `<article class="card" id="m-${k}">
+      <div class="card-head"><h3>${dot(k)}${esc(m.label)}</h3>
+        <span class="record">#${i + 1} · <b>${Math.round(r.scorePct)}%</b> · ${r.wins}-${r.draws}-${r.losses} · White ${pts(m.white.points)}/${m.white.games} · Black ${pts(m.black.points)}/${m.black.games}</span></div>
+      <dl class="kv">
+        <div><dt>Seconds a move</dt><dd>${m.speed.meanSec.toFixed(1)} avg · ${m.speed.medianSec.toFixed(1)} median</dd></div>
+        <div><dt>Thinking a game</dt><dd>${(m.time.ownSecPerGame / 60).toFixed(1)} min</dd></div>
+        <div><dt>Game length</dt><dd>${m.time.gameMinutes.toFixed(1)} min · ${Math.round(m.avgPlies)} plies</dd></div>
+        <div><dt>Cost</dt><dd>${usd(m.cost.perGameUsd)} a game · ${usd(m.cost.totalUsd)} total</dd></div>
+        <div><dt>Engine's top move</dt><dd>${pct(a.best)} of moves</dd></div>
+        <div><dt>Blunders</dt><dd>${a.blunders} in ${a.moves} moves</dd></div>
+      </dl>
+      <div class="two">
+        <div class="phase">
+          <div class="sub">Average loss by phase</div>
+          ${phaseRow('Opening', a.phase.opening.cpl)}${phaseRow('Middlegame', a.phase.middlegame.cpl)}${phaseRow('Endgame', a.phase.endgame.cpl)}
+          <div class="sub" style="margin-top:8px">By position</div>
+          ${phaseRow('Level', a.level)}${phaseRow('Ahead', a.ahead)}${a.behind !== null ? phaseRow('Behind', a.behind) : ''}
+        </div>
+        <div><div class="sub">Style notes</div><ul class="notes">${m.bullets.map((b) => `<li>${esc(b)}</li>`).join('')}</ul></div>
+      </div>
+      <div class="openings"><div><b>As White:</b> ${opening(m.openings.white)}</div><div><b>As Black:</b> ${opening(m.openings.black)}</div></div>
+    </article>`;
+  }).join('');
+}
+
+// Method
+{
+  const t = DATA.terminations;
+  const items = [
+    ['Format', `Every pair of models played four games, two with each colour: 21 pairings, 84 games. Up to three games ran at once, and no model played two games at the same time.`],
+    ['What each model saw', `The position, the moves so far and the list of legal moves, and it had to pick one. Claude Fable, Opus and Sonnet and Gemini 3.1 Pro think at their lowest setting first; Gemini 3.6 Flash at its minimum; Claude Haiku 4.5 and TypeSafe Jev answer directly. No model had access to an engine.`],
+    ['Long games', `A game stopped at ${DATA.maxPlies} plies (80 moves each). Stockfish then judged the position: a lead of 3 pawns or a forced mate won, anything less was a draw. Only ${t.adjudicated || 0} games got that far; ${t.checkmate} ended in checkmate, ${t['insufficient-material'] || 0} with too little material to mate, ${t['threefold-repetition'] || 0} by repetition and ${t.stalemate || 0} in stalemate.`],
+    ['Judging moves', `Stockfish at depth ${DATA.depth} scored each move against its own best move. A blunder loses 3 pawns or more in one move. The opening is the first 20 plies; the endgame starts once the pieces other than pawns and kings add up to 26 points or less.`],
+    ['Replayed games', `Twice during the run Claude calls failed for a stretch (the second time, confirmed as the account running out of credit), and Stockfish stood in for the Claude models' moves until games were abandoned. Those games were set aside and replayed. Every game on this page was played by the models themselves.`],
+    ['Cost', `${usd(DATA.ledger.moveUsd)} on moves, including ${usd(5.72)} on the games that were replayed, and ${usd(DATA.ledger.commentaryUsd)} on the style notes. Gemini 3.6 Flash is priced at Google's standard rate; until the end of 2026 Google charges half that, so its real cost was about half what is shown.`],
+  ];
+  document.getElementById('method').innerHTML = items.map(([a, b]) => `<div><dt>${a}</dt><dd>${b}</dd></div>`).join('');
+}
+
+// Games table
+{
+  const sel = document.getElementById('game-filter');
+  sel.innerHTML = `<option value="">All models</option>` + order.map((k) => `<option value="${k}">${esc(by[k].label)}</option>`).join('');
+  const END = { checkmate: 'checkmate', 'insufficient-material': 'insufficient material', 'threefold-repetition': 'repetition', adjudicated: 'judged at the cap', stalemate: 'stalemate', 'fifty-move-rule': 'fifty-move rule' };
+  const render = () => {
+    const f = sel.value;
+    const rows = DATA.games.filter((g) => !f || g.w === f || g.b === f).map((g) => {
+      const cls = g.res === '1/2-1/2' ? 'res-d' : '';
+      return `<tr><td>${modelCell(g.w, false)}</td><td>${modelCell(g.b, false)}</td><td class="n ${cls}">${g.res === '1/2-1/2' ? '½-½' : g.res}</td><td>${END[g.end] || g.end}</td><td class="n">${g.plies}</td><td class="n">${clock(g.wall)}</td><td class="n">${clock(g.wt)}</td><td class="n">${clock(g.bt)}</td><td class="n">${usd(g.cost)}</td></tr>`;
+    });
+    document.getElementById('games').innerHTML = `<thead><tr><th>White</th><th>Black</th><th class="n">Result</th><th>How it ended</th><th class="n">Plies</th><th class="n">Duration</th><th class="n">White time</th><th class="n">Black time</th><th class="n">Cost</th></tr></thead><tbody>${rows.join('')}</tbody>`;
+  };
+  sel.addEventListener('change', render);
+  render();
+}
+
+document.getElementById('footer').textContent = `Report generated ${new Date(DATA.generated).toUTCString()} from the trial's game files. Models: Claude Fable 5.1, Opus 5.5, Sonnet 5.5 and Haiku 4.5 (Anthropic); Gemini 3.1 Pro and 3.6 Flash (Google, via Vertex AI); Jev (TypeSafe).`;
+</script>
+
+</body>
+</html>
