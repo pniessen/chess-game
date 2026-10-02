@@ -168,6 +168,15 @@ describe('playGame: retries, fallbacks and the cap, as in the app', () => {
     expect(lines.find((l) => l.includes('(fallback)'))).toContain('upstream: HTTP 529 overloaded_error')
   })
 
+  test('an account out of credit stops the game at once: no retry, no fallback, not finished', async () => {
+    const { move, reqs } = scripted([{ ...failed('upstream'), outOfCredit: true } as MoveOutcome])
+    const { engine, calls } = fakeEngine()
+    const g = await playGame(spec('opus', 'haiku'), deps({ move }, engine).d)
+    expect(reqs).toHaveLength(1)
+    expect(calls.fallback).toBe(0)
+    expect(g).toMatchObject({ result: '*', termination: 'out-of-credit', unavailable: { side: 'w', reason: 'opus: out of credit' } })
+  })
+
   test('five fallbacks by one side end the game with no winner (model-unavailable)', async () => {
     // White fails every time; Black plays its first legal move.
     let n = 0

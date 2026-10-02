@@ -3,7 +3,7 @@ import { Position } from '../src/game-core/position'
 import { STARTING_FEN } from '../src/game-core/types'
 import { CLAUDE_MODELS, costUsd, timeoutCostUsd, timeoutTokens, type ClaudeModelKey } from '../src/claude/models'
 import { numberedMoves } from '../src/review/moveNumber'
-import { classifyError, errorDetail, type FailureKind, type MessagesClient } from './claude'
+import { classifyError, errorDetail, isOutOfCredit, type FailureKind, type MessagesClient } from './claude'
 
 /**
  * The call's tokens for the usage totals: the response's `usage` (output
@@ -22,6 +22,8 @@ export type MoveOutcome =
       tokens: MoveTokens
       /** What went wrong, for logs only: an HTTP status and error type, never a provider's message text. */
       detail?: string
+      /** The provider says the account has no credit left: every later call will fail too, so stop rather than fall back. */
+      outOfCredit?: true
     }
 
 /** Distributes over the union, unlike Omit. */
@@ -131,7 +133,7 @@ export async function requestMove(
     const est = timeoutTokens(promptChars, MAX_TOKENS)
     const tokens =
       kind === 'timeout' ? { inputTokens: est.input_tokens, outputTokens: est.output_tokens } : { inputTokens: 0, outputTokens: 0 }
-    return done({ ok: false, kind, costUsd: cost, tokens, detail: errorDetail(err) })
+    return done({ ok: false, kind, costUsd: cost, tokens, detail: errorDetail(err), ...(isOutOfCredit(err) ? { outOfCredit: true as const } : {}) })
   }
 
   // A reply that arrived costs money whether or not it is usable.
